@@ -11,6 +11,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 class Settings(BaseSettings):
     app_name: str = "Enterprise AI Agent Platform"
     app_env: Literal["local", "test", "production"] = "local"
+    database_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="EAAP_",
