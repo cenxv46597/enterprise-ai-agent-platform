@@ -1,58 +1,58 @@
-# Architecture — Phase 0.1 decision record
+# 架构设计：阶段 0.1 决策记录
 
-## Problem and first use case
+## 问题与首个使用场景
 
-Enterprise documents are hard to search reliably. The first vertical slice lets a local user create a workspace and knowledge base, upload supported documents, and ask questions answered from retrieved passages with verifiable source metadata.
+企业文档往往难以可靠检索。第一条完整业务链路允许本地用户创建工作空间和知识库、上传受支持的文档，并根据检索到的段落回答问题，同时提供可核查的来源信息。
 
-The initial dataset should be publicly shareable product or technical documentation. The exact document set and labeled questions will be selected before the ingestion work begins.
+首批数据建议采用可公开展示的产品文档或技术文档。具体文档及带有预期答案和来源的问题，将在文档入库开发前确定。
 
-## MVP boundary
+## 最小可用版本的范围
 
-- API operations for workspaces and knowledge bases.
-- Text, Markdown, and text-based PDF ingestion with explicit processing failures.
-- Parsing, deterministic chunking, embeddings, and scoped exact vector retrieval.
-- Evidence-grounded answers with validated document/page or section/chunk references; abstention when evidence is insufficient.
-- A small labeled question set and API/retrieval/end-to-end tests.
+- 提供创建和管理工作空间、知识库的接口。
+- 支持纯文本、Markdown 和可提取文本的 PDF 入库，并明确记录处理失败。
+- 完成解析、确定性切块、向量生成，以及限定范围的精确向量检索。
+- 根据证据回答问题，校验文档、页码或章节、文本块的引用；证据不足时明确弃答。
+- 建立少量带标注的问题，并编写接口、检索和端到端测试。
 
-This is a local single-user prototype. Workspace and knowledge-base filters organize data, but do not provide authorization. Multi-user deployment requires authentication and permission enforcement first.
+这一阶段仅是本地单用户原型。工作空间和知识库的过滤条件用于组织数据，不能代替权限控制。部署给多名用户使用前，必须实现身份认证和权限校验。
 
-## Module responsibilities
+## 模块职责
 
-- `api`: request validation and HTTP response contracts.
-- `core`: settings and cross-cutting application behavior.
-- `db`: persistence and migrations when the schema is agreed.
-- `knowledge`: document ingestion and retrieval use cases.
-- `chat`: evidence assembly and answer use cases.
-- `providers`: thin model and embedding adapters.
+- `api`：验证请求并定义 HTTP 响应格式。
+- `core`：管理配置和应用共用行为。
+- `db`：在数据库结构确定后负责持久化和迁移。
+- `knowledge`：负责文档入库与检索业务。
+- `chat`：负责组装证据并生成回答。
+- `providers`：以轻量适配层连接模型与向量生成服务。
 
-The later agent layer will call permissioned tools through explicit interfaces and reuse the knowledge retrieval service. Evaluation must call the same retrieval, answer, and agent entry points as the application.
+后续的智能体模块将通过明确的接口调用经过授权的工具，并复用知识检索服务。评测应当调用与正式应用相同的检索、问答和智能体入口。
 
-## Data flow
+## 数据流
 
-Ingestion: upload and validate → store original and processing status → parse → chunk with source metadata → embed → store chunks and vectors in PostgreSQL.
+文档入库：上传并校验 → 保存原文和处理状态 → 解析 → 切块并记录来源信息 → 生成向量 → 将文本块与向量存入 PostgreSQL。
 
-Question answering: question plus workspace/knowledge-base scope → retrieve passages → assemble evidence → call the model → validate references against retrieved passages → return answer and references, or abstain.
+问题回答：问题及工作空间、知识库范围 → 检索相关段落 → 组装证据 → 调用模型 → 对照检索结果校验引用 → 返回回答和引用，或在证据不足时弃答。
 
-## Decisions and revisit triggers
+## 已确定的方案与重新评估条件
 
-### Modular monolith
+### 模块化单体应用
 
-**Why:** One FastAPI deployment keeps the first end-to-end path simple while allowing clear module boundaries and tests.
+**采用理由：** 单个 FastAPI 应用便于先完成端到端链路，同时保留清晰的模块边界和可测试性。
 
-**Trade-off:** Heavy ingestion and API traffic initially share a process. Introduce a durable worker when measured ingestion latency or reliability requires it.
+**代价与调整条件：** 初期文档入库与接口请求共用一个进程。如果实测入库耗时或可靠性问题要求任务独立执行，再引入可靠的后台任务处理进程。
 
-### PostgreSQL + pgvector
+### PostgreSQL 与 pgvector
 
-**Why:** Metadata and vectors can live in one database. Start with exact search and scoped filtering to establish a quality baseline.
+**采用理由：** 元数据和向量可以存放在同一个数据库中。先使用限定范围的精确检索，建立质量基线。
 
-**Trade-off:** A dedicated vector service or approximate index may eventually improve scale. Benchmark data size, recall, and latency before changing storage.
+**代价与调整条件：** 数据规模增加后，专用向量服务或近似索引可能更合适。变更存储方案前，应先测量数据量、召回率和延迟。
 
-### Thin provider adapters
+### 轻量模型适配层
 
-**Why:** Keep model-specific request and response details outside the application use cases.
+**采用理由：** 将模型服务特有的请求和响应格式隔离在业务用例之外。
 
-**Trade-off:** Avoid a general multi-provider framework until a second provider is actually integrated and exposes common requirements.
+**代价与调整条件：** 在真正接入第二个模型服务，并发现明确的共性需求之前，不设计通用的多服务框架。
 
-## Deferred design decisions
+## 待确定的设计
 
-The exact database fields, API routes, file-size limits, embedding model, citation response schema, and authentication model will be reviewed with the project owner before implementation. Redis, LangGraph, MCP, hybrid retrieval, reranking, and frontend work are outside the first vertical slice.
+数据库字段、接口路径、文件大小上限、向量模型、引用响应格式和身份认证方案，都需要在实现前与项目负责人共同评审。Redis、LangGraph、MCP、混合检索、重排和前端开发不属于首条完整业务链路的范围。

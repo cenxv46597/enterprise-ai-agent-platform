@@ -1,26 +1,26 @@
-# Roadmap
+# 开发路线图
 
-This roadmap tracks implementation and evidence. A planned capability is not a completed feature.
+这份路线图同时记录计划和完成证据。列入计划的功能，不代表已经实现。
 
-## Phase 0 — foundation
+## 阶段 0：工程基础
 
-1. **0.1 Architecture:** agree on the problem, MVP boundary, module flow, and trade-offs. Complete.
-2. **0.2 Backend foundation:** initialize local Git, document decisions, add settings, a FastAPI health endpoint, and an API test.
-3. **0.3 API and data design:** review Workspace, Knowledge Base, Document, and Chunk relationships and HTTP contracts together. Start from the [draft proposal](data-api-design-proposal.md), then add PostgreSQL/pgvector, Alembic migrations, and a database integration smoke test.
+1. **0.1 架构：** 明确问题、首版边界、模块数据流和技术取舍。已完成。
+2. **0.2 后端基础：** 初始化本地 Git，记录设计决策，加入配置、FastAPI 健康检查和接口测试。已完成。
+3. **0.3 接口与数据设计：** 一起评审工作空间、知识库、文档、文本块的关系及接口契约。先看[设计草案](data-api-design-proposal.md)；确认后再加入 PostgreSQL、pgvector、Alembic 迁移与数据库集成检查。
 
-## Phase 1 — measurable RAG MVP
+## 阶段 1：可测量的 RAG 首版
 
-1. Create workspace and knowledge-base API operations.
-2. Ingest Text/Markdown, then text-based PDF; preserve source metadata and failure states.
-3. Add deterministic chunking, embeddings, and exact pgvector search scoped by workspace/knowledge base.
-4. Build a small labeled question set; record retrieval Recall@5 and latency.
-5. Generate evidence-grounded answers, validate citations, and abstain when unsupported.
-6. Run API, retrieval, and end-to-end tests from a clean database.
+1. 实现创建工作空间和知识库的接口。
+2. 先接入纯文本与 Markdown，再接入可提取文字的 PDF；保留来源信息和失败状态。
+3. 加入确定性的切块、Embedding，以及按工作空间和知识库限定范围的 pgvector 精确检索。
+4. 建立小型标注问题集，记录检索的 Recall@5 与延迟。
+5. 根据证据生成回答、校验引用；缺少证据时明确弃答。
+6. 从空数据库运行迁移，并完成接口、检索和端到端测试。
 
-## Later phases
+## 后续阶段
 
-- Advanced RAG: hybrid retrieval, query rewrite, reranking, citation quality, and comparative evaluation.
-- Agent: bounded loop, state, tool registry, tool selection, and workflow execution before adopting LangGraph.
-- Advanced Agent: memory, MCP, multi-step workflows, and recovery.
-- Production engineering: authentication, RBAC, Redis when needed, tracing, limits, and deployment.
-- Evaluation, frontend, and resume evidence follow the implemented and measured system.
+- **高级 RAG：** 混合检索、查询改写、重排、引用质量和对比评测。
+- **智能体：** 先理解并实现有步数上限的循环、状态、工具注册与选择，再考虑使用 LangGraph。
+- **高级智能体：** 记忆、MCP、多步骤工作流和失败恢复。
+- **生产工程：** 身份认证、角色权限、确有需要时加入 Redis，以及追踪、限流和部署。
+- **评测、前端和简历材料：** 以实际实现和测量结果为依据逐步补充。
