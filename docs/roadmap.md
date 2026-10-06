@@ -6,7 +6,7 @@ This roadmap tracks implementation and evidence. A planned capability is not a c
 
 1. **0.1 Architecture:** agree on the problem, MVP boundary, module flow, and trade-offs. Complete.
 2. **0.2 Backend foundation:** initialize local Git, document decisions, add settings, a FastAPI health endpoint, and an API test.
-3. **0.3 API and data design:** review Workspace, Knowledge Base, Document, and Chunk relationships and HTTP contracts together. Then add PostgreSQL/pgvector, Alembic migrations, and a database integration smoke test.
+3. **0.3 API and data design:** review Workspace, Knowledge Base, Document, and Chunk relationships and HTTP contracts together. Start from the [draft proposal](data-api-design-proposal.md), then add PostgreSQL/pgvector, Alembic migrations, and a database integration smoke test.
 
 ## Phase 1 — measurable RAG MVP
 
