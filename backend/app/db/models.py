@@ -69,7 +69,8 @@ class Document(Base):
         # PostgreSQL 正则同时拒绝大写或长度不足的摘要。
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_lower_hex_64"),
         CheckConstraint(
-            "status IN ('uploaded', 'processing', 'ready', 'failed')", name="status_valid"
+            "status IN ('uploaded', 'processing', 'parsed', 'ready', 'failed')",
+            name="status_valid",
         ),
         Index("ix_documents_knowledge_base_id", "knowledge_base_id"),
     )

@@ -1,6 +1,6 @@
 # 第 0.3 阶段：数据模型与接口设计
 
-**状态：** 关键设计选择已确认。本轮实现 `Workspace`、`KnowledgeBase`、`Document` 元数据表及对应迁移；文档上传处理、`Chunk` 和向量检索按阶段 1 推进。下列接口是契约设计，是否已经实现以代码和测试为准。
+**状态：** 关键设计选择已确认。第 0.3 阶段的三张元数据表与基础资源接口已实现；阶段 1.1 加入文本和 Markdown 上传、解析状态查询。`Chunk`、向量检索和问答仍按后续小步推进。下列接口契约是否已经实现，以代码和测试为准。
 
 ## 范围与学习目标
 
@@ -28,15 +28,15 @@ erDiagram
 
 ## 文档处理状态
 
-`uploaded → processing → ready`，或 `uploaded → processing → failed`。
+阶段 1.1：`uploaded → processing → parsed`，或 `uploaded → processing → failed`。`parsed` 只表示原文件已保存并通过文本解析验证。后续切块和向量索引全部完成后，才能进入 `ready`；这一步的具体重试状态转换将在索引设计时确定。
 
 - 空文件、超过大小限制的文件或不支持的类型，在创建 Document 记录前拒绝。
 - 文件被接受后，即使解析或向量生成失败，也保留状态为 `failed` 的记录和安全的错误代码。接口不返回原文内容或模型服务的原始报错。
-- 所有文本块写入成功后，在同一个数据库事务中把文档标记为 `ready`。检索只读取 `ready` 文档，避免部分处理结果进入回答。
+- 所有文本块和向量写入成功后，在同一个数据库事务中把文档标记为 `ready`。检索只读取 `ready` 文档，避免部分处理结果进入回答。
 - 解析文件和调用向量生成服务期间不长时间占用数据库事务。文件存储与数据库提交无法组成一个原子事务；实现时需要明确清理或恢复路径。
 - 进程崩溃可能使文档一直停在 `processing`。自动检测与重试留到后续工程阶段，第一版要如实记录这一限制。
 
-**第一版已确认：** 限制文件规模，在上传请求中同步完成处理，并返回 `201 Created` 及文档的最终 `status`（`ready` 或 `failed`）。HTTP 状态码表示文档资源已创建；是否可检索要看响应体中的处理状态。以后加入可靠的后台任务后，再评估返回 `202 Accepted` 和状态查询地址。本轮只建立文档元数据表，尚不实现此上传流程。
+**第一版已确认：** 限制文件规模，在上传请求中同步完成本阶段处理，并返回 `201 Created` 及最终状态。阶段 1.1 完成文本解析后返回 `parsed` 或 `failed`；加入切块与向量索引后，成功状态才是 `ready`。HTTP 状态码表示文档资源已创建；是否可检索要看响应体中的处理状态。以后加入可靠的后台任务后，再评估返回 `202 Accepted`。首批上传细节见[阶段 1.1 设计](phase1-document-ingestion.md)。
 
 ## 接口契约（分阶段实施）
 
@@ -53,7 +53,7 @@ erDiagram
 
 ### 第 1 阶段：文档接口
 
-- `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents`：上传一个文件；返回 `201`，包含文档 ID、文件名、处理状态、失败时的安全错误代码和时间戳。
+- `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents`：上传一个文件；返回 `201`，包含文档 ID、文件名、处理状态、失败时的安全错误代码和时间戳。首批文本解析成功时状态为 `parsed`。
 - `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`：查询文档处理状态。
 
 等前端需要浏览资源时，再加入带分页的列表接口。第一批测试可以直接使用创建接口返回的 ID。

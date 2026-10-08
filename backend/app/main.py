@@ -3,6 +3,7 @@
 from fastapi import FastAPI
 
 from app.api.health import router as health_router
+from app.api.documents import router as documents_router
 from app.api.knowledge_bases import router as knowledge_bases_router
 from app.api.workspaces import router as workspaces_router
 from app.core.config import Settings
@@ -14,6 +15,7 @@ def create_app() -> FastAPI:
     application.include_router(health_router)
     application.include_router(workspaces_router)
     application.include_router(knowledge_bases_router)
+    application.include_router(documents_router)
     return application
 
 
