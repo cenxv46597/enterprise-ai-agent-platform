@@ -3,6 +3,7 @@
 import os
 from dataclasses import dataclass
 from hashlib import sha256
+from io import BytesIO
 from pathlib import Path
 from collections.abc import Iterator
 from uuid import UUID, uuid4
@@ -20,6 +21,7 @@ from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import Document
 from app.db.session import get_session
+from app.knowledge.audit import audit_document_storage
 from app.knowledge.storage import LocalDocumentStore
 from app.main import create_app
 
@@ -179,6 +181,27 @@ def test_repeated_upload_creates_independent_documents(upload_context: UploadCon
     assert len(upload_context.files()) == 2
     for row in rows:
         assert (upload_context.root / row.storage_key).read_bytes() == content
+
+
+def test_storage_audit_reads_real_records_without_mutating_them(upload_context: UploadContext) -> None:
+    assert _upload(upload_context, "guide.txt", b"guide", "text/plain").status_code == 201
+    assert _upload(upload_context, "broken.txt", b"\xff", "text/plain").status_code == 201
+    rows = upload_context.rows()
+    original = {(row.id, row.storage_key, row.status) for row in rows}
+    store = LocalDocumentStore(upload_context.root)
+    with Session(upload_context.engine) as session:
+        report = audit_document_storage(session, store)
+        assert report.orphan_candidates == report.recent_untracked == report.missing_files == ()
+
+    missing = rows[0].storage_key
+    store.delete(missing)
+    orphan = store.save(BytesIO(b"orphan"), uuid4(), 1024).storage_key
+    with Session(upload_context.engine) as session:
+        report = audit_document_storage(session, store, grace_seconds=0)
+        assert report.missing_files == (missing,)
+        assert report.orphan_candidates == (orphan,)
+    assert {(row.id, row.storage_key, row.status) for row in upload_context.rows()} == original
+    assert (upload_context.root / orphan).read_bytes() == b"orphan"
 
 
 @pytest.mark.parametrize(

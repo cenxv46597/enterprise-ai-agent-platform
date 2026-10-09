@@ -108,6 +108,24 @@ class LocalDocumentStore:
 
         return self._document_path(storage_key).read_text(encoding="utf-8", errors="strict")
 
+    def published_files(self) -> dict[str, float]:
+        """列出已发布的普通文件与修改时间；跳过临时文件和未知命名。"""
+
+        self._check_documents_dir()
+        files: dict[str, float] = {}
+        for entry in self._documents_dir.iterdir():
+            storage_key = f"documents/{entry.name}"
+            if _STORAGE_KEY_PATTERN.fullmatch(storage_key) is None:
+                continue
+            path = self._document_path(storage_key)
+            try:
+                if path.is_file():
+                    files[storage_key] = path.stat().st_mtime
+            except FileNotFoundError:
+                # 扫描期间文件可能被其他操作移除，下次对账再核对。
+                continue
+        return files
+
     def delete(self, storage_key: str) -> None:
         """删除指定文档；文件已不存在时保持幂等。"""
 
