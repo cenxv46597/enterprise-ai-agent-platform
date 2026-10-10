@@ -1,0 +1,91 @@
+{
+  "version": "v1",
+  "dataset_version": "retrieval-eval-v1",
+  "description": "岚桥知识工作台带邻近主题干扰资料的固定评测题集，所有资料均为虚构演示内容，非真实企业制度。文档名在本题集中唯一，路径相对项目根目录。required_evidence 在运行前标注，必须按文档名和连续原文核对必需事实的完整覆盖；同一证据被重叠块重复覆盖只计一次。正例中的全部必需证据均来自原 demo-product.md；负例 required_evidence 为空，不以无证据计召回分。related_but_insufficient_evidence 只是阅读提示，不能算有效证据。词语、主题或文档名命中不代表事实支持；证据命中与回答忠实性分别核对，不宣称正式 Recall 或整体质量。",
+  "documents": [
+    {
+      "path": "examples/knowledge/demo-product.md",
+      "document_name": "demo-product.md"
+    },
+    {
+      "path": "examples/knowledge/retrieval-eval/demo-log-observability.md",
+      "document_name": "demo-log-observability.md"
+    },
+    {
+      "path": "examples/knowledge/retrieval-eval/demo-export-records.md",
+      "document_name": "demo-export-records.md"
+    },
+    {
+      "path": "examples/knowledge/retrieval-eval/demo-permissions-collaboration.md",
+      "document_name": "demo-permissions-collaboration.md"
+    }
+  ],
+  "cases": [
+    {
+      "id": "restart_recovery_steps",
+      "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+      "answerable": true,
+      "required_evidence": [
+        {
+          "document_name": "demo-product.md",
+          "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。"
+        }
+      ]
+    },
+    {
+      "id": "supported_upload_formats",
+      "question": "岚桥知识工作台支持上传哪些文件格式？",
+      "answerable": true,
+      "required_evidence": [
+        {
+          "document_name": "demo-product.md",
+          "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。"
+        }
+      ]
+    },
+    {
+      "id": "expired_access_token_steps",
+      "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+      "answerable": true,
+      "required_evidence": [
+        {
+          "document_name": "demo-product.md",
+          "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。"
+        }
+      ]
+    },
+    {
+      "id": "knowledge_backup_recovery_steps",
+      "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+      "answerable": true,
+      "required_evidence": [
+        {
+          "document_name": "demo-product.md",
+          "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。"
+        },
+        {
+          "document_name": "demo-product.md",
+          "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。"
+        }
+      ]
+    },
+    {
+      "id": "refund_application_insufficient_evidence",
+      "question": "我应该如何提交岚桥知识工作台的退款申请？",
+      "answerable": false,
+      "required_evidence": [],
+      "related_but_insufficient_evidence": [
+        {
+          "document_name": "demo-product.md",
+          "text": "退款审核通过后三个工作日到账。"
+        }
+      ]
+    },
+    {
+      "id": "payment_currencies_no_evidence",
+      "question": "岚桥知识工作台支持哪些支付币种？",
+      "answerable": false,
+      "required_evidence": []
+    }
+  ]
+}

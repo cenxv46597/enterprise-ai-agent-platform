@@ -15,7 +15,6 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from app.core.config import REPOSITORY_ROOT, Settings
-from app.main import create_app
 
 
 CORPUS_PATH = REPOSITORY_ROOT / "examples/knowledge/demo-product.md"
@@ -32,6 +31,13 @@ class SmokeFailure(RuntimeError):
         super().__init__(stage)
 
 
+def create_app():
+    # 显式运行后才导入应用，帮助与纯校验不触发应用配置读取。
+    from app.main import create_app as factory
+
+    return factory()
+
+
 def emit(value: dict) -> None:
     print(json.dumps(value, ensure_ascii=True), flush=True)
 
@@ -43,7 +49,7 @@ def save_report(path: Path, report: dict) -> None:
     temporary.replace(path)
 
 
-def check_local_configuration(settings: Settings) -> None:
+def check_local_configuration(settings: Settings, *, require_generation: bool = True) -> None:
     address = make_url(settings.database_url or "")
     if (
         settings.app_env != "local"
@@ -55,13 +61,15 @@ def check_local_configuration(settings: Settings) -> None:
         or not settings.upload_root.resolve().is_relative_to(REPOSITORY_ROOT.resolve())
         or settings.embedding_model != "text-embedding-v4"
         or settings.embedding_dimensions != 1024
-        or settings.generation_model != "deepseek-flash"
-        or (settings.generation_base_url or "").strip().rstrip("/")
-        not in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
+        or (require_generation and (
+            settings.generation_model != "deepseek-flash"
+            or (settings.generation_base_url or "").strip().rstrip("/")
+            not in {"https://api.deepseek.com", "https://api.deepseek.com/v1"}
+            or not settings.generation_api_key
+            or not settings.generation_api_key.get_secret_value().strip()
+        ))
         or not settings.embedding_api_key
         or not settings.embedding_api_key.get_secret_value().strip()
-        or not settings.generation_api_key
-        or not settings.generation_api_key.get_secret_value().strip()
     ):
         raise SmokeFailure("local_configuration")
     engine = create_engine(
