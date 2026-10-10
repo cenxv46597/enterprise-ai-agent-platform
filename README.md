@@ -4,7 +4,9 @@
 
 ## 当前进度
 
-阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，尚不可检索；下一步进入阶段 1.2 的文本切块设计。向量检索、问答、身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
+阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成当时的全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，尚不可检索。向量检索、问答、身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
+
+阶段 1.2 现已完成独立的字符切块算法：每个块包含文档 ID、顺序编号、内容和原文字符范围，见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md)。新增 23 项测试，最新完整回归为 75 项通过、无跳过。算法尚未接入上传流程或数据库，下一步实现文本块持久化。可在虚拟环境中用 `python -m pytest backend/tests/test_chunking.py -q` 单独运行切块测试。
 
 ## 本地启动（PowerShell）
 
