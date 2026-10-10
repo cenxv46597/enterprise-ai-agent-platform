@@ -32,6 +32,23 @@ def test_document_identity_distinguishes_chunks_with_the_same_index() -> None:
     assert first[0].document_id != second[0].document_id
 
 
+def test_rechunking_changes_numbered_content_but_preserves_original_reference() -> None:
+    text = "重启后恢复服务。重启后恢复服务。"
+    old_chunks = split_text(DOCUMENT_ID, text, chunk_size=8, overlap=0)
+    new_chunks = split_text(DOCUMENT_ID, text, chunk_size=12, overlap=0)
+
+    # 下标 1 取第 2 块；!= 检查两份内容不同，== 检查相同。
+    assert old_chunks[1].content != new_chunks[1].content
+    assert old_chunks[1].content == "重启后恢复服务。"
+    assert new_chunks[1].content == "复服务。"
+    assert old_chunks[1].document_id == new_chunks[1].document_id
+    assert old_chunks[1].chunk_index == new_chunks[1].chunk_index == 2
+
+    # 原文未变时，旧引用的字符范围仍能找回完整句子。
+    old_reference = old_chunks[1]
+    assert text[old_reference.start_char:old_reference.end_char] == old_reference.content
+
+
 @pytest.mark.parametrize(
     ("text", "chunk_size", "overlap"),
     [
