@@ -102,15 +102,17 @@ EAAP_EMBEDDING_DIMENSIONS=1024
 
 ## 基于证据的回答
 
-在本机 `.env` 中显式配置生成平台提供的基础地址、密钥与模型名称。向量生成与文本生成分别配置；学习者已确认 DeepSeek 官网账户，模型选择和新密钥配置仍待完成，不默认模型名。
+学习者已选择 DeepSeek 官网的 `deepseek-flash` 作为首个回答模型，先建立问答基线；向量生成继续使用百炼 `text-embedding-v4`、1024 维。两类模型分别配置，新密钥只填写本机 `.env`。`.env.example` 已记录生成模型与官网基础地址，已有 `.env` 需要手动同步这两个字段，勿整体覆盖其他配置。
 
 ```dotenv
-EAAP_GENERATION_BASE_URL=平台提供的HTTPS基础地址
+EAAP_GENERATION_BASE_URL=https://api.deepseek.com
 EAAP_GENERATION_API_KEY=本机密钥
-EAAP_GENERATION_MODEL=控制台确认的模型名称
+EAAP_GENERATION_MODEL=deepseek-flash
 ```
 
 基础地址不要追加 `/chat/completions`；适配器使用兼容的非流式 Chat Completions 与 JSON 模式。支持 JSON 模式的模型也需要提示与程序校验，见 [DeepSeek 官方接口说明](https://api-docs.deepseek.com/api/create-chat-completion/)。本轮没有修改本机 `.env`，也没有调用真实模型。
+
+模型选择依据：当前官方列出的 Flash 价格低于 Pro，适合首轮反复调试；以后再用同一组标注问题比较 `deepseek-v4-pro` 的答案质量和成本。官网模型名称与基础地址见[官方模型与价格](https://api-docs.deepseek.com/quick_start/pricing/)。模型别名可能随服务商更新，真实验收时需记录返回的模型信息。当前适配器未显式关闭思考模式，输出预算与等待时间需要在联调时检查。
 
 在 `/docs` 调用知识库 `/answers`，请求示例：
 

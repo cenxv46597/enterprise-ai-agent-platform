@@ -79,7 +79,7 @@ erDiagram
 - 模型按契约弃答后，接口返回 `abstained=true`、空引用和固定提示“目前检索到的资料不足以确认这个问题的答案。”；证据不足是正常业务结果。模型不得据此断言企业全部资料中都不存在答案。
 - 草稿正常回答必须有非空答案与引用。来源编号必须属于本次实际传入的证据，`quote` 必须是对应块的连续子串；非法结果返回 `502`。相同引文在块内重复时定位首次出现，不能据此确定模型所指的某次出现。引文存在也不证明答案的每项结论都受到支持。
 
-回答适配器与向量适配器分别配置，需显式设置 `EAAP_GENERATION_BASE_URL`（HTTPS）、`EAAP_GENERATION_API_KEY`、`EAAP_GENERATION_MODEL`。学习者已确认 DeepSeek 官网账户，模型选择及新密钥配置仍待完成；地址、密钥或模型缺失时有证据的回答请求返回 `503`。当前非流式、单次回答，不保存会话或回答历史，也没有引用版本机制。流程与取舍见 [ADR 0006](adr/0006-evidence-grounded-answers.md)。
+回答适配器与向量适配器分别配置，需显式设置 `EAAP_GENERATION_BASE_URL`（HTTPS）、`EAAP_GENERATION_API_KEY`、`EAAP_GENERATION_MODEL`。学习者已选择 DeepSeek 官网的 `deepseek-flash`，配置示例记录 `https://api.deepseek.com`，新密钥配置仍待完成；地址、密钥或模型缺失时有证据的回答请求返回 `503`。当前非流式、单次回答，不保存会话或回答历史，也没有引用版本机制。流程与取舍见 [ADR 0006](adr/0006-evidence-grounded-answers.md)。
 
 ### 错误与范围校验
 
