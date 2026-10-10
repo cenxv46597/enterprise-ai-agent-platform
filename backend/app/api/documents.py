@@ -1,22 +1,37 @@
-"""文档上传与处理状态查询接口。"""
+"""文档上传、处理状态查询与文本块持久化接口。"""
 
 from datetime import datetime
-from typing import Annotated
+import logging
+from typing import Annotated, Self
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api.workspaces import DbSession
 from app.core.config import Settings
-from app.db.models import Document, KnowledgeBase
+from app.db.models import Chunk, Document, KnowledgeBase
+from app.knowledge.chunk_repository import (
+    ChunkingConflictError,
+    ChunkingLimitError,
+    ChunkSourceError,
+    ChunkStateError,
+    DocumentNotFoundError,
+    DocumentNotParsedError,
+    MAX_PERSISTED_CHUNK_SIZE,
+    persist_document_chunks,
+)
+from app.knowledge.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from app.knowledge.ingestion import (
     InvalidFilenameError,
     UnsupportedFileTypeError,
     ingest_document,
 )
 from app.knowledge.storage import EmptyUploadError, LocalDocumentStore, UploadTooLargeError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents",
@@ -49,6 +64,49 @@ class DocumentRead(BaseModel):
     error_code: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ChunkingRequest(BaseModel):
+    chunk_size: int = Field(
+        default=DEFAULT_CHUNK_SIZE, gt=0, le=MAX_PERSISTED_CHUNK_SIZE, strict=True
+    )
+    overlap: int = Field(
+        default=DEFAULT_CHUNK_OVERLAP, ge=0, le=MAX_PERSISTED_CHUNK_SIZE, strict=True
+    )
+
+    @model_validator(mode="after")
+    def validate_overlap(self) -> Self:
+        if self.overlap >= self.chunk_size:
+            raise ValueError("重叠长度必须小于块长度")
+        return self
+
+
+class ChunkRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    document_id: UUID
+    chunk_index: int
+    content: str
+    start_char: int
+    end_char: int
+
+
+def _find_document_in_scope(
+    session: Session, workspace_id: UUID, knowledge_base_id: UUID, document_id: UUID
+) -> Document:
+    document = session.scalar(
+        select(Document)
+        .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
+        .where(
+            Document.id == document_id,
+            Document.knowledge_base_id == knowledge_base_id,
+            KnowledgeBase.workspace_id == workspace_id,
+        )
+    )
+    if document is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
+    return document
 
 
 @router.post("", response_model=DocumentRead, status_code=status.HTTP_201_CREATED)
@@ -99,15 +157,58 @@ def get_document(
     document_id: UUID,
     session: DbSession,
 ) -> Document:
-    document = session.scalar(
-        select(Document)
-        .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
-        .where(
-            Document.id == document_id,
-            Document.knowledge_base_id == knowledge_base_id,
-            KnowledgeBase.workspace_id == workspace_id,
+    return _find_document_in_scope(session, workspace_id, knowledge_base_id, document_id)
+
+
+@router.post("/{document_id}/chunks", response_model=list[ChunkRead])
+def create_document_chunks(
+    workspace_id: UUID,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+    parameters: ChunkingRequest,
+    session: DbSession,
+    store: StoreDep,
+) -> list[Chunk]:
+    _find_document_in_scope(session, workspace_id, knowledge_base_id, document_id)
+    # 结束归属检查的只读事务，整批写入事务由服务统一管理。
+    session.rollback()
+    try:
+        return persist_document_chunks(
+            session, store, document_id,
+            chunk_size=parameters.chunk_size, overlap=parameters.overlap,
+        )
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在") from exc
+    except DocumentNotParsedError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="文档尚未成功解析") from exc
+    except ChunkingConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="已有切块使用不同参数或算法版本，当前不支持覆盖重建",
+        ) from exc
+    except ChunkingLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="切块数量或总文本量超过单次处理上限，请增大块长度或减少重叠",
+        ) from exc
+    except (ChunkStateError, ChunkSourceError) as exc:
+        logger.exception("文档切块失败，文档 ID：%s", document_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档无法切块，请检查文档存储与切块记录",
+        ) from exc
+
+
+@router.get("/{document_id}/chunks", response_model=list[ChunkRead])
+def get_document_chunks(
+    workspace_id: UUID,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+    session: DbSession,
+) -> list[Chunk]:
+    _find_document_in_scope(session, workspace_id, knowledge_base_id, document_id)
+    return list(
+        session.scalars(
+            select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.chunk_index)
         )
     )
-    if document is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在")
-    return document

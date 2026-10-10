@@ -1,4 +1,4 @@
-"""第 0.3 阶段的元数据实体；文档内容和文本块稍后实现。"""
+"""工作空间、文档元数据与可追溯的文本块实体。"""
 
 from datetime import datetime
 from uuid import UUID, uuid4
@@ -9,7 +9,9 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -72,6 +74,15 @@ class Document(Base):
             "status IN ('uploaded', 'processing', 'parsed', 'ready', 'failed')",
             name="status_valid",
         ),
+        # 未切块的旧文档保留空配置；切块后配置必须完整且有效。
+        CheckConstraint(
+            "(chunk_size IS NULL AND chunk_overlap IS NULL AND chunking_version IS NULL) "
+            "OR (chunk_size IS NOT NULL AND chunk_overlap IS NOT NULL "
+            "AND chunking_version IS NOT NULL AND chunk_size > 0 "
+            "AND chunk_overlap >= 0 AND chunk_overlap < chunk_size "
+            "AND char_length(btrim(chunking_version)) > 0)",
+            name="chunking_config_valid",
+        ),
         Index("ix_documents_knowledge_base_id", "knowledge_base_id"),
     )
 
@@ -88,6 +99,9 @@ class Document(Base):
         String(16), nullable=False, server_default=text("'uploaded'")
     )
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunk_overlap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunking_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -96,3 +110,31 @@ class Document(Base):
     )
 
     knowledge_base: Mapped[KnowledgeBase] = relationship(back_populates="documents")
+    chunks: Mapped[list["Chunk"]] = relationship(
+        back_populates="document", passive_deletes=True
+    )
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+    __table_args__ = (
+        # 此唯一约束也为按文档查询提供索引，不再建立重复索引。
+        UniqueConstraint("document_id", "chunk_index", name="uq_chunks_document_id_chunk_index"),
+        CheckConstraint("chunk_index > 0", name="chunk_index_positive"),
+        CheckConstraint("start_char >= 0", name="start_char_nonnegative"),
+        CheckConstraint("end_char > start_char", name="end_char_after_start"),
+        CheckConstraint(
+            "char_length(content) = end_char - start_char", name="content_length_matches_span"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    document_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="RESTRICT"), nullable=False
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    start_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_char: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    document: Mapped[Document] = relationship(back_populates="chunks", passive_deletes=True)

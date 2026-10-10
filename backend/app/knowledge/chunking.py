@@ -4,6 +4,11 @@ from dataclasses import dataclass
 from uuid import UUID
 
 
+DEFAULT_CHUNK_SIZE = 500
+DEFAULT_CHUNK_OVERLAP = 50
+CHUNKING_VERSION = "character-v1"
+
+
 @dataclass(frozen=True, slots=True)
 class TextChunk:
     document_id: UUID
@@ -17,8 +22,8 @@ def split_text(
     document_id: UUID,
     text: str,
     *,
-    chunk_size: int = 500,
-    overlap: int = 50,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
 ) -> list[TextChunk]:
     """块从 1 编号；[start_char, end_char) 可直接用于原文切片。"""
 

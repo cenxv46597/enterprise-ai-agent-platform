@@ -1,6 +1,6 @@
 """元数据层的数据库模型与会话工具。"""
 
 from app.db.base import Base
-from app.db.models import Document, KnowledgeBase, Workspace
+from app.db.models import Chunk, Document, KnowledgeBase, Workspace
 
-__all__ = ["Base", "Document", "KnowledgeBase", "Workspace"]
+__all__ = ["Base", "Chunk", "Document", "KnowledgeBase", "Workspace"]

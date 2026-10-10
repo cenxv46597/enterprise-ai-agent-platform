@@ -6,7 +6,7 @@
 
 阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成当时的全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，尚不可检索。向量检索、问答、身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
 
-阶段 1.2 现已完成独立的字符切块算法：每个块包含文档 ID、顺序编号、内容和原文字符范围，见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md)。新增 23 项测试，最新完整回归为 75 项通过、无跳过。算法尚未接入上传流程或数据库，下一步实现文本块持久化。可在虚拟环境中用 `python -m pytest backend/tests/test_chunking.py -q` 单独运行切块测试。
+阶段 1.2 已完成确定性字符切块与 PostgreSQL 文本块持久化。每块保存文档 ID、顺序编号、内容和解析文本字符范围；同配置重复请求复用原来的块 UUID，不增加记录。文档行锁与整批事务处理并发和中途失败，不同参数或算法版本返回冲突。切块通过独立接口触发，上传后仍为 `parsed`。见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md) 与 [ADR 0003](docs/adr/0003-idempotent-chunk-persistence.md)。2026-10-10 最新真实 PostgreSQL 完整回归为 **119 项通过、无跳过**，本机项目库已升级到 `20261010_0003`；临时库验证了迁移、降级后再升级及模型一致性。下一步围绕整批事务进行故障分析学习，再进入向量生成设计。
 
 ## 本地启动（PowerShell）
 
@@ -28,13 +28,18 @@ python -m uvicorn app.main:app --reload
 
 上传文件默认保存在仓库根目录的 `uploads/`，可用 `EAAP_UPLOAD_ROOT` 指向其他目录；`EAAP_MAX_UPLOAD_BYTES` 设置单文件字节上限，默认值为 5 MiB。端点按实际读取字节数检查上限。部署到共享环境时，还需要在入口层设置包含表单开销的请求体总量上限。
 
-当前可在 `/docs` 调用六个资源接口：
+当前可在 `/docs` 调用八个资源接口：
 
 - `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`。
+- 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
 
 知识库名称在同一工作空间内重复时返回 `409`，路径中的父子资源不匹配时返回 `404`。上传接口的表单字段名是 `file`；首批支持 UTF-8 的 `.txt`、`.md`。解析失败仍会创建文档记录，响应中的 `failed` 状态和安全错误码用于判断原因。
+
+切块接口请求体为 `{"chunk_size": 500, "overlap": 50}`，发送 `{}` 使用默认值。首次保存和同配置重试均返回 `200` 和块列表；未切块时查询返回空列表。参数或算法版本与已有结果不同、文档未成功解析时返回 `409`；整数或重叠参数无效、预估处理量超限时返回 `422`。单批上限为 10,000 块和累计 10 × 1024 × 1024 个字符，避免高重叠放大内存用量。原文件不可读或切块状态异常返回安全的 `500`，具体原因记录在服务端日志中。
+
+字符位置用于切片解析文本，不是原文件字节偏移；同一份文档的原文件与切块配置当前均不支持原地修改。保存块并不表示已经可检索。
 
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库。在仓库根目录、数据库服务运行时执行完整测试：
 
@@ -45,6 +50,8 @@ Remove-Item Env:EAAP_TEST_DATABASE_URL
 ```
 
 数据库测试在测试库中建立临时模式，结束后删除；未设置 `EAAP_TEST_DATABASE_URL` 时会跳过数据库集成测试。不要把测试地址指向日常使用的 `eaap` 数据库。
+
+在相同测试环境下，`python -m pytest backend/tests/test_chunk_persistence.py -q` 单独运行 43 项切块持久化测试；`python -m pytest backend/tests/test_chunking.py -q` 单独运行 24 项纯算法测试。
 
 健康检查接口只确认应用进程能够响应，不检查数据库或模型服务是否可用。
 
