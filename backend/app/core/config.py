@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = Field(default=30, gt=0, le=120)
     embedding_total_timeout_seconds: float = Field(default=120, gt=0, le=300)
     embedding_max_chunks: int = Field(default=200, ge=1, le=1000)
+    generation_base_url: str | None = None
+    generation_api_key: SecretStr | None = None
+    generation_model: str | None = None
+    generation_timeout_seconds: float = Field(default=30, gt=0, le=120)
+    generation_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    generation_max_tokens: int = Field(default=2000, ge=1, le=8192)
+    generation_max_context_characters: int = Field(default=12000, ge=1, le=50000)
 
     model_config = SettingsConfigDict(
         env_prefix="EAAP_",

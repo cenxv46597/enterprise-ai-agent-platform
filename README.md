@@ -4,15 +4,17 @@
 
 ## 当前进度
 
-阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成当时的全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，还需要切块和向量化。问答、身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
+阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成当时的全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，还需要切块和向量化。身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
 
 阶段 1.2 已完成确定性字符切块与 PostgreSQL 文本块持久化。每块保存文档 ID、顺序编号、内容和解析文本字符范围；同配置重复请求复用原来的块 UUID，不增加记录。文档行锁与整批事务处理并发和中途失败，不同参数或算法版本返回冲突。切块通过独立接口触发，上传后仍为 `parsed`。见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md) 与 [ADR 0003](docs/adr/0003-idempotent-chunk-persistence.md)。
 
 阶段 1.3 已实现向量服务适配器、1024 维 pgvector 保存和独立触发接口。首个模型由学习者选定为百炼 `text-embedding-v4`；模型请求放在事务外，全部向量和 `ready` 状态在同一事务提交，同配置重试复用结果。已使用模拟 HTTP 与真实 PostgreSQL 验证故障和事务，真实模型调用待本机配置。模型选择、并发费用与事务取舍见 [ADR 0004](docs/adr/0004-embedding-generation-and-storage.md)。
 
-阶段 1.4 已加入限定知识库的精确余弦检索接口。问题使用与文档相同的向量模型转换；SQL 先过滤工作空间、知识库、`ready` 文档和非空向量，再排序取前几项。返回文本、文档名、块编号、字符位置和距离。尚未接入真实模型验证语义质量，也没有回答生成、阈值筛选或重排；取舍见 [ADR 0005](docs/adr/0005-scoped-vector-retrieval.md)。
+阶段 1.4 已加入限定知识库的精确余弦检索接口。问题使用与文档相同的向量模型转换；SQL 先过滤工作空间、知识库、`ready` 文档和非空向量，再排序取前几项。返回文本、文档名、块编号、字符位置和距离。尚未接入真实模型验证语义质量，没有阈值筛选或重排；取舍见 [ADR 0005](docs/adr/0005-scoped-vector-retrieval.md)。
 
-2026-10-10 最新完整本地回归为 **262 项通过、无跳过**，本轮新增 49 项检索测试；已有向量持久化 20 项、模拟 HTTP 41 项、向量协议 27 项、配置 6 项及其他功能测试均通过。本机项目库已升级到 `20261010_0004`，已有文档和文本块保留；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
+阶段 1.5 加入独立生成适配器与基于证据的 `/answers` 接口。空结果直接弃答，有证据时在事务外请求结构化答案；程序校验引用编号和逐字引文，并返回真实文档、块和引文字符位置。主题相关不一定足够回答，引用存在也不证明结论正确；真实模型联调与回答质量评估仍待完成。见 [ADR 0006](docs/adr/0006-evidence-grounded-answers.md)。
+
+2026-10-10 最新完整本地回归为 **378 项通过、无跳过**，本轮新增 45 项问答测试和 71 项生成 HTTP 测试，使用真实 PostgreSQL/pgvector 与模拟模型。此前 262 项测试也全部通过；没有调用真实模型，不代表语义效果已验证。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
 
 ## 本地启动（PowerShell）
 
@@ -34,7 +36,7 @@ python -m uvicorn app.main:app --reload
 
 上传文件默认保存在仓库根目录的 `uploads/`，可用 `EAAP_UPLOAD_ROOT` 指向其他目录；`EAAP_MAX_UPLOAD_BYTES` 设置单文件字节上限，默认值为 5 MiB。端点按实际读取字节数检查上限。部署到共享环境时，还需要在入口层设置包含表单开销的请求体总量上限。
 
-当前可在 `/docs` 调用十个资源接口：
+当前可在 `/docs` 调用十一个资源接口：
 
 - `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
@@ -42,6 +44,7 @@ python -m uvicorn app.main:app --reload
 - 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
 - 在具体文档路径后追加 `/embeddings`，使用 `POST` 生成并保存向量，不需要请求体。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/search`：在指定知识库内检索相关段落。
+- `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/answers`：基于检索证据回答或弃答，返回逐字引用。
 
 知识库名称在同一工作空间内重复时返回 `409`，路径中的父子资源不匹配时返回 `404`。上传接口的表单字段名是 `file`；首批支持 UTF-8 的 `.txt`、`.md`。解析失败仍会创建文档记录，响应中的 `failed` 状态和安全错误码用于判断原因。
 
@@ -97,6 +100,38 @@ EAAP_EMBEDDING_DIMENSIONS=1024
 
 查询向量在数据库事务外生成，调用前后都检查知识库归属和完整模型身份；数据库读取阶段用短暂共享锁保持配置稳定。每次有候选的查询都会生成问题向量，当前没有查询缓存。资源路径只限定数据范围，当前仍未实现身份认证与用户权限控制。
 
+## 基于证据的回答
+
+在本机 `.env` 中显式配置生成平台提供的基础地址、密钥与模型名称。向量生成与文本生成分别配置；学习者已确认 DeepSeek 官网账户，模型选择和新密钥配置仍待完成，不默认模型名。
+
+```dotenv
+EAAP_GENERATION_BASE_URL=平台提供的HTTPS基础地址
+EAAP_GENERATION_API_KEY=本机密钥
+EAAP_GENERATION_MODEL=控制台确认的模型名称
+```
+
+基础地址不要追加 `/chat/completions`；适配器使用兼容的非流式 Chat Completions 与 JSON 模式。支持 JSON 模式的模型也需要提示与程序校验，见 [DeepSeek 官方接口说明](https://api-docs.deepseek.com/api/create-chat-completion/)。本轮没有修改本机 `.env`，也没有调用真实模型。
+
+在 `/docs` 调用知识库 `/answers`，请求示例：
+
+```json
+{"question": "如何提交退款申请？", "top_k": 5}
+```
+
+问题去首尾空白后为 1 至 2000 字符，`top_k` 默认 5，严格整数 1 至 20，拒绝额外字段。正常回答返回 `answer`、`abstained: false` 和非空 `citations`。每条引用含 `chunk_id`、`document_id`、`document_name`、`chunk_index`、`quote`、`start_char`、`end_char`；字符位置对应引文在解析文本中的 `[start_char, end_char)`。同一块内引文重复时选择首次出现，来源信息由程序组装。
+
+无检索结果或模型判断资料不足时返回 `200`：
+
+```json
+{"answer": "目前检索到的资料不足以确认这个问题的答案。", "abstained": true, "citations": []}
+```
+
+空结果跳过生成模型，不要求生成地址、密钥和模型名；HTTP 接口仍需要有效的向量配置。数值配置由全局 `Settings` 在启动时校验，必须处于声明范围。模型按契约弃答是正常业务结果。伪造来源、引文不存在、坏 JSON 或截断输出返回 `502`；有证据但生成地址、密钥或模型配置缺失或无效返回 `503`，模型超时返回 `504`。技术故障不会转换成“资料没有答案”。知识库范围、模型冲突与检索数据错误沿用检索接口的错误处理。
+
+默认按排名选能完整放入 12000 字符预算的文本块，过长块跳过，不截断；全部块都放不下返回 `422`。用 `EAAP_GENERATION_MAX_CONTEXT_CHARACTERS` 调整字符预算；它不等于服务商 token 上限。`EAAP_GENERATION_MAX_TOKENS` 默认 2000，HTTP 操作默认等待 30 秒，总处理预算 60 秒；读取后的预算检查不是严格墙钟取消，具体模型的推理 token 与输入上限需要真实联调确认。
+
+当前单次同步回答，没有会话保存、自动重试或缓存。提示把资料视为不可信数据，要求仅据证据回答或弃答；程序检查引用归属与原文存在，语义支持程度和提示注入抵抗能力仍需要评估。
+
 ## 本地测试
 
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库并启用 `vector` 扩展。已有数据库卷的初始化脚本不会重跑，可执行一次：
@@ -120,6 +155,8 @@ Remove-Item Env:EAAP_TEST_DATABASE_URL
 `python -m pytest backend/tests/test_embedding_persistence.py -q` 运行真实向量持久化与并发故障测试；`python -m pytest backend/tests/test_embedding_http_provider.py -q` 运行模拟 HTTP 测试。这些测试不调用真实模型、不消耗模型接口额度。以后记录检索质量时，必须另用真实模型和标注语料评估。
 
 使用同样的测试数据库配置，`python -m pytest backend/tests/test_retrieval.py -q` 验证知识库范围、余弦排序、来源定位和模型故障。向量由测试替身控制，用来验证数据库与接口行为；真实语料的 Recall@5、语义效果和延迟尚待联调与评测。
+
+`python -m pytest backend/tests/test_answers.py backend/tests/test_generation_http_provider.py -q` 验证问答链路、引用、弃答和生成故障，使用模拟模型，不消耗 API 额度。这不代表真实模型已经能可靠判断证据或生成忠实答案。
 
 健康检查接口只确认应用进程能够响应，不检查数据库或模型服务是否可用。
 
