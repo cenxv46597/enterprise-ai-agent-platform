@@ -211,7 +211,6 @@ def test_storage_audit_reads_real_records_without_mutating_them(upload_context: 
         ("manual.pdf", b"PDF", "application/pdf", 415),
         ("../outside.txt", b"hello", "text/plain", 422),
         (r"..\outside.txt", b"hello", "text/plain", 422),
-        ("line\nbreak.txt", b"hello", "text/plain", 422),
     ],
 )
 def test_rejected_upload_leaves_no_row_or_file(
@@ -229,6 +228,32 @@ def test_rejected_upload_leaves_no_row_or_file(
 
 def test_file_field_is_required(upload_context: UploadContext) -> None:
     response = upload_context.client.post(upload_context.documents_url, data={})
+    assert response.status_code == 422
+    assert upload_context.rows() == []
+    assert upload_context.files() == []
+
+
+def test_client_escaped_filename_is_stored_as_received(upload_context: UploadContext) -> None:
+    # 客户端将换行编码为 %0A，服务端实际收到的文件名没有控制字符。
+    response = _upload(upload_context, "line\nbreak.txt", b"guide", "text/plain")
+    assert response.status_code == 201
+    assert response.json()["original_filename"] == "line%0Abreak.txt"
+    assert upload_context.rows()[0].original_filename == "line%0Abreak.txt"
+
+
+def test_raw_control_character_filename_is_rejected(upload_context: UploadContext) -> None:
+    # 手工构造表单，避免测试客户端先转义控制字符而改变测试输入。
+    body = (
+        b'--eaap-boundary\r\n'
+        b'Content-Disposition: form-data; name="file"; filename="line\tbreak.txt"\r\n'
+        b'Content-Type: text/plain\r\n\r\n'
+        b'guide\r\n--eaap-boundary--\r\n'
+    )
+    response = upload_context.client.post(
+        upload_context.documents_url,
+        content=body,
+        headers={"Content-Type": "multipart/form-data; boundary=eaap-boundary"},
+    )
     assert response.status_code == 422
     assert upload_context.rows() == []
     assert upload_context.files() == []

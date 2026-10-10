@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 
 from app.db.models import Document
-from app.knowledge.ingestion import ingest_document
+from app.knowledge.ingestion import InvalidFilenameError, ingest_document
 from app.knowledge.storage import LocalDocumentStore
 
 
@@ -35,6 +35,24 @@ class RecordingSession:
 
     def refresh(self, document: Document) -> None:
         assert document is self.document
+
+
+@pytest.mark.parametrize("control", ["\n", "\r", "\t", "\x00", "\x7f"])
+def test_control_character_filename_is_rejected_before_any_write(tmp_path: Path, control: str) -> None:
+    session = RecordingSession()
+    store = LocalDocumentStore(tmp_path)
+    with pytest.raises(InvalidFilenameError):
+        ingest_document(
+            session=session,
+            store=store,
+            source=BytesIO(b"guide"),
+            filename=f"line{control}break.txt",
+            knowledge_base_id=uuid4(),
+            max_bytes=1024,
+        )
+    assert session.document is None
+    assert session.committed_states == []
+    assert list((tmp_path / "documents").iterdir()) == []
 
 
 def test_successful_text_follows_parsed_status(tmp_path: Path) -> None:
