@@ -1,8 +1,9 @@
-"""工作空间、文档元数据与可追溯的文本块实体。"""
+"""工作空间、文档元数据、可追溯文本块与向量实体。"""
 
 from datetime import datetime
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     BigInteger,
     CheckConstraint,
@@ -43,6 +44,15 @@ class KnowledgeBase(Base):
     __tablename__ = "knowledge_bases"
     __table_args__ = (
         CheckConstraint("char_length(btrim(name)) > 0", name="name_nonblank"),
+        # 同一知识库只采用一套向量模型；旧知识库可暂时没有向量配置。
+        CheckConstraint(
+            "(embedding_provider IS NULL AND embedding_model IS NULL "
+            "AND embedding_dimensions IS NULL) OR (embedding_provider IS NOT NULL "
+            "AND embedding_model IS NOT NULL AND embedding_dimensions IS NOT NULL "
+            "AND char_length(btrim(embedding_provider)) > 0 "
+            "AND char_length(btrim(embedding_model)) > 0 AND embedding_dimensions = 1024)",
+            name="embedding_config_valid",
+        ),
         UniqueConstraint("workspace_id", "name", name="uq_knowledge_bases_workspace_id_name"),
         Index("ix_knowledge_bases_workspace_id", "workspace_id"),
     )
@@ -52,6 +62,10 @@ class KnowledgeBase(Base):
         PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
+    # 接口身份用于校验向量空间一致性，不存放密钥。
+    embedding_provider: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -136,5 +150,6 @@ class Chunk(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     start_char: Mapped[int] = mapped_column(Integer, nullable=False)
     end_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(VECTOR(1024), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks", passive_deletes=True)

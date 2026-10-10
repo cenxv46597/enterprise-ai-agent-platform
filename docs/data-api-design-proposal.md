@@ -1,6 +1,6 @@
 # 第 0.3 阶段：数据模型与接口设计
 
-**状态：** 关键设计选择已确认。第 0.3 阶段的三张元数据表与基础资源接口已实现；阶段 1.1 加入文本和 Markdown 上传、解析状态查询。`Chunk`、向量检索和问答仍按后续小步推进。下列接口契约是否已经实现，以代码和测试为准。
+**状态：** 关键设计选择已确认。三张元数据表与基础资源接口、文本和 Markdown 上传与解析、文本块持久化、向量生成与保存已实现。真实模型联调待本机配置；向量检索与问答仍按后续小步推进。下列接口契约是否已经实现，以代码和测试为准。
 
 ## 范围与学习目标
 
@@ -16,27 +16,27 @@ erDiagram
 ```
 
 - **工作空间（`Workspace`）：** `id`（UUID）、`name`、`created_at`（UTC 时间）。一个工作空间包含多个知识库。名称无需全局唯一，因为资源由 ID 唯一标识。
-- **知识库（`KnowledgeBase`）：** `id`（UUID）、`workspace_id`（外键）、`name`、`created_at`。数据库约束 `(workspace_id, name)` 唯一：同一工作空间不可创建同名知识库，不同工作空间可以同名。
+- **知识库（`KnowledgeBase`）：** `id`（UUID）、`workspace_id`（外键）、`name`、`created_at`，以及可空的 `embedding_provider`、`embedding_model`、`embedding_dimensions`。首个完整向量结果提交后固定接口身份、模型和 1024 维配置，不保存密钥。数据库约束 `(workspace_id, name)` 唯一：同一工作空间不可创建同名知识库，不同工作空间可以同名。
 - **文档（`Document`）：** `id`（UUID）、`knowledge_base_id`（外键）、`original_filename`、`media_type`、`storage_key`、`byte_size`、`sha256`、`status`、可选且经过清理的 `error_code`、`created_at`、`updated_at`。一次上传只属于一个知识库；若同一文件要进入另一个知识库，需要重新上传。开发阶段原文件保存在本地文件存储中，数据库只保存定位它的存储键，不保存文件字节。重复上传会获得新的 ID；`sha256` 只作诊断信息，不强制唯一。
-- **文本块（`Chunk`，第 1 阶段实现）：** `id`（UUID）、`document_id`（外键）、`chunk_index`、非空的 `content`、可选的 `page_number` 或 `section_heading`、`created_at`；选定模型后再加入固定维度的向量。`(document_id, chunk_index)` 唯一。PDF 页码从 1 开始；第一版不让一个 PDF 文本块跨页，保证引用能指向明确的页码。
+- **文本块（`Chunk`，已实现）：** `id`（UUID）、`document_id`（外键）、从 1 开始的 `chunk_index`、`content`、`start_char`、`end_char`，以及可空的 `embedding`（`VECTOR(1024)`）。`(document_id, chunk_index)` 唯一，字符范围满足 `解析文本[start_char:end_char] == content`。当前无页码、章节或创建时间字段；PDF 页码和章节追溯待对应解析模块设计。
 
 暂不在文档或文本块中重复保存 `workspace_id`。查询时沿外键找到所属知识库，再核对路径中的工作空间。外键能保证父子记录存在，但应用仍须检查“这个知识库是否属于这个工作空间”“这个文档是否属于这个知识库”。文本块由入库流程生成，第一版不开放手工创建或修改文本块的接口。
 
 接口接收名称时会去掉首尾空白，并拒绝空名称；当前数据库唯一约束按原样比较大小写，例如 `API` 与 `api` 是两个名称。如需不区分大小写，之后应明确迁移规则并处理已有冲突。
 
-用户、工作空间成员关系、持久会话、删除与恢复、版本历史，以及一个文本块对应多组向量，都留到后续阶段。第一版一个知识库只使用一种已固定的向量生成模型和维度；更换模型需要重新建立索引。创建向量列之前，我们会先选定并记录模型。
+用户、工作空间成员关系、持久会话、删除与恢复、版本历史，以及一个文本块对应多组向量，都留到后续阶段。第一版一个知识库只使用一种已固定的向量生成模型和维度。首个模型已选择百炼 `text-embedding-v4`、1024 维；当前更换模型需要新知识库，尚无原地重建接口。取舍见 [ADR 0004](adr/0004-embedding-generation-and-storage.md)。
 
 ## 文档处理状态
 
-阶段 1.1：`uploaded → processing → parsed`，或 `uploaded → processing → failed`。`parsed` 只表示原文件已保存并通过文本解析验证。后续切块和向量索引全部完成后，才能进入 `ready`；这一步的具体重试状态转换将在索引设计时确定。
+阶段 1.1：`uploaded → processing → parsed`，或 `uploaded → processing → failed`。`parsed` 表示原文件已保存并通过文本解析验证；切块后保持 `parsed`。阶段 1.3 完整向量提交后变为 `ready`，具备检索数据条件，检索接口仍待阶段 1.4 实现。
 
 - 空文件、超过大小限制的文件或不支持的类型，在创建 Document 记录前拒绝。
-- 文件被接受后，即使解析或向量生成失败，也保留状态为 `failed` 的记录和安全的错误代码。接口不返回原文内容或模型服务的原始报错。
+- 文件被接受后，解析失败保留状态为 `failed` 的记录和安全错误码。向量生成失败保留原有 `parsed` 状态和文本块，以便重试；向量接口不返回原文内容或模型服务的原始报错。
 - 所有文本块和向量写入成功后，在同一个数据库事务中把文档标记为 `ready`。检索只读取 `ready` 文档，避免部分处理结果进入回答。
 - 解析文件和调用向量生成服务期间不长时间占用数据库事务。文件存储与数据库提交无法组成一个原子事务；实现时需要明确清理或恢复路径。
 - 进程崩溃可能使文档一直停在 `processing`。自动检测与重试留到后续工程阶段，第一版要如实记录这一限制。
 
-**第一版已确认：** 限制文件规模，在上传请求中同步完成本阶段处理，并返回 `201 Created` 及最终状态。阶段 1.1 完成文本解析后返回 `parsed` 或 `failed`；加入切块与向量索引后，成功状态才是 `ready`。HTTP 状态码表示文档资源已创建；是否可检索要看响应体中的处理状态。以后加入可靠的后台任务后，再评估返回 `202 Accepted`。首批上传细节见[阶段 1.1 设计](phase1-document-ingestion.md)。
+**第一版已确认：** 限制文件规模，同步处理。上传接口完成解析，返回 `201 Created` 和 `parsed` 或 `failed`；切块与向量生成由两个独立接口触发，各自同步返回。完整向量保存后才是 `ready`。HTTP 状态码表示请求结果，处理状态表达数据准备程度。以后加入可靠的后台任务后，再评估返回 `202 Accepted`。首批上传细节见[阶段 1.1 设计](phase1-document-ingestion.md)。
 
 ## 接口契约（分阶段实施）
 
@@ -55,10 +55,13 @@ erDiagram
 
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents`：上传一个文件；返回 `201`，包含文档 ID、文件名、处理状态、失败时的安全错误代码和时间戳。首批文本解析成功时状态为 `parsed`。
 - `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`：查询文档处理状态。
+- `POST .../documents/{document_id}/chunks`：传入 `chunk_size`、`overlap`（或 `{}` 使用默认值）保存全部文本块；相同配置复用结果。
+- `GET .../documents/{document_id}/chunks`：按编号返回块与字符范围，不返回内部存储键或向量。
+- `POST .../documents/{document_id}/embeddings`：无需请求体，为已保存文本块生成向量；返回文档 ID、状态、模型、维度、块数和 `reused`。
 
 等前端需要浏览资源时，再加入带分页的列表接口。第一批测试可以直接使用创建接口返回的 ID。
 
-### 第 1 阶段的检索与回答接口
+### 第 1 阶段的检索与回答接口（待实现）
 
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/search`：提交 `{ "query": "...", "top_k": 5 }`，返回限定范围内的结果，包含 `chunk_id`、`document_id`、文本及来源位置。若以后公开检索分数，必须写明距离指标及排序方向。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/answers`：提交 `{ "question": "..." }`，返回 `answer`、`abstained` 和引用。引用只能指向本次检索到的文本块。这是单次回答；持久会话留到后续阶段。

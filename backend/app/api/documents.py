@@ -1,4 +1,4 @@
-"""文档上传、处理状态查询与文本块持久化接口。"""
+"""文档上传、状态查询、文本块与向量持久化接口。"""
 
 from datetime import datetime
 import logging
@@ -29,7 +29,17 @@ from app.knowledge.ingestion import (
     UnsupportedFileTypeError,
     ingest_document,
 )
+from app.knowledge.embedding_repository import (
+    EmbeddingConflictError,
+    EmbeddingLimitError,
+    EmbeddingNotFoundError,
+    EmbeddingResult,
+    EmbeddingStateError,
+    embed_document_chunks,
+)
 from app.knowledge.storage import EmptyUploadError, LocalDocumentStore, UploadTooLargeError
+from app.providers.compatible_embeddings import OpenAICompatibleEmbeddingProvider
+from app.providers.embeddings import EmbeddingError, EmbeddingProvider, EmbeddingTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +57,33 @@ def get_max_upload_bytes() -> int:
     return Settings().max_upload_bytes
 
 
+def get_embedding_provider() -> EmbeddingProvider:
+    try:
+        settings = Settings()
+        if not settings.embedding_base_url or not settings.embedding_api_key:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="请先配置向量服务的接口地址和 API 密钥",
+            )
+        return OpenAICompatibleEmbeddingProvider(
+            base_url=settings.embedding_base_url,
+            api_key=settings.embedding_api_key,
+            model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+            batch_size=settings.embedding_batch_size,
+            timeout_seconds=settings.embedding_timeout_seconds,
+            total_timeout_seconds=settings.embedding_total_timeout_seconds,
+        )
+    except (EmbeddingError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="向量服务配置无效，请检查本机配置",
+        ) from None
+
+
 StoreDep = Annotated[LocalDocumentStore, Depends(get_document_store)]
 LimitDep = Annotated[int, Depends(get_max_upload_bytes)]
+EmbeddingDep = Annotated[EmbeddingProvider, Depends(get_embedding_provider)]
 
 
 class DocumentRead(BaseModel):
@@ -90,6 +125,17 @@ class ChunkRead(BaseModel):
     content: str
     start_char: int
     end_char: int
+
+
+class EmbeddingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    document_id: UUID
+    status: str
+    model: str
+    dimensions: int
+    chunk_count: int
+    reused: bool
 
 
 def _find_document_in_scope(
@@ -212,3 +258,41 @@ def get_document_chunks(
             select(Chunk).where(Chunk.document_id == document_id).order_by(Chunk.chunk_index)
         )
     )
+
+
+@router.post("/{document_id}/embeddings", response_model=EmbeddingRead)
+def create_document_embeddings(
+    workspace_id: UUID,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+    session: DbSession,
+    provider: EmbeddingDep,
+) -> EmbeddingResult:
+    _find_document_in_scope(session, workspace_id, knowledge_base_id, document_id)
+    session.rollback()
+    try:
+        return embed_document_chunks(
+            session, provider, document_id, max_chunks=Settings().embedding_max_chunks
+        )
+    except EmbeddingNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在") from exc
+    except EmbeddingConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except EmbeddingLimitError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="文档超过当前同步向量生成的块数上限",
+        ) from exc
+    except EmbeddingTimeoutError as exc:
+        logger.warning("向量服务超时，文档 ID：%s", document_id)
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="向量服务请求超时") from exc
+    except EmbeddingError as exc:
+        # 只记录领域错误类型，避免第三方响应、输入文本或凭据进入日志。
+        logger.warning("向量生成失败，文档 ID：%s，错误类型：%s", document_id, type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="向量服务调用或返回结果异常") from exc
+    except EmbeddingStateError as exc:
+        logger.error("向量记录与文档状态不一致，文档 ID：%s", document_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="文档向量状态异常，请检查数据库记录",
+        ) from exc

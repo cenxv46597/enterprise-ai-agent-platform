@@ -1,9 +1,9 @@
-"""Validated application settings from environment variables and .env."""
+"""从环境变量与本机 .env 读取并校验应用配置。"""
 
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -15,6 +15,14 @@ class Settings(BaseSettings):
     database_url: str | None = None
     upload_root: Path = REPOSITORY_ROOT / "uploads"
     max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
+    embedding_base_url: str | None = None
+    embedding_api_key: SecretStr | None = None
+    embedding_model: str = "text-embedding-v4"
+    embedding_dimensions: int = Field(default=1024, ge=1024, le=1024)
+    embedding_batch_size: int = Field(default=10, ge=1, le=10)
+    embedding_timeout_seconds: float = Field(default=30, gt=0, le=120)
+    embedding_total_timeout_seconds: float = Field(default=120, gt=0, le=300)
+    embedding_max_chunks: int = Field(default=200, ge=1, le=1000)
 
     model_config = SettingsConfigDict(
         env_prefix="EAAP_",
