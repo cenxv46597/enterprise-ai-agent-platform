@@ -1,0 +1,440 @@
+{
+  "run_id": "5fce1961ef0f",
+  "created_at_utc": "2026-10-10T11:51:07.430927+00:00",
+  "dataset_version": "rag-smoke-zh-fictional-product-v1",
+  "corpus_sha256": "3523c0a2eaee080e289bce81a70abecc2ab498471d0291e1d273d3e0ef2f9742",
+  "embedding_request_model": "text-embedding-v4",
+  "embedding_dimensions": 1024,
+  "generation_request_model": "deepseek-flash",
+  "execution": "TestClient 调用真实路由、本机数据库与供应商 API",
+  "scope": "固定小语料的链路验证，不是检索质量基准；未统计 token 或费用，未验证部署网关",
+  "attempts": [
+    {
+      "id": "restart_recovery_steps",
+      "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+      "expected_abstained": false,
+      "search_seconds": 0.769,
+      "retrieved_chunk_indices": [
+        1,
+        2,
+        4,
+        3,
+        5
+      ],
+      "retrieved_distances": [
+        0.20889832946960818,
+        0.33059169856930415,
+        0.4287021500645777,
+        0.44779596043849124,
+        0.49267628832600696
+      ],
+      "expected_text_checks": [
+        {
+          "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+          "found_in_returned_chunk": true
+        }
+      ],
+      "answer_seconds": 7.01,
+      "response": {
+        "answer": "服务异常后应按以下顺序重启并恢复文件导入：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查；健康检查通过后，恢复文件导入。若两分钟后仍未恢复“运行中”，应保留请求编号并联系演示环境管理员，不要连续点击重启。恢复文件导入时还需注意：服务重启不会自动重新提交失败的导入任务，应在任务列表中检查“待处理”和“失败”记录，核对原始文件后手动重试失败任务；已完成任务无需再次导入。",
+        "abstained": false,
+        "citations": [
+          {
+            "chunk_id": "cac3209f-8af4-4ebd-902e-ffec76e09da2",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 1,
+            "quote": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。若两分钟后仍未恢复“运行中”，应保留请求编号并联系演示环境管理员，不要连续点击重启。",
+            "start_char": 369,
+            "end_char": 484
+          },
+          {
+            "chunk_id": "145d0336-65e6-461e-a39d-e227462353b9",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 2,
+            "quote": "服务重启不会自动重新提交失败的导入任务。运维人员应在任务列表中检查“待处理”和“失败”记录，核对原始文件后手动重试失败任务。已完成任务无需再次导入。",
+            "start_char": 500,
+            "end_char": 574
+          }
+        ]
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "暂停新文件导入",
+          "present": true
+        },
+        {
+          "term": "重启服务",
+          "present": true
+        },
+        {
+          "term": "运行中",
+          "present": true
+        },
+        {
+          "term": "健康检查",
+          "present": true
+        },
+        {
+          "term": "恢复文件导入",
+          "present": true
+        }
+      ],
+      "semantic_review": "辅助复核通过：恢复顺序、健康检查通过的条件、两分钟异常处理及失败任务重试均有原文支持。"
+    },
+    {
+      "id": "supported_upload_formats",
+      "question": "岚桥知识工作台支持上传哪些文件格式？",
+      "expected_abstained": false,
+      "search_seconds": 0.739,
+      "retrieved_chunk_indices": [
+        1,
+        2,
+        4,
+        5,
+        3
+      ],
+      "retrieved_distances": [
+        0.3595044422001967,
+        0.48353342662851273,
+        0.5732844471931458,
+        0.5867243409156799,
+        0.5949828028678894
+      ],
+      "expected_text_checks": [
+        {
+          "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+          "found_in_returned_chunk": true
+        }
+      ],
+      "answer_seconds": 2.968,
+      "response": {
+        "answer": "岚桥知识工作台支持上传 UTF-8 编码的 TXT、Markdown（.md）文件，以及可提取文字的 PDF 文件；不支持扫描图片型 PDF、加密 PDF、压缩包和办公表格。单个文件不得超过 10 MB，每批最多上传 5 个文件，每个知识库最多保存 100 个文件。",
+        "abstained": false,
+        "citations": [
+          {
+            "chunk_id": "145d0336-65e6-461e-a39d-e227462353b9",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 2,
+            "quote": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。单个文件大小不得超过 10 MB，每批最多上传 5 个文件，每个知识库最多保存 100 个文件。不支持扫描图片型 PDF、加密 PDF、压缩包和办公表格。",
+            "start_char": 620,
+            "end_char": 747
+          }
+        ]
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "UTF-8",
+          "present": true
+        },
+        {
+          "term": "TXT",
+          "present": true
+        },
+        {
+          "term": "Markdown",
+          "present": true
+        },
+        {
+          "term": "可提取文字的 PDF",
+          "present": true
+        }
+      ],
+      "semantic_review": "辅助复核通过：格式及UTF-8、可提取文字条件正确，限额和不支持类型也有原文支持；属于虚构产品设定。"
+    },
+    {
+      "id": "expired_access_token_steps",
+      "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+      "expected_abstained": false,
+      "search_seconds": 0.631,
+      "retrieved_chunk_indices": [
+        3,
+        4,
+        1,
+        5,
+        2
+      ],
+      "retrieved_distances": [
+        0.28715225611301676,
+        0.42310089789617866,
+        0.4509901895233759,
+        0.512074677696859,
+        0.5602566396960591
+      ],
+      "expected_text_checks": [
+        {
+          "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+          "found_in_returned_chunk": true
+        }
+      ],
+      "answer_seconds": 4.468,
+      "response": {
+        "answer": "接口返回 401 和 TOKEN_EXPIRED 时，处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查；检查通过后撤销旧令牌。新令牌只在生成时展示一次，应保存到受控配置中，不要粘贴到工单或知识库文档。客户端配置更新后需要重新加载配置。若替换令牌后仍返回 401，应核对当前工作区和令牌状态，再联系演示环境管理员。",
+        "abstained": false,
+        "citations": [
+          {
+            "chunk_id": "69a1e561-cb09-44f6-888a-442c98f118ad",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 3,
+            "quote": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。新令牌只在生成时展示一次，应保存到受控配置中，不要粘贴到工单或知识库文档。",
+            "start_char": 1032,
+            "end_char": 1161
+          },
+          {
+            "chunk_id": "69a1e561-cb09-44f6-888a-442c98f118ad",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 3,
+            "quote": "客户端配置更新后需要重新加载配置。若替换令牌后仍返回 401，应核对当前工作区和令牌状态，再联系演示环境管理员。",
+            "start_char": 1206,
+            "end_char": 1262
+          }
+        ]
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "登录管理页",
+          "present": true
+        },
+        {
+          "term": "生成新令牌",
+          "present": true
+        },
+        {
+          "term": "替换客户端配置",
+          "present": true
+        },
+        {
+          "term": "健康检查",
+          "present": true
+        },
+        {
+          "term": "撤销旧令牌",
+          "present": true
+        }
+      ],
+      "semantic_review": "辅助复核通过并记录表达问题：步骤和撤销旧令牌的条件正确，重新加载配置在末尾补充，操作顺序可写得更清楚；未发现明确事实冲突。"
+    },
+    {
+      "id": "knowledge_backup_recovery_steps",
+      "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+      "expected_abstained": false,
+      "search_seconds": 0.704,
+      "retrieved_chunk_indices": [
+        1,
+        4,
+        3,
+        2,
+        5
+      ],
+      "retrieved_distances": [
+        0.24401631224106513,
+        0.33698205131399206,
+        0.41242692396480196,
+        0.4596514266833216,
+        0.5198877739973194
+      ],
+      "expected_text_checks": [
+        {
+          "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+          "found_in_returned_chunk": true
+        },
+        {
+          "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+          "found_in_returned_chunk": true
+        }
+      ],
+      "answer_seconds": 8.706,
+      "response": {
+        "answer": "从备份快照恢复岚桥知识工作台知识库时：先进入维护模式，再选择一份成功快照并确认其时间，执行恢复；随后检查文件数量并运行一条已知问题，检查通过后退出维护模式。恢复前应记录当前文件数量和快照编号，恢复后核对所选快照的文件清单；已知问题应来自恢复快照内的文档，并能提供引用。若文件数量不符或已知问题无法检索，应保持维护模式，记录快照编号、异常时间和请求编号，交给演示环境管理员检查。注意：恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入；访问令牌必须由管理员单独配置。失败快照不得用于恢复；下一次备份成功前，最近一次成功快照仍可供恢复。",
+        "abstained": false,
+        "citations": [
+          {
+            "chunk_id": "5fb6be1c-9398-4350-a90b-af38e66385db",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 4,
+            "quote": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "start_char": 1441,
+            "end_char": 1551
+          },
+          {
+            "chunk_id": "5fb6be1c-9398-4350-a90b-af38e66385db",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 4,
+            "quote": "恢复前应记录当前文件数量和快照编号，恢复后核对所选快照的文件清单。已知问题应来自恢复快照内的文档，并能提供引用。若文件数量不符或已知问题无法检索，应保持维护模式，记录快照编号、异常时间和请求编号，交给演示环境管理员检查。",
+            "start_char": 1566,
+            "end_char": 1676
+          },
+          {
+            "chunk_id": "5fb6be1c-9398-4350-a90b-af38e66385db",
+            "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+            "document_name": "demo-product.md",
+            "chunk_index": 4,
+            "quote": "备份失败会在管理页留下失败记录，失败快照不得用于恢复。下一次备份成功前，最近一次成功快照仍可供恢复。",
+            "start_char": 1374,
+            "end_char": 1424
+          }
+        ]
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "维护模式",
+          "present": true
+        },
+        {
+          "term": "成功快照",
+          "present": true
+        },
+        {
+          "term": "确认其时间",
+          "present": true
+        },
+        {
+          "term": "执行恢复",
+          "present": true
+        },
+        {
+          "term": "文件数量",
+          "present": true
+        },
+        {
+          "term": "已知问题",
+          "present": true
+        },
+        {
+          "term": "退出维护模式",
+          "present": true
+        }
+      ],
+      "semantic_review": "辅助复核通过：维护模式、成功快照、恢复核对及通过后退出的条件正确，覆盖内容和重新导入等风险有原文支持。"
+    },
+    {
+      "id": "refund_application_insufficient_evidence",
+      "question": "我应该如何提交岚桥知识工作台的退款申请？",
+      "expected_abstained": true,
+      "search_seconds": 0.632,
+      "retrieved_chunk_indices": [
+        1,
+        4,
+        5,
+        3,
+        2
+      ],
+      "retrieved_distances": [
+        0.29781546301199324,
+        0.42216340171316746,
+        0.487671107788615,
+        0.5403570210720876,
+        0.5693526992394699
+      ],
+      "expected_text_checks": [
+        {
+          "text": "退款审核通过后三个工作日到账。",
+          "found_in_returned_chunk": true
+        }
+      ],
+      "answer_seconds": 2.189,
+      "response": {
+        "answer": "目前检索到的资料不足以确认这个问题的答案。",
+        "abstained": true,
+        "citations": []
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "证据不足",
+          "present": false
+        },
+        {
+          "term": "退款申请",
+          "present": false
+        }
+      ],
+      "semantic_review": "弃答合理：到账时限不支持申请步骤，文档明确未给出提交方式。"
+    },
+    {
+      "id": "payment_currencies_no_evidence",
+      "question": "岚桥知识工作台支持哪些支付币种？",
+      "expected_abstained": true,
+      "search_seconds": 0.588,
+      "retrieved_chunk_indices": [
+        1,
+        4,
+        5,
+        3,
+        2
+      ],
+      "retrieved_distances": [
+        0.3947502915784389,
+        0.5690891064299188,
+        0.6621583506872212,
+        0.6627053424471184,
+        0.6890001575052562
+      ],
+      "expected_text_checks": [],
+      "answer_seconds": 1.948,
+      "response": {
+        "answer": "目前检索到的资料不足以确认这个问题的答案。",
+        "abstained": true,
+        "citations": []
+      },
+      "abstention_matches_expected": true,
+      "citation_spans_valid": true,
+      "answer_term_hints": [
+        {
+          "term": "证据不足",
+          "present": false
+        },
+        {
+          "term": "支付币种",
+          "present": false
+        }
+      ],
+      "semantic_review": "弃答合理：文档没有提供支持具体支付币种的事实。"
+    }
+  ],
+  "workspace_id": "615cb383-dd07-4be7-9ea5-7f36453ed86a",
+  "knowledge_base_id": "47524575-05a2-4f39-8c17-74eae0cb387d",
+  "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+  "upload_seconds": 0.261,
+  "chunk_count": 5,
+  "chunk_seconds": 0.145,
+  "embedding": {
+    "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+    "status": "ready",
+    "model": "text-embedding-v4",
+    "dimensions": 1024,
+    "chunk_count": 5,
+    "reused": true
+  },
+  "embedding_seconds": 0.075,
+  "initial_embedding": {
+    "document_id": "b69148dc-ae3f-47fd-80bd-31384ba8fb27",
+    "status": "ready",
+    "model": "text-embedding-v4",
+    "dimensions": 1024,
+    "chunk_count": 5,
+    "reused": false
+  },
+  "initial_embedding_seconds": 2.09,
+  "review_method": "AI导师逐项对照公开文档中的事实、条件与顺序进行辅助复核；非独立人工验收，不能以词语命中或引文存在证明答案忠实。",
+  "review_limitations": [
+    "五个候选且top_k=5，未检验干扰资料中的证据筛选能力。",
+    "两个负例明确写出资料缺失，不能代表普遍弃答能力。",
+    "仅一次最终应用响应，未评测模型快照、token、费用、并发或部署网关。"
+  ]
+}

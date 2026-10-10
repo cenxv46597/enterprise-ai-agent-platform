@@ -1,0 +1,90 @@
+{
+  "dataset_version": "rag-smoke-zh-fictional-product-v1",
+  "description": "岚桥知识工作台虚构演示语料的固定人工核对样例；非真实企业制度。expected_source_texts 是 demo-product.md 中连续出现的原文，可用来核对引用证据；expected_answer_terms 仅辅助人工检查，不代表自动事实一致性或 faithfulness 评分。证据不足样例的 expected_source_texts 可包含相关但无法回答问题的原文，空列表表示没有可用资料。",
+  "cases": [
+    {
+      "id": "restart_recovery_steps",
+      "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+      "expected_abstained": false,
+      "expected_source_texts": [
+        "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。"
+      ],
+      "expected_answer_terms": [
+        "暂停新文件导入",
+        "重启服务",
+        "运行中",
+        "健康检查",
+        "恢复文件导入"
+      ]
+    },
+    {
+      "id": "supported_upload_formats",
+      "question": "岚桥知识工作台支持上传哪些文件格式？",
+      "expected_abstained": false,
+      "expected_source_texts": [
+        "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。"
+      ],
+      "expected_answer_terms": [
+        "UTF-8",
+        "TXT",
+        "Markdown",
+        "可提取文字的 PDF"
+      ]
+    },
+    {
+      "id": "expired_access_token_steps",
+      "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+      "expected_abstained": false,
+      "expected_source_texts": [
+        "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。"
+      ],
+      "expected_answer_terms": [
+        "登录管理页",
+        "生成新令牌",
+        "替换客户端配置",
+        "健康检查",
+        "撤销旧令牌"
+      ]
+    },
+    {
+      "id": "knowledge_backup_recovery_steps",
+      "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+      "expected_abstained": false,
+      "expected_source_texts": [
+        "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+        "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。"
+      ],
+      "expected_answer_terms": [
+        "维护模式",
+        "成功快照",
+        "确认其时间",
+        "执行恢复",
+        "文件数量",
+        "已知问题",
+        "退出维护模式"
+      ]
+    },
+    {
+      "id": "refund_application_insufficient_evidence",
+      "question": "我应该如何提交岚桥知识工作台的退款申请？",
+      "expected_abstained": true,
+      "expected_source_texts": [
+        "退款审核通过后三个工作日到账。"
+      ],
+      "expected_answer_terms": [
+        "证据不足",
+        "退款申请"
+      ]
+    },
+    {
+      "id": "payment_currencies_no_evidence",
+      "question": "岚桥知识工作台支持哪些支付币种？",
+      "expected_abstained": true,
+      "expected_source_texts": [],
+      "expected_answer_terms": [
+        "证据不足",
+        "支付币种"
+      ]
+    }
+  ]
+}

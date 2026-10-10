@@ -8,13 +8,15 @@
 
 阶段 1.2 已完成确定性字符切块与 PostgreSQL 文本块持久化。每块保存文档 ID、顺序编号、内容和解析文本字符范围；同配置重复请求复用原来的块 UUID，不增加记录。文档行锁与整批事务处理并发和中途失败，不同参数或算法版本返回冲突。切块通过独立接口触发，上传后仍为 `parsed`。见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md) 与 [ADR 0003](docs/adr/0003-idempotent-chunk-persistence.md)。
 
-阶段 1.3 已实现向量服务适配器、1024 维 pgvector 保存和独立触发接口。首个模型由学习者选定为百炼 `text-embedding-v4`；模型请求放在事务外，全部向量和 `ready` 状态在同一事务提交，同配置重试复用结果。已使用模拟 HTTP 与真实 PostgreSQL 验证故障和事务，真实模型调用待本机配置。模型选择、并发费用与事务取舍见 [ADR 0004](docs/adr/0004-embedding-generation-and-storage.md)。
+阶段 1.3 已实现向量服务适配器、1024 维 pgvector 保存和独立触发接口。首个模型由学习者选定为百炼 `text-embedding-v4`；模型请求放在事务外，全部向量和 `ready` 状态在同一事务提交，同配置重试复用结果。已使用模拟 HTTP 与真实 PostgreSQL 验证故障和事务，并完成首个小语料的真实向量生成。模型选择、并发费用与事务取舍见 [ADR 0004](docs/adr/0004-embedding-generation-and-storage.md)。
 
-阶段 1.4 已加入限定知识库的精确余弦检索接口。问题使用与文档相同的向量模型转换；SQL 先过滤工作空间、知识库、`ready` 文档和非空向量，再排序取前几项。返回文本、文档名、块编号、字符位置和距离。尚未接入真实模型验证语义质量，没有阈值筛选或重排；取舍见 [ADR 0005](docs/adr/0005-scoped-vector-retrieval.md)。
+阶段 1.4 已加入限定知识库的精确余弦检索接口。问题使用与文档相同的向量模型转换；SQL 先过滤工作空间、知识库、`ready` 文档和非空向量，再排序取前几项。返回文本、文档名、块编号、字符位置和距离。已在真实模型上验证链路，较大语料的检索质量仍待评测，没有阈值筛选或重排；取舍见 [ADR 0005](docs/adr/0005-scoped-vector-retrieval.md)。
 
-阶段 1.5 加入独立生成适配器与基于证据的 `/answers` 接口。空结果直接弃答，有证据时在事务外请求结构化答案；程序校验引用编号和逐字引文，并返回真实文档、块和引文字符位置。主题相关不一定足够回答，引用存在也不证明结论正确；真实模型联调与回答质量评估仍待完成。见 [ADR 0006](docs/adr/0006-evidence-grounded-answers.md)。
+阶段 1.5 加入独立生成适配器与基于证据的 `/answers` 接口。空结果直接弃答，有证据时在事务外请求结构化答案；程序校验引用编号和逐字引文，并返回真实文档、块和引文字符位置。主题相关不一定足够回答，引用存在也不证明结论正确；首轮真实模型联调已完成，广泛的回答质量评估仍待完成。见 [ADR 0006](docs/adr/0006-evidence-grounded-answers.md)。
 
-2026-10-10 最新完整本地回归为 **378 项通过、无跳过**，本轮新增 45 项问答测试和 71 项生成 HTTP 测试，使用真实 PostgreSQL/pgvector 与模拟模型。此前 262 项测试也全部通过；没有调用真实模型，不代表语义效果已验证。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
+2026-10-10 已完成[首次真实 RAG 验证](docs/evaluation/live-rag-smoke-2026-10-10.md)：虚构技术文档切成 5 块，百炼生成向量，DeepSeek 对 6 个固定问题给出 4 个带引用的答案、2 个合理弃答。原始应用响应、题集与可复跑脚本已入库。只有 5 个候选且取前 5 个，这次证明链路可运行，尚不能作为检索质量成绩；未收集 token、费用或部署网关数据。
+
+2026-10-10 最新完整本地回归为 **399 项通过、无跳过**（143.63 秒），包含新增的 21 项联调脚本保护测试，以及此前问答和生成 HTTP 的 116 项测试。回归使用真实 PostgreSQL/pgvector 与受控模型，不调用真实模型；上述六题真实联调单独执行。两者都不能替代广泛的语义质量评测。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
 
 ## 本地启动（PowerShell）
 
@@ -54,7 +56,7 @@ python -m uvicorn app.main:app --reload
 
 ## 向量服务配置与验证
 
-本轮先完成本地代码和故障测试。需要真实联调时，在本机 `.env` 配置以下字段，密钥不发到聊天或提交到 Git：
+在本机 `.env` 配置以下字段以使用真实向量服务，密钥不发到聊天或提交到 Git：
 
 ```dotenv
 EAAP_EMBEDDING_BASE_URL=从控制台复制的兼容基础地址
@@ -110,7 +112,7 @@ EAAP_GENERATION_API_KEY=本机密钥
 EAAP_GENERATION_MODEL=deepseek-flash
 ```
 
-基础地址不要追加 `/chat/completions`；适配器使用兼容的非流式 Chat Completions 与 JSON 模式。支持 JSON 模式的模型也需要提示与程序校验，见 [DeepSeek 官方接口说明](https://api-docs.deepseek.com/api/create-chat-completion/)。本轮没有修改本机 `.env`，也没有调用真实模型。
+基础地址不要追加 `/chat/completions`；适配器使用兼容的非流式 Chat Completions 与 JSON 模式。支持 JSON 模式的模型也需要提示与程序校验，见 [DeepSeek 官方接口说明](https://api-docs.deepseek.com/api/create-chat-completion/)。学习者自行完成本机配置后，已调用真实模型完成首轮六题验证。
 
 模型选择依据：当前官方列出的 Flash 价格低于 Pro，适合首轮反复调试；以后再用同一组标注问题比较 `deepseek-v4-pro` 的答案质量和成本。官网模型名称与基础地址见[官方模型与价格](https://api-docs.deepseek.com/quick_start/pricing/)。模型别名可能随服务商更新，真实验收时需记录返回的模型信息。当前适配器未显式关闭思考模式，输出预算与等待时间需要在联调时检查。
 
@@ -136,6 +138,8 @@ EAAP_GENERATION_MODEL=deepseek-flash
 
 ## 本地测试
 
+真实联调使用 `backend/scripts/live_rag_smoke.py --run`，会保存本机演示数据并产生 API 费用；复用本次资源用 `--resume`，新机器用新的 `--report` 路径。执行方法、响应报告、逐条复核与范围见[联调说明](docs/evaluation/live-rag-smoke-2026-10-10.md)。脚本独立运行，不属于下面的自动化回归。
+
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库并启用 `vector` 扩展。已有数据库卷的初始化脚本不会重跑，可执行一次：
 
 ```powershell
@@ -156,7 +160,7 @@ Remove-Item Env:EAAP_TEST_DATABASE_URL
 
 `python -m pytest backend/tests/test_embedding_persistence.py -q` 运行真实向量持久化与并发故障测试；`python -m pytest backend/tests/test_embedding_http_provider.py -q` 运行模拟 HTTP 测试。这些测试不调用真实模型、不消耗模型接口额度。以后记录检索质量时，必须另用真实模型和标注语料评估。
 
-使用同样的测试数据库配置，`python -m pytest backend/tests/test_retrieval.py -q` 验证知识库范围、余弦排序、来源定位和模型故障。向量由测试替身控制，用来验证数据库与接口行为；真实语料的 Recall@5、语义效果和延迟尚待联调与评测。
+使用同样的测试数据库配置，`python -m pytest backend/tests/test_retrieval.py -q` 验证知识库范围、余弦排序、来源定位和模型故障。向量由测试替身控制，用来验证数据库与接口行为；真实小语料已记录一次延迟，更大语料的 Recall@5、语义效果和延迟分布尚待评测。
 
 `python -m pytest backend/tests/test_answers.py backend/tests/test_generation_http_provider.py -q` 验证问答链路、引用、弃答和生成故障，使用模拟模型，不消耗 API 额度。这不代表真实模型已经能可靠判断证据或生成忠实答案。
 
