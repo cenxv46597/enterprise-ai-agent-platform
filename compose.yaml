@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: eaap
       POSTGRES_USER: eaap
-      POSTGRES_PASSWORD: eaap_local_only
+      POSTGRES_PASSWORD: ${EAAP_POSTGRES_PASSWORD:?请先在本机 .env 设置 EAAP_POSTGRES_PASSWORD}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:

@@ -18,7 +18,9 @@
 
 阶段 1.6 已完成[带干扰资料的检索评测](docs/evaluation/retrieval-eval-2026-10-10.md)：独立知识库有 4 份公开虚构资料、29 个候选块和 6 个固定问题。按学习者选择，以支持问题的连续原文验收，见 [ADR 0007](docs/adr/0007-evidence-level-retrieval-evaluation.md)。真实百炼检索中，同一次前 10 响应的前 5 与前 10 均完整覆盖 4 道正例的 5 条必需证据；2 道负例不计覆盖分。这是小型固定证据基线，不是正式 Recall@K；本轮未调用回答模型，扩大语料后的回答忠实性与弃答仍待评估。
 
-2026-10-10 最新完整本地回归为 **453 项通过、无跳过**（150.93 秒），本轮新增 31 项证据覆盖测试和 23 项评测脚本测试。回归使用真实 PostgreSQL/pgvector 与受控模型，不调用真实模型；真实联调与检索评测单独执行。两者都不能替代广泛的语义质量评测。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
+阶段 1.7 已完成[上下文证据覆盖评测](docs/evaluation/context-eval-2026-10-11.md)。共用业务选块函数，离线回放真实检索快照，对前 5、前 10 比较 600、2000、12000 字符预算，生成 36 条选择记录。检索均覆盖 5/5 条必需证据，选中上下文分别覆盖 2/5、4/5、5/5，明确区分检索遗漏与预算损失。没有新增模型调用，见 [ADR 0008](docs/adr/0008-context-evidence-coverage.md)。
+
+2026-10-11 本机数据库口令轮换后的最新完整回归为 **483 项通过、无跳过**（146.59 秒），包含快照跨换行身份测试。此前共享选块函数抽取后完整回归为 482 项通过，新模块随后完成 30 项专项验证。回归使用真实 PostgreSQL/pgvector 与受控模型，不调用真实模型；真实联调与检索评测单独执行。两者都不能替代广泛的语义质量评测。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
 
 ## 本地启动（PowerShell）
 
@@ -28,7 +30,10 @@
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".\backend[dev]"
-Copy-Item .env.example .env
+if (-not (Test-Path .env)) {
+    Copy-Item .env.example .env
+    python -c "import secrets; from dotenv import set_key; set_key('.env', 'EAAP_POSTGRES_PASSWORD', secrets.token_urlsafe(32))"
+}
 docker compose -f compose.yaml up -d --wait db
 python -m alembic -c backend/alembic.ini upgrade head
 python -m uvicorn app.main:app --reload
@@ -36,7 +41,11 @@ python -m uvicorn app.main:app --reload
 
 打开 `http://127.0.0.1:8000/health` 查看进程健康状态，打开 `http://127.0.0.1:8000/docs` 查看自动生成的接口文档。
 
-`.env.example` 中的 `EAAP_DATABASE_URL` 对应本地 Compose 的 PostgreSQL 服务；如端口或账号不同，请在本机 `.env` 中调整。示例密码仅用于本机开发。数据库结构通过 Alembic 迁移建立，不依赖应用启动时自动建表。
+首次初始化会生成独立随机口令并写入被 Git 忽略的 `.env`，不会显示口令。已有 `.env` 不会被覆盖：请确认其中已有非空的 `EAAP_POSTGRES_PASSWORD`，并让数据库与测试库连接地址使用同一口令。
+
+`.env.example` 没有可登录的默认密码。Compose 和应用配置分别从本机 `.env` 读取口令，连接地址中的 `${EAAP_POSTGRES_PASSWORD}` 由环境文件加载器展开；如端口或账号不同，请调整本机配置。不要运行会输出完整口令的 `docker compose config`，检查配置可使用 `docker compose config --quiet`。
+
+已有 PostgreSQL 数据卷不会因为修改 Compose 的 `POSTGRES_PASSWORD` 自动更换数据库口令；轮换时还需要修改数据库角色口令，并同步应用配置，见[本机数据库凭据管理](docs/local-database-credentials.md)。数据库结构通过 Alembic 迁移建立，不依赖应用启动时自动建表。
 
 上传文件默认保存在仓库根目录的 `uploads/`，可用 `EAAP_UPLOAD_ROOT` 指向其他目录；`EAAP_MAX_UPLOAD_BYTES` 设置单文件字节上限，默认值为 5 MiB。端点按实际读取字节数检查上限。部署到共享环境时，还需要在入口层设置包含表单开销的请求体总量上限。
 
@@ -144,6 +153,8 @@ EAAP_GENERATION_MODEL=deepseek-flash
 
 检索评测先运行 `python backend/scripts/evaluate_retrieval.py --plan`，仅检查公开语料、标注与预计块数。真实执行使用 `--run --report docs/evaluation/retrieval-eval-local.json`，产生向量 API 用量；仅保留演示数据库资源的本机可用 `--resume`。该脚本不调用回答模型，详细复现步骤与统计边界见[检索评测说明](docs/evaluation/retrieval-eval-2026-10-10.md)。
 
+上下文评测使用 `python backend/scripts/evaluate_context.py --plan` 验证已有快照，用 `--write-report --report docs/evaluation/context-eval-local.json` 保存离线比较。无需 `.env`、数据库或模型密钥，结果和学习实践见[上下文评测说明](docs/evaluation/context-eval-2026-10-11.md)。
+
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库并启用 `vector` 扩展。已有数据库卷的初始化脚本不会重跑，可执行一次：
 
 ```powershell
@@ -153,12 +164,10 @@ docker compose -f compose.yaml exec db psql -U eaap -d eaap_test -c "CREATE EXTE
 在仓库根目录、数据库服务运行时执行完整测试：
 
 ```powershell
-$env:EAAP_TEST_DATABASE_URL = "postgresql+psycopg://eaap:eaap_local_only@127.0.0.1:5432/eaap_test"
-python -m pytest backend/tests
-Remove-Item Env:EAAP_TEST_DATABASE_URL
+python -c "import os, subprocess, sys; from dotenv import dotenv_values; values = dotenv_values('.env'); os.environ['EAAP_TEST_DATABASE_URL'] = values['EAAP_TEST_DATABASE_URL']; sys.exit(subprocess.call([sys.executable, '-m', 'pytest', 'backend/tests', '-q']))"
 ```
 
-数据库测试在测试库中建立临时模式，结束后删除；未设置 `EAAP_TEST_DATABASE_URL` 时会跳过数据库集成测试。不要把测试地址指向日常使用的 `eaap` 数据库。
+上述命令从本机 `.env` 读取独立测试库地址，仅传入测试子进程，不显示口令。数据库测试在测试库中建立临时模式，结束后删除；直接运行 pytest 且未设置环境变量 `EAAP_TEST_DATABASE_URL` 时会跳过数据库集成测试。不要把测试地址指向日常使用的 `eaap` 数据库。
 
 在相同测试环境下，`python -m pytest backend/tests/test_chunk_persistence.py -q` 单独运行 43 项切块持久化测试；`python -m pytest backend/tests/test_chunking.py -q` 单独运行 24 项纯算法测试。
 
@@ -185,3 +194,7 @@ python -m app.knowledge.audit
 ## 工程设计取舍
 
 我们先采用模块化 FastAPI 应用，已使用 PostgreSQL 和 pgvector 保存文本块及向量，逐步构建检索增强生成链路。建立检索质量基线后，再根据需要考虑近似索引、重排、Redis、LangGraph 或 MCP。身份认证和权限控制实现之前，本项目仅是本地单用户原型。
+
+## GitHub 版本管理
+
+每个功能模块完成后先说明修改、验证结果、文件清单和提交信息，由学习者确认后再提交并推送。首次上传与后续流程见 [GitHub 工作约定](docs/github-workflow.md)。

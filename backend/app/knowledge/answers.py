@@ -6,6 +6,12 @@ from uuid import UUID
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.knowledge.context import (
+    AnswerContextLimitError,
+    DEFAULT_CONTEXT_CHARACTERS,
+    MAX_CONTEXT_CHARACTERS,
+    select_context as _select_context,
+)
 from app.knowledge.retrieval import SearchHit, search_knowledge_base
 from app.providers.embeddings import EmbeddingProvider
 from app.providers.generation import (
@@ -17,12 +23,6 @@ from app.providers.generation import (
 
 
 ABSTENTION_MESSAGE = "目前检索到的资料不足以确认这个问题的答案。"
-DEFAULT_CONTEXT_CHARACTERS = 12000
-MAX_CONTEXT_CHARACTERS = 50000
-
-
-class AnswerContextLimitError(ValueError):
-    """检索到的文本块均无法完整放入本次上下文预算。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,19 +41,6 @@ class AnswerResult:
     answer: str
     abstained: bool
     citations: list[AnswerCitation]
-
-
-def _select_context(hits: list[SearchHit], budget: int) -> list[SearchHit]:
-    selected: list[SearchHit] = []
-    remaining = budget
-    for hit in hits:
-        # 保留完整块及其原始位置；超出剩余预算的块跳过，继续尝试后续块。
-        if len(hit.content) <= remaining:
-            selected.append(hit)
-            remaining -= len(hit.content)
-    if not selected:
-        raise AnswerContextLimitError("检索文本块超过本次回答的上下文预算")
-    return selected
 
 
 def _validate_citations(draft: GeneratedAnswer, selected: list[SearchHit]) -> list[AnswerCitation]:

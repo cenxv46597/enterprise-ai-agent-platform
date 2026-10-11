@@ -1,0 +1,3397 @@
+{
+  "created_at_utc": "2026-10-11T00:56:24.708471+00:00",
+  "execution": "离线回放已保存的真实检索候选，复用业务上下文选择函数",
+  "source_report": "docs/evaluation/retrieval-eval-2026-10-10.json",
+  "source_report_canonical_sha256": "c77c28dad280afcb780349720a89dc3085d8897ffb340fd7952f5fb30d04c002",
+  "source_identity": {
+    "dataset_version": "retrieval-eval-v1",
+    "dataset_sha256": "dfff8f409d4637aa463bcf20f5dd6bf057e837dcc562dc1b709d1d3f291f50f0",
+    "corpus_sha256": {
+      "demo-product.md": "3523c0a2eaee080e289bce81a70abecc2ab498471d0291e1d273d3e0ef2f9742",
+      "demo-log-observability.md": "438932fc58332b6d4d6f105311d38c20c51ea1925ce01e8db921aa69847cfa48",
+      "demo-export-records.md": "da0923dacef181593e7aeb831687a9c2bd196a0ea3d0cfa1a0126dd1ff8e18a6",
+      "demo-permissions-collaboration.md": "4df753f3c09a51f092dbc257f2c8adfd113e0928f0a8461435dae3d8bad8c7b7"
+    },
+    "chunking": {
+      "chunk_size": 500,
+      "overlap": 50,
+      "version": "character-v1"
+    },
+    "comparison": "同一次实际 top_k=10 响应的前 5 个与前 10 个；只有一次检索耗时",
+    "embedding_profile_sha256": "c3a7c41867fe5389edb90e45b91cc3e546d181865893cc96e722e67e9ca6b5ee"
+  },
+  "source_hash_scope": "按键排序的紧凑 UTF-8 JSON；忽略文件换行和缩进差异",
+  "candidate_count": 29,
+  "case_count": 6,
+  "policy": "按检索排名保留完整块；跳过超出剩余预算的块，不截断、不重排",
+  "default_context_characters": 12000,
+  "budget_scope": "仅文本块正文字符，不包含问题、提示词、JSON 开销或模型 token",
+  "rank_scope": "selected_sources 保留原检索排名；上下文 first_complete_rank 为选中列表的位置",
+  "scope": "仅黄金证据覆盖；没有调用模型，不评价真实答案忠实性或弃答，不测 token、费用和耗时",
+  "new_model_calls": 0,
+  "generation_called": false,
+  "results": [
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 1
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": false,
+            "first_complete_rank": null
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 2
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 4,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 1,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 1
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "06e633f7-b0c8-4a77-abc5-4fb2d3188d74",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 1,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 4,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "06e633f7-b0c8-4a77-abc5-4fb2d3188d74",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "355f46cf-f9b5-410f-a6ea-549cde2ca85a",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 2500,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 1
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": false,
+            "first_complete_rank": null
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 2
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "selection_status": "selected",
+      "used_characters": 500,
+      "dropped_candidate_count": 9,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 1,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 0,
+        "all_evidence_found": false,
+        "evidence_hit_fraction": 0.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": false,
+            "first_complete_rank": null
+          }
+        ]
+      },
+      "lost_evidence_count": 1
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "06e633f7-b0c8-4a77-abc5-4fb2d3188d74",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "selection_status": "selected",
+      "used_characters": 2000,
+      "dropped_candidate_count": 6,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 4,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4831,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "b55db51d-a526-4f17-82c6-b57819a945a2",
+          "chunk_index": 8,
+          "start_char": 3150,
+          "end_char": 3481,
+          "character_count": 331
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ce5f565-8495-4ae5-beca-6fa6e42def92",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "9226006a-3cad-45be-97d1-b196db44c484",
+          "chunk_index": 6,
+          "start_char": 2250,
+          "end_char": 2750,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4831,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "1d102cd5-6eff-45ef-bdcd-2d7c64d72a87",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ce5f565-8495-4ae5-beca-6fa6e42def92",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "28ff0c04-e37d-45e3-ba06-585000a4654b",
+          "chunk_index": 5,
+          "start_char": 1800,
+          "end_char": 2300,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "b55db51d-a526-4f17-82c6-b57819a945a2",
+          "chunk_index": 8,
+          "start_char": 3150,
+          "end_char": 3481,
+          "character_count": 331
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4618,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "06e633f7-b0c8-4a77-abc5-4fb2d3188d74",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "355f46cf-f9b5-410f-a6ea-549cde2ca85a",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "92604d12-a4df-43c8-841c-e9b856019ed5",
+          "chunk_index": 5,
+          "start_char": 1800,
+          "end_char": 1918,
+          "character_count": 118
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "9226006a-3cad-45be-97d1-b196db44c484",
+          "chunk_index": 6,
+          "start_char": 2250,
+          "end_char": 2750,
+          "character_count": 500
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "79939635-c8d5-4dd1-b0a5-c3864dae7085",
+          "chunk_index": 7,
+          "start_char": 2700,
+          "end_char": 3200,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ea9bd3a8-32c7-46e4-bd7e-0a06bae19b7c",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "b34fca4b-e693-4759-bdd1-13fb4e3fb389",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4831,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "9226006a-3cad-45be-97d1-b196db44c484",
+          "chunk_index": 6,
+          "start_char": 2250,
+          "end_char": 2750,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "b55db51d-a526-4f17-82c6-b57819a945a2",
+          "chunk_index": 8,
+          "start_char": 3150,
+          "end_char": 3481,
+          "character_count": 331
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ce5f565-8495-4ae5-beca-6fa6e42def92",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "context_evidence": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4449,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "92604d12-a4df-43c8-841c-e9b856019ed5",
+          "chunk_index": 5,
+          "start_char": 1800,
+          "end_char": 1918,
+          "character_count": 118
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ce5f565-8495-4ae5-beca-6fa6e42def92",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "b55db51d-a526-4f17-82c6-b57819a945a2",
+          "chunk_index": 8,
+          "start_char": 3150,
+          "end_char": 3481,
+          "character_count": 331
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "chunk_index": 2,
+          "start_char": 450,
+          "end_char": 950,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "selection_status": "selected",
+      "used_characters": 4618,
+      "dropped_candidate_count": 0,
+      "selected_sources": [
+        {
+          "source_id": 1,
+          "retrieval_rank": 1,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 2,
+          "retrieval_rank": 2,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 3,
+          "retrieval_rank": 3,
+          "document_id": "271f0ae3-8b11-4713-b4c5-a8ff6c8bbc82",
+          "document_name": "demo-log-observability.md",
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 4,
+          "retrieval_rank": 4,
+          "document_id": "0a1c06a4-16e1-4832-afba-5c3b62c7ce10",
+          "document_name": "demo-export-records.md",
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "chunk_index": 1,
+          "start_char": 0,
+          "end_char": 500,
+          "character_count": 500
+        },
+        {
+          "source_id": 5,
+          "retrieval_rank": 5,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 6,
+          "retrieval_rank": 6,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "92604d12-a4df-43c8-841c-e9b856019ed5",
+          "chunk_index": 5,
+          "start_char": 1800,
+          "end_char": 1918,
+          "character_count": 118
+        },
+        {
+          "source_id": 7,
+          "retrieval_rank": 7,
+          "document_id": "54ccbcfb-4095-44d6-a8ea-9382175ccd8a",
+          "document_name": "demo-product.md",
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "chunk_index": 3,
+          "start_char": 900,
+          "end_char": 1400,
+          "character_count": 500
+        },
+        {
+          "source_id": 8,
+          "retrieval_rank": 8,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "4ce5f565-8495-4ae5-beca-6fa6e42def92",
+          "chunk_index": 4,
+          "start_char": 1350,
+          "end_char": 1850,
+          "character_count": 500
+        },
+        {
+          "source_id": 9,
+          "retrieval_rank": 9,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "28ff0c04-e37d-45e3-ba06-585000a4654b",
+          "chunk_index": 5,
+          "start_char": 1800,
+          "end_char": 2300,
+          "character_count": 500
+        },
+        {
+          "source_id": 10,
+          "retrieval_rank": 10,
+          "document_id": "51d9982b-8cab-42e3-a0b1-089b2405f661",
+          "document_name": "demo-permissions-collaboration.md",
+          "chunk_id": "d89ddf08-5f5d-4c65-ab6f-0cc32e44e830",
+          "chunk_index": 6,
+          "start_char": 2250,
+          "end_char": 2750,
+          "character_count": 500
+        }
+      ],
+      "retrieval_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "context_evidence": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 10,
+        "returned_count": 10,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "lost_evidence_count": 0
+    }
+  ],
+  "summary": [
+    {
+      "top_k": 5,
+      "max_context_characters": 600,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 2,
+      "context_evidence_hit_fraction": 0.4,
+      "all_context_evidence_cases": 2,
+      "lost_evidence_count": 3,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 2000,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 4,
+      "context_evidence_hit_fraction": 0.8,
+      "all_context_evidence_cases": 3,
+      "lost_evidence_count": 1,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    },
+    {
+      "top_k": 5,
+      "max_context_characters": 12000,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 5,
+      "context_evidence_hit_fraction": 1.0,
+      "all_context_evidence_cases": 4,
+      "lost_evidence_count": 0,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 600,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 2,
+      "context_evidence_hit_fraction": 0.4,
+      "all_context_evidence_cases": 2,
+      "lost_evidence_count": 3,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 2000,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 4,
+      "context_evidence_hit_fraction": 0.8,
+      "all_context_evidence_cases": 3,
+      "lost_evidence_count": 1,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    },
+    {
+      "top_k": 10,
+      "max_context_characters": 12000,
+      "answerable_cases": 4,
+      "required_evidence_count": 5,
+      "retrieval_covered_evidence_count": 5,
+      "context_covered_evidence_count": 5,
+      "context_evidence_hit_fraction": 1.0,
+      "all_context_evidence_cases": 4,
+      "lost_evidence_count": 0,
+      "no_block_fits_cases": 0,
+      "negative_cases_excluded_from_evidence_score": 2
+    }
+  ]
+}
