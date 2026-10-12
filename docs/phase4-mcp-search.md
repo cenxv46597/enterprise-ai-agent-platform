@@ -150,8 +150,9 @@ mcp_stdio_fixture.py。最终协议专项 **95 项通过、无跳过（13.02 秒
 ## 7. 学习总结、小实践与面试
 
 已独立解释：破坏性工具需要明确许可，不能因为服务器公布就交给 Agent。
-仍待个人验证：能力白名单与一次操作权限的区别、返回格式与来源可信的区别、进程预算
-与清理时间的区别。导师实现和测试不计为学习者已完成代码实践。
+后续学习者独立指出：A 公司查询得到 B 公司知识库片段应拒绝，已识别跨知识库来源
+错误。尚待实践验证格式通过与来源拒绝并存、正文篡改和整批拒绝；能力白名单与一次
+操作权限、进程预算与清理时间仍需逐题讨论。导师实现和测试不计为个人代码实践。
 
 小实践优先纯协议测试，不依赖数据库或真实模型：打开 test_mcp_protocol.py 中
 test_discovery_does_not_register_unapproved_delete_despite_readonly_hint，将模拟的未批准
@@ -164,6 +165,21 @@ test_discovery_does_not_register_unapproved_delete_despite_readonly_hint，将�
 预期 1 passed 表示陌生工具即使自称只读也不会自动注册，不代表已执行删除、已实现
 授权审批或 MCP 改善了真实质量。不要修改生产白名单让测试通过；先说清断言证明什么。
 该实践尚未由学习者修改或运行，预期不是实际成绩；只在实际反馈后更新个人记录。
+
+来源核验的小实践（当前接续）：在 test_mcp_api.py 的
+test_chunk_from_other_knowledge_base_cannot_be_laundered_into_host_scope 中，将最后
+一行替换为下面三行，其余构造保持不变：
+
+```python
+result = envelope(context, identifiers)
+validated = SearchEnvelope.model_validate_json(result.model_dump_json())
+assert_rejected_evidence(context, validated)
+```
+
+前两行应通过格式校验，最后一行仍验证 Host 返回 mcp_evidence_invalid、证据池为空且
+未调用答案生成。此测试使用独立 PostgreSQL 与 Client/模型替身，不是实际远端协议
+或身份授权测试。使用 README 的独立测试库配置方式，只选择该用例运行；无测试库
+配置出现 skip 不算通过。学习者尚未修改或运行，不预记成绩，也不需要改生产实现。
 
 面试题准备三道，每次只讨论一道：
 
