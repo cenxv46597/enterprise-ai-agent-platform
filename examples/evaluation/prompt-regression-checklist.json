@@ -1,0 +1,62 @@
+{
+  "version": "prompt-regression-checklist-v1",
+  "description": "六题两版回归验收；复用既有十六项语义标准，不用关键词、长度或引用存在替代事实判断。",
+  "dataset_canonical_sha256": "7bf88d3417a03780ca9c18505d9fe3815bc4f689a5541ba5c5c5108e65c695e9",
+  "public_text_sha256": "3523c0a2eaee080e289bce81a70abecc2ab498471d0291e1d273d3e0ef2f9742",
+  "rubric_canonical_sha256": "bc0f33622dbf8dae79e952d693dc4363c9819dda9f21e7e79ac94fb0feb042a7",
+  "acceptance_policy": [
+    "六题两版输出齐全后才能比较全题回归；超时或无效输出如实记为未完成。",
+    "两道证据不足题应弃答，四道可回答题逐项保留事实、必要条件与操作顺序。",
+    "既有十六项标准全部纳入，任一事实或条件退化均不得以表达更流畅抵消。",
+    "引用有效不等于答案正确；待审核保持未知，AI 建议不自动转换成人工验收。",
+    "模拟只验证程序流程；真实配对与语义复核完成后才能决定是否替换线上提示词。"
+  ],
+  "cases": [
+    {
+      "case_id": "restart_recovery_steps",
+      "critical_check_ids": [
+        "restart_sequence",
+        "healthcheck_gate",
+        "all_claims_supported"
+      ]
+    },
+    {
+      "case_id": "supported_upload_formats",
+      "critical_check_ids": [
+        "supported_formats",
+        "format_conditions",
+        "all_claims_supported"
+      ]
+    },
+    {
+      "case_id": "expired_access_token_steps",
+      "critical_check_ids": [
+        "rotation_sequence",
+        "revoke_gate",
+        "configuration_reload",
+        "all_claims_supported"
+      ]
+    },
+    {
+      "case_id": "knowledge_backup_recovery_steps",
+      "critical_check_ids": [
+        "recovery_sequence",
+        "maintenance_exit_gate",
+        "restore_risks",
+        "all_claims_supported"
+      ]
+    },
+    {
+      "case_id": "refund_application_insufficient_evidence",
+      "critical_check_ids": [
+        "refund_evidence_insufficient"
+      ]
+    },
+    {
+      "case_id": "payment_currencies_no_evidence",
+      "critical_check_ids": [
+        "currencies_not_stated"
+      ]
+    }
+  ]
+}

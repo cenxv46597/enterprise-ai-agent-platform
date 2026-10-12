@@ -182,7 +182,7 @@ def public_span_matches(item: dict, corpus_text: str, document_id: str, content_
     )
 
 
-def evaluate_case(client: TestClient, base_url: str, case: dict, corpus_text: str, document_id: str) -> dict:
+def evaluate_case(client: TestClient, base_url: str, case: dict, corpus_text: str, document_id: str, *, generation_snapshots: list[dict] | None = None) -> dict:
     result = {
         "id": case["id"], "question": case["question"],
         "expected_abstained": case["expected_abstained"],
@@ -202,6 +202,13 @@ def evaluate_case(client: TestClient, base_url: str, case: dict, corpus_text: st
         raise SmokeFailure("answer_sources_changed")
     result["answer_seconds"] = elapsed
     result["response"] = answer
+    if generation_snapshots is not None:
+        if len(generation_snapshots) > 1 or (not generation_snapshots and not answer["abstained"]):
+            raise SmokeFailure("generation_snapshot_count")
+        result["generation_capture_state"] = "已记录请求正文" if generation_snapshots else "未观察到生成请求"
+        result["generation_request_snapshot"] = generation_snapshots[0] if generation_snapshots else None
+        if generation_snapshots:
+            result["generation_request_snapshot"]["answer_response_received"] = True
     result["abstention_matches_expected"] = answer["abstained"] == case["expected_abstained"]
     result["citation_spans_valid"] = True
     result["answer_term_hints"] = [
@@ -211,11 +218,28 @@ def evaluate_case(client: TestClient, base_url: str, case: dict, corpus_text: st
     return result
 
 
+def install_generation_capture(app, report: dict, report_path: Path, public_text: str, case: dict, snapshots: list[dict]) -> None:
+    """仅在显式公开演示中安装；输入验证或保存失败会在模型请求前停止。"""
+    from app.api.answers import ConfiguredGenerationProvider, get_generation_provider
+    from app.providers.generation_snapshot import capture_generation_request
+
+    def observe(payload: dict) -> None:
+        snapshot = capture_generation_request(payload, public_text, case["question"])
+        if snapshots:
+            raise SmokeFailure("generation_snapshot_count")
+        snapshots.append(snapshot)
+        report.setdefault("prepared_generation_requests", []).append({"case_id": case["id"], "snapshot": snapshot})
+        save_report(report_path, report)
+
+    app.dependency_overrides[get_generation_provider] = lambda: ConfiguredGenerationProvider(request_observer=observe)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="真实接口会产生费用；只验证固定公开演示语料并保留本机演示资源。")
     parser.add_argument("--run", action="store_true", help="显式允许真实模型调用与本机演示数据写入")
     parser.add_argument("--resume", action="store_true", help="复用报告中的演示资源，避免重复上传和向量生成")
     parser.add_argument("--case-id", action="append", help="只运行指定的固定问题，可重复提供")
+    parser.add_argument("--capture-generation", action="store_true", help="只在本轮公开演示保存准备发送的生成输入、提示词和参数")
     parser.add_argument("--report", default=str(REPORT_ROOT / "live-rag-smoke-2026-10-10.json"))
     args = parser.parse_args()
     if not args.run:
@@ -239,6 +263,13 @@ def main() -> int:
             report = json.loads(report_path.read_text(encoding="utf-8"))
             if report["corpus_sha256"] != corpus_hash or report["dataset_version"] != dataset["dataset_version"]:
                 raise SmokeFailure("resume_dataset")
+            if args.capture_generation and report.get("generation_capture_version") != "generation-request-snapshot-v1":
+                # 旧报告缺失当时的输入，不能用后来的请求补写历史。
+                report = {}
+                raise SmokeFailure("capture_requires_new_report")
+            if not args.capture_generation and "generation_capture_version" in report:
+                report = {}
+                raise SmokeFailure("capture_resume_mode_changed")
         else:
             if report_path.exists():
                 raise SmokeFailure("report_exists_use_resume")
@@ -250,12 +281,20 @@ def main() -> int:
                 "scope": "固定小语料的链路验证，不是检索质量基准；未统计 token 或费用，未验证部署网关",
                 "attempts": [],
             }
-        with TestClient(create_app()) as client:
+            if args.capture_generation:
+                report["generation_capture_version"] = "generation-request-snapshot-v1"
+        app = create_app()
+        with TestClient(app) as client:
             base_url = prepare_demo(client, report, report_path, corpus, args.resume)
             emit({"stage": "document_ready", "chunk_count": report["chunk_count"], "reused_embeddings": report["embedding"]["reused"]})
             for case in selected:
                 ensure_demo_only(report)
-                result = evaluate_case(client, base_url, case, corpus_text, report["document_id"])
+                if args.capture_generation:
+                    snapshots: list[dict] = []
+                    install_generation_capture(app, report, report_path, corpus_text, case, snapshots)
+                    result = evaluate_case(client, base_url, case, corpus_text, report["document_id"], generation_snapshots=snapshots)
+                else:
+                    result = evaluate_case(client, base_url, case, corpus_text, report["document_id"])
                 report["attempts"].append(result)
                 save_report(report_path, report)
                 emit({"stage": "case_complete", "id": result["id"], "abstained": result["response"]["abstained"], "citations": len(result["response"]["citations"]), "answer_seconds": result["answer_seconds"]})

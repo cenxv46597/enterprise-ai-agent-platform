@@ -1,25 +1,29 @@
-"""限定工作空间和知识库的语义检索接口。"""
+"""限定工作空间和知识库的向量、混合检索接口。"""
 
 import logging
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.documents import EmbeddingDep
+from app.api.reranking import RerankDep
 from app.api.workspaces import DbSession
 from app.knowledge.retrieval import (
     MAX_QUERY_CHARACTERS,
     MAX_TOP_K,
+    RetrievalCapacityError,
     RetrievalConflictError,
     RetrievalInputError,
     RetrievalNotFoundError,
     RetrievalStateError,
     SearchResult,
-    search_knowledge_base,
+    SearchStrategy,
 )
 from app.providers.embeddings import EmbeddingError, EmbeddingTimeoutError
+from app.knowledge.search_pipeline import search_with_reranking
+from app.providers.reranking import RerankConfigurationError, RerankInputError, RerankTrace
 
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,15 @@ class SearchRequest(BaseModel):
         default=5, ge=1, le=MAX_TOP_K, strict=True,
         description="最多返回的段落数，候选不足时返回实际数量",
     )
+    strategy: SearchStrategy = Field(default="vector", description="vector：余弦检索；hybrid：词项与向量名次融合")
+    rerank: bool = Field(default=False, strict=True, description="显式开启模型重排，会增加至多一次模型请求")
+    candidate_k: int = Field(default=20, ge=1, le=20, strict=True, description="开启重排时的召回候选量，必须不少于 top_k；关闭时忽略")
+
+    @model_validator(mode="after")
+    def check_candidates(self) -> "SearchRequest":
+        if self.rerank and self.candidate_k < self.top_k:
+            raise ValueError("candidate_k 不能少于 top_k")
+        return self
 
     @field_validator("query", mode="before")
     @classmethod
@@ -61,15 +74,23 @@ class SearchHitRead(BaseModel):
         ge=0, le=2, allow_inf_nan=False,
         description="余弦距离，越小越接近，范围 0 至 2；不是答案正确率",
     )
+    fusion_score: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="混合模式的名次融合得分，越大排名越前；不是正确率")
+    vector_rank: int | None = Field(default=None, ge=1, le=20, description="向量通道前二十候选中的排名；未入选时为空")
+    lexical_rank: int | None = Field(default=None, ge=1, le=20, description="词项通道前二十候选中的排名；未入选时为空")
+    lexical_score: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="词项通道 BM25 得分，不与余弦距离直接相加")
+    retrieval_rank: int | None = Field(default=None, ge=1, le=20, description="开启重排时，在召回候选快照中的原始排名")
+    rerank_rank: int | None = Field(default=None, ge=1, le=20, description="成功重排后的排名；降级时为空")
 
 
 class SearchRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    metric: Literal["cosine_distance"]
+    metric: Literal["cosine_distance", "reciprocal_rank_fusion"]
+    strategy: SearchStrategy
     model: str | None
     dimensions: int | None
     results: list[SearchHitRead]
+    reranking: RerankTrace | None = None
 
 
 @router.post("/search", response_model=SearchRead)
@@ -79,10 +100,13 @@ def search(
     payload: SearchRequest,
     session: DbSession,
     provider: EmbeddingDep,
+    rerank_provider: RerankDep,
 ) -> SearchResult:
     try:
-        return search_knowledge_base(
-            session, provider, workspace_id, knowledge_base_id, payload.query, top_k=payload.top_k
+        return search_with_reranking(
+            session, provider, workspace_id, knowledge_base_id, payload.query,
+            top_k=payload.top_k, strategy=payload.strategy,
+            rerank=payload.rerank, candidate_k=payload.candidate_k, rerank_provider=rerank_provider,
         )
     except RetrievalNotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在") from None
@@ -91,8 +115,14 @@ def search(
             status_code=status.HTTP_409_CONFLICT,
             detail="查询模型与知识库向量配置不一致，请检查模型配置",
         ) from None
+    except RetrievalCapacityError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="当前混合检索支持最多 2000 个可检索文本块、100 万正文字符，请使用较小知识库或选择 vector 策略") from None
     except RetrievalInputError:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="检索参数无效") from None
+    except RerankInputError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="重排参数无效或候选正文超过 20000 字符；请减少候选数或关闭重排") from None
+    except RerankConfigurationError:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="当前重排基线复用生成服务，请检查生成服务及重排等待时间配置") from None
     except EmbeddingTimeoutError:
         logger.warning("查询向量生成超时，知识库 ID：%s", knowledge_base_id)
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="向量服务请求超时") from None

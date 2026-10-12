@@ -12,7 +12,9 @@ from app.knowledge.context import (
     MAX_CONTEXT_CHARACTERS,
     select_context as _select_context,
 )
-from app.knowledge.retrieval import SearchHit, search_knowledge_base
+from app.knowledge.retrieval import SearchHit, SearchStrategy
+from app.knowledge.search_pipeline import search_with_reranking
+from app.providers.reranking import RerankProvider, RerankTrace
 from app.providers.embeddings import EmbeddingProvider
 from app.providers.generation import (
     GeneratedAnswer,
@@ -41,6 +43,7 @@ class AnswerResult:
     answer: str
     abstained: bool
     citations: list[AnswerCitation]
+    reranking: RerankTrace | None = None
 
 
 def _validate_citations(draft: GeneratedAnswer, selected: list[SearchHit]) -> list[AnswerCitation]:
@@ -82,7 +85,11 @@ def answer_knowledge_base(
     question: str,
     *,
     top_k: int = 5,
+    strategy: SearchStrategy = "vector",
     max_context_characters: int = DEFAULT_CONTEXT_CHARACTERS,
+    rerank: bool = False,
+    candidate_k: int = 20,
+    rerank_provider: RerankProvider | None = None,
 ) -> AnswerResult:
     """按本次检索的文本快照回答；模型请求期间没有活动数据库事务。
 
@@ -91,12 +98,27 @@ def answer_knowledge_base(
     """
     if type(max_context_characters) is not int or not 1 <= max_context_characters <= MAX_CONTEXT_CHARACTERS:
         raise AnswerContextLimitError("回答上下文预算配置无效")
-    search_result = search_knowledge_base(
-        session, embedding_provider, workspace_id, knowledge_base_id, question, top_k=top_k
+    search_result = search_with_reranking(
+        session, embedding_provider, workspace_id, knowledge_base_id, question,
+        top_k=top_k, strategy=strategy,
+        rerank=rerank, candidate_k=candidate_k, rerank_provider=rerank_provider,
     )
-    if not search_result.results:
-        return AnswerResult(ABSTENTION_MESSAGE, True, [])
-    selected = _select_context(search_result.results, max_context_characters)
+    return answer_from_hits(generation_provider, question, search_result.results,
+                            max_context_characters=max_context_characters, reranking=search_result.reranking)
+
+
+def answer_from_hits(
+    generation_provider: GenerationProvider, question: str, hits: list[SearchHit], *,
+    max_context_characters: int = DEFAULT_CONTEXT_CHARACTERS, reranking: RerankTrace | None = None,
+) -> AnswerResult:
+    """直接使用已检索快照生成，智能体结束时无需再检索一次。"""
+    if type(max_context_characters) is not int or not 1 <= max_context_characters <= MAX_CONTEXT_CHARACTERS:
+        raise AnswerContextLimitError("回答上下文预算配置无效")
+    if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
+        raise GenerationError("待回答问题无效")
+    if not hits:
+        return AnswerResult(ABSTENTION_MESSAGE, True, [], reranking)
+    selected = _select_context(hits, max_context_characters)
     sources = tuple(
         GenerationSource(source_id=index, content=hit.content)
         for index, hit in enumerate(selected, 1)
@@ -110,5 +132,5 @@ def answer_knowledge_base(
     except (ValidationError, TypeError, ValueError):
         raise GenerationError("生成服务返回的草稿格式无效") from None
     if draft.abstained:
-        return AnswerResult(ABSTENTION_MESSAGE, True, [])
-    return AnswerResult(draft.answer, False, _validate_citations(draft, selected))
+        return AnswerResult(ABSTENTION_MESSAGE, True, [], reranking)
+    return AnswerResult(draft.answer, False, _validate_citations(draft, selected), reranking)

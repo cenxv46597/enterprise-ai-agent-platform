@@ -30,6 +30,19 @@ class Settings(BaseSettings):
     generation_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
     generation_max_tokens: int = Field(default=2000, ge=1, le=8192)
     generation_max_context_characters: int = Field(default=12000, ge=1, le=50000)
+    rerank_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    rerank_total_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    rerank_max_tokens: int = Field(default=512, ge=128, le=2048)
+    agent_timeout_seconds: float = Field(default=15, gt=0, le=120)
+    agent_total_timeout_seconds: float = Field(default=20, gt=0, le=120)
+    agent_max_tokens: int = Field(default=512, ge=128, le=2048)
+    agent_protocol: Literal["native", "json"] = "native"
+    review_base_url: str | None = None
+    review_api_key: SecretStr | None = None
+    review_model: str | None = None
+    review_timeout_seconds: float = Field(default=30, gt=0, le=120)
+    review_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
+    review_max_tokens: int = Field(default=3000, ge=1, le=8192)
 
     model_config = SettingsConfigDict(
         env_prefix="EAAP_",

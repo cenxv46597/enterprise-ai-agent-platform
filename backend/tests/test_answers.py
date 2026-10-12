@@ -1,12 +1,14 @@
 """证据回答的本地故障测试；受控模型只验证流程与引用，不代表语义质量。"""
 
 import os
+import json
 import warnings
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from sqlalchemy import Engine, create_engine
@@ -343,6 +345,45 @@ def test_context_budget_skips_whole_long_chunk_and_renumbers_later_sources(answe
     assert result.citations[0].document_id == document_id
     assert result.citations[0].start_char == 26
     assert result.citations[0].end_char == 30
+
+
+def test_generation_snapshot_records_budgeted_sources_not_all_retrieval_candidates(answer_context: AnswerContext):
+    from app.providers.compatible_generation import OpenAICompatibleGenerationProvider
+    from app.providers.generation_snapshot import capture_generation_request
+
+    context = answer_context
+    contents = ["长" * 20, "退款步骤", "联系客服"]
+    _, chunk_ids = context.document(contents, vectors=[vector(1.0), vector(0.9, 0.1), vector(0.8, 0.2)], start_char=0)
+    snapshots = []
+    question = "如何提交退款申请？"
+
+    def observe(body):
+        snapshots.append(capture_generation_request(body, "\n".join(contents), question))
+
+    def handler(request):
+        assert len(snapshots) == 1
+        assert json.loads(request.content) == snapshots[0]["request_body"]
+        return httpx.Response(200, json={"model": "controlled-model", "choices": [{
+            "index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": json.dumps({
+                "answer": "退款步骤中提到联系客服。", "abstained": False,
+                "citations": [{"source_id": 2, "quote": "联系客服"}],
+            })},
+        }]})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        provider = OpenAICompatibleGenerationProvider(
+            "https://generation.example/v1", SecretStr("controlled-secret"), "controlled-model",
+            client=client, request_observer=observe,
+        )
+        with Session(context.engine) as session:
+            result = answer_knowledge_base(
+                session, context.embedding, provider, context.workspace_id, context.knowledge_base_id,
+                question, top_k=3, max_context_characters=8,
+            )
+    data = json.loads(snapshots[0]["request_body"]["messages"][1]["content"])
+    assert data["sources"] == [{"source_id": 1, "content": "退款步骤"}, {"source_id": 2, "content": "联系客服"}]
+    assert result.citations[0].chunk_id == chunk_ids[2]
+    assert snapshots[0]["source_count"] == 2 and snapshots[0]["context_characters"] == 8
 
 
 def test_all_chunks_over_context_budget_raise_without_generation(answer_context: AnswerContext) -> None:

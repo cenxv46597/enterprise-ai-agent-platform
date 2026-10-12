@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, Mock
 from uuid import UUID
 
 from pydantic import SecretStr
+import httpx
 import pytest
 
 
@@ -297,3 +298,82 @@ def test_public_success_keeps_semantic_review_pending_even_with_all_term_hits(
     assert all(hint["present"] for hint in attempt["answer_term_hints"])
     assert attempt["semantic_review"] == "待人工核对；词语命中和引文存在不代表答案忠实"
     assert "不是检索质量基准" in report["scope"]
+
+
+@pytest.mark.parametrize("abstained,has_snapshot", [(False, True), (True, True), (True, False)])
+def test_capture_attaches_observed_body_without_inventing_requests(smoke, monkeypatch, abstained, has_snapshot):
+    answer = public_answer() if not abstained else {"answer": "没有资料", "abstained": True, "citations": []}
+    monkeypatch.setattr(smoke, "request", Mock(side_effect=[(public_search(), 0.01), (answer, 0.02)]))
+    snapshots = [{"capture_stage": "请求发送前"}] if has_snapshot else []
+    row = smoke.evaluate_case(object(), "/demo", fixed_case(), CORPUS_TEXT, DOCUMENT_ID, generation_snapshots=snapshots)
+    if has_snapshot:
+        assert row["generation_request_snapshot"]["answer_response_received"] is True
+    else:
+        assert row["generation_request_snapshot"] is None
+        assert row["generation_capture_state"] == "未观察到生成请求"
+
+
+def test_answer_without_observed_request_fails_capture(smoke, monkeypatch):
+    monkeypatch.setattr(smoke, "request", Mock(side_effect=[(public_search(), 0.01), (public_answer(), 0.02)]))
+    with pytest.raises(smoke.SmokeFailure, match="generation_snapshot_count"):
+        smoke.evaluate_case(object(), "/demo", fixed_case(), CORPUS_TEXT, DOCUMENT_ID, generation_snapshots=[])
+
+
+def test_capture_cannot_backfill_old_report(smoke, cli_context, monkeypatch):
+    old = {
+        "corpus_sha256": hashlib.sha256(CORPUS_TEXT.encode()).hexdigest(),
+        "dataset_version": "controlled-v1", "attempts": [],
+    }
+    cli_context.report_path.parent.mkdir()
+    cli_context.report_path.write_text(json.dumps(old), encoding="utf-8")
+    original = cli_context.report_path.read_bytes()
+    monkeypatch.setattr(sys, "argv", ["smoke", "--run", "--resume", "--capture-generation", "--report", str(cli_context.report_path)])
+    assert smoke.main() == 2
+    assert cli_context.report_path.read_bytes() == original
+    smoke.create_app.assert_not_called()
+
+
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_opt_in_dependency_saves_public_body_before_transport(smoke, tmp_path, monkeypatch, write_fails):
+    from app.api import answers as answer_api
+    from app.core.config import Settings
+    import app.providers.compatible_chat as chat
+    from app.providers.generation import GenerationError, GenerationSource
+
+    report, snapshots, calls = {}, [], []
+    output = tmp_path / "snapshot.json"
+    app = SimpleNamespace(dependency_overrides={})
+    settings = Settings(
+        _env_file=None, generation_base_url="https://generation.example/v1",
+        generation_api_key=SecretStr("controlled-secret"), generation_model="controlled-model",
+    )
+    monkeypatch.setattr(answer_api, "Settings", lambda: settings)
+
+    def handler(request):
+        calls.append(request)
+        saved = json.loads(output.read_text(encoding="utf-8"))
+        snapshot = saved["prepared_generation_requests"][0]["snapshot"]
+        assert snapshot["request_body"] == json.loads(request.content)
+        assert "answer_response_received" not in snapshot
+        assert "controlled-secret" not in output.read_text(encoding="utf-8")
+        return httpx.Response(200, json={"model": "controlled-model", "choices": [{
+            "index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": json.dumps({
+                "answer": "先暂停导入，再重启服务。", "abstained": False,
+                "citations": [{"source_id": 1, "quote": CORPUS_TEXT}],
+            })},
+        }]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(chat.httpx, "Client", lambda **kwargs: client)
+    if write_fails:
+        monkeypatch.setattr(smoke, "save_report", Mock(side_effect=OSError(PRIVATE_TEXT)))
+    smoke.install_generation_capture(app, report, output, CORPUS_TEXT, fixed_case(), snapshots)
+    provider = app.dependency_overrides[answer_api.get_generation_provider]()
+    if write_fails:
+        with pytest.raises(GenerationError, match="快照保存失败"):
+            provider.generate_answer(fixed_case()["question"], [GenerationSource(1, CORPUS_TEXT)])
+        assert calls == []
+    else:
+        assert provider.generate_answer(fixed_case()["question"], [GenerationSource(1, CORPUS_TEXT)]).abstained is False
+        assert len(calls) == len(snapshots) == 1
+    assert client.is_closed

@@ -1,0 +1,447 @@
+{
+  "date": "2026-10-11",
+  "execution": "离线候选内排序回放",
+  "scope": "每题沿用历史实际前十候选，词项评分也仅使用这十块；未执行独立词项全库召回，不是正式混合检索质量成绩。",
+  "source_report_canonical_sha256": "c77c28dad280afcb780349720a89dc3085d8897ffb340fd7952f5fb30d04c002",
+  "lexical_version": "han-bigram-ascii-bm25-v1",
+  "rrf_constant": 60,
+  "summary": {
+    "baseline_covered": 5,
+    "candidate_pool_fusion_covered": 5,
+    "required_evidence_count": 5,
+    "case_count": 6,
+    "new_model_calls": 0,
+    "generation_called": false,
+    "answer_quality": null
+  },
+  "cases": [
+    {
+      "case_id": "restart_recovery_steps",
+      "answerable": true,
+      "baseline": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "candidate_pool_fusion": {
+        "case_id": "restart_recovery_steps",
+        "question": "岚桥知识工作台服务异常后，应该按什么顺序重启并恢复文件导入？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "服务异常后的恢复顺序是：先在管理页暂停新文件导入，再点击“重启服务”，等待状态变为“运行中”，最后执行一次健康检查。健康检查通过后，恢复文件导入。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.03278688524590164,
+          "vector_rank": 1,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "fusion_score": 0.03200204813108039,
+          "vector_rank": 3,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "fusion_score": 0.031754032258064516,
+          "vector_rank": 2,
+          "lexical_rank": 4
+        },
+        {
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "fusion_score": 0.03149801587301587,
+          "vector_rank": 4,
+          "lexical_rank": 3
+        },
+        {
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "fusion_score": 0.030536130536130537,
+          "vector_rank": 5,
+          "lexical_rank": 6
+        }
+      ]
+    },
+    {
+      "case_id": "supported_upload_formats",
+      "answerable": true,
+      "baseline": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 5
+          }
+        ]
+      },
+      "candidate_pool_fusion": {
+        "case_id": "supported_upload_formats",
+        "question": "岚桥知识工作台支持上传哪些文件格式？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "支持上传 UTF-8 编码的 TXT、Markdown（.md）文件以及可提取文字的 PDF 文件。",
+            "covered": true,
+            "first_complete_rank": 4
+          }
+        ]
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.03252247488101534,
+          "vector_rank": 1,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "fusion_score": 0.03252247488101534,
+          "vector_rank": 2,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "fusion_score": 0.03149801587301587,
+          "vector_rank": 3,
+          "lexical_rank": 4
+        },
+        {
+          "chunk_id": "ea4806d8-e088-49ce-bc9d-6e4422b68454",
+          "fusion_score": 0.03125763125763126,
+          "vector_rank": 5,
+          "lexical_rank": 3
+        },
+        {
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "fusion_score": 0.031009615384615385,
+          "vector_rank": 4,
+          "lexical_rank": 5
+        }
+      ]
+    },
+    {
+      "case_id": "expired_access_token_steps",
+      "answerable": true,
+      "baseline": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "candidate_pool_fusion": {
+        "case_id": "expired_access_token_steps",
+        "question": "接口返回 TOKEN_EXPIRED 后，应如何更换访问令牌并确认恢复？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 1,
+        "covered_evidence_count": 1,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "访问令牌失效时，接口返回 401 和 TOKEN_EXPIRED。处理顺序是：登录管理页，在“访问令牌”页生成新令牌，用新令牌替换客户端配置，再执行一次健康检查。检查通过后撤销旧令牌。",
+            "covered": true,
+            "first_complete_rank": 1
+          }
+        ]
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "6ce8a72b-9bd3-408b-bf8a-b23fa9e6ceb6",
+          "fusion_score": 0.03278688524590164,
+          "vector_rank": 1,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "fusion_score": 0.03225806451612903,
+          "vector_rank": 2,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.03125763125763126,
+          "vector_rank": 3,
+          "lexical_rank": 5
+        },
+        {
+          "chunk_id": "06e633f7-b0c8-4a77-abc5-4fb2d3188d74",
+          "fusion_score": 0.03125,
+          "vector_rank": 4,
+          "lexical_rank": 4
+        },
+        {
+          "chunk_id": "79939635-c8d5-4dd1-b0a5-c3864dae7085",
+          "fusion_score": 0.03057889822595705,
+          "vector_rank": 8,
+          "lexical_rank": 3
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_backup_recovery_steps",
+      "answerable": true,
+      "baseline": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 2
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 2
+          }
+        ]
+      },
+      "candidate_pool_fusion": {
+        "case_id": "knowledge_backup_recovery_steps",
+        "question": "如何从备份快照恢复岚桥知识工作台的知识库？",
+        "answerable": true,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 2,
+        "covered_evidence_count": 2,
+        "all_evidence_found": true,
+        "evidence_hit_fraction": 1.0,
+        "evidence": [
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复知识库时，先进入维护模式，再选择一份成功快照并确认其时间，执行恢复，随后检查文件数量并运行一条已知问题。检查通过后退出维护模式。",
+            "covered": true,
+            "first_complete_rank": 3
+          },
+          {
+            "document_name": "demo-product.md",
+            "text": "恢复会覆盖当前知识库内容，快照时间之后的修改需要重新导入。访问令牌必须由管理员单独配置。",
+            "covered": true,
+            "first_complete_rank": 3
+          }
+        ]
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.03278688524590164,
+          "vector_rank": 1,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "fusion_score": 0.03200204813108039,
+          "vector_rank": 3,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "fusion_score": 0.0315136476426799,
+          "vector_rank": 2,
+          "lexical_rank": 5
+        },
+        {
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "fusion_score": 0.03149801587301587,
+          "vector_rank": 4,
+          "lexical_rank": 3
+        },
+        {
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "fusion_score": 0.030776515151515152,
+          "vector_rank": 6,
+          "lexical_rank": 4
+        }
+      ]
+    },
+    {
+      "case_id": "refund_application_insufficient_evidence",
+      "answerable": false,
+      "baseline": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "candidate_pool_fusion": {
+        "case_id": "refund_application_insufficient_evidence",
+        "question": "我应该如何提交岚桥知识工作台的退款申请？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.03252247488101534,
+          "vector_rank": 1,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "fusion_score": 0.03252247488101534,
+          "vector_rank": 2,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "fusion_score": 0.031746031746031744,
+          "vector_rank": 3,
+          "lexical_rank": 3
+        },
+        {
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "fusion_score": 0.03125,
+          "vector_rank": 4,
+          "lexical_rank": 4
+        },
+        {
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "fusion_score": 0.03076923076923077,
+          "vector_rank": 5,
+          "lexical_rank": 5
+        }
+      ]
+    },
+    {
+      "case_id": "payment_currencies_no_evidence",
+      "answerable": false,
+      "baseline": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "candidate_pool_fusion": {
+        "case_id": "payment_currencies_no_evidence",
+        "question": "岚桥知识工作台支持哪些支付币种？",
+        "answerable": false,
+        "top_k": 5,
+        "returned_count": 5,
+        "expected_evidence_count": 0,
+        "covered_evidence_count": 0,
+        "all_evidence_found": null,
+        "evidence_hit_fraction": null,
+        "evidence": []
+      },
+      "fused_ranking": [
+        {
+          "chunk_id": "4ed14185-2baf-40b6-bfd0-7c5e7ff5716b",
+          "fusion_score": 0.032266458495966696,
+          "vector_rank": 1,
+          "lexical_rank": 3
+        },
+        {
+          "chunk_id": "50fb9ea3-2377-4c2d-9fe7-aabc595442de",
+          "fusion_score": 0.03177805800756621,
+          "vector_rank": 5,
+          "lexical_rank": 1
+        },
+        {
+          "chunk_id": "ec61563a-c555-4330-af27-7a38371a673b",
+          "fusion_score": 0.031754032258064516,
+          "vector_rank": 4,
+          "lexical_rank": 2
+        },
+        {
+          "chunk_id": "4ffe37ef-7910-4872-a9d9-f82dfc4ee41b",
+          "fusion_score": 0.0315136476426799,
+          "vector_rank": 2,
+          "lexical_rank": 5
+        },
+        {
+          "chunk_id": "abc23856-567a-4fd4-a584-46236dce3a99",
+          "fusion_score": 0.03149801587301587,
+          "vector_rank": 3,
+          "lexical_rank": 4
+        }
+      ]
+    }
+  ]
+}

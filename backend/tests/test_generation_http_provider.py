@@ -7,7 +7,7 @@ import httpx
 from pydantic import SecretStr
 import pytest
 
-import app.providers.compatible_generation as adapter_module
+import app.providers.compatible_chat as adapter_module
 from app.providers.compatible_generation import OpenAICompatibleGenerationProvider
 from app.providers.generation import GenerationError, GenerationSource, GenerationTimeoutError
 
@@ -325,3 +325,46 @@ def test_invalid_input_never_calls_the_service(question, sources) -> None:
     provider, client = make_provider(lambda request: pytest.fail("非法输入不应调用生成服务"))
     with client, pytest.raises(GenerationError):
         provider.generate_answer(question, sources)
+
+
+def test_request_observer_runs_before_http_and_cannot_modify_actual_body() -> None:
+    observed = []
+
+    def observe(body):
+        assert SECRET_KEY not in json.dumps(body)
+        observed.append(json.loads(json.dumps(body)))
+        body["messages"][1]["content"] = "错误修改"
+
+    def handler(request):
+        assert len(observed) == 1
+        assert json.loads(request.content) == observed[0]
+        return httpx.Response(200, json=response_payload())
+
+    provider, client = make_provider(handler, request_observer=observe)
+    with client:
+        provider.generate_answer("退款流程？", SOURCES)
+
+
+def test_observer_write_failure_stops_http_without_echoing_exception() -> None:
+    def observe(body):
+        raise OSError("PRIVATE-OBSERVER-ERROR")
+
+    provider, client = make_provider(lambda request: pytest.fail("快照未保存，不应发请求"), request_observer=observe)
+    with client, pytest.raises(GenerationError, match="快照保存失败") as caught:
+        provider.generate_answer("退款流程？", SOURCES)
+    assert "PRIVATE-OBSERVER-ERROR" not in str(caught.value)
+
+
+def test_observer_time_counts_toward_total_deadline(monkeypatch) -> None:
+    clock = [0.0]
+    monkeypatch.setattr(adapter_module, "monotonic", lambda: clock[0])
+
+    def observe(body):
+        clock[0] = 1.0
+
+    provider, client = make_provider(
+        lambda request: pytest.fail("记录已耗尽期限，不应发请求"),
+        request_observer=observe, total_timeout_seconds=0.5,
+    )
+    with client, pytest.raises(GenerationTimeoutError):
+        provider.generate_answer("退款流程？", SOURCES)
