@@ -4,23 +4,24 @@
 
 ## 当前进度
 
-阶段 0.2 已搭建后端基础，阶段 0.3 已建立 PostgreSQL 元数据层与工作空间、知识库接口。阶段 1.1 按[文档入库设计](docs/phase1-document-ingestion.md)加入文本和 Markdown 单文件同步上传、原文件保存、解析状态查询，以及只读文件对账。2026-10-10 使用真实 PostgreSQL 完成当时的全部 52 项测试，并在临时空数据库通过 Alembic 迁移与模型一致性检查。解析成功时状态为 `parsed`，还需要切块和向量化。身份认证、智能体和前端属于后续开发。规划范围见[架构设计](docs/architecture.md)、[开发路线图](docs/roadmap.md)与[学习记录](docs/learning-progress.md)。
+目前已有可运行的**本地单用户 RAG 后端**，完整企业级平台仍在开发。
 
-阶段 1.2 已完成确定性字符切块与 PostgreSQL 文本块持久化。每块保存文档 ID、顺序编号、内容和解析文本字符范围；同配置重复请求复用原来的块 UUID，不增加记录。文档行锁与整批事务处理并发和中途失败，不同参数或算法版本返回冲突。切块通过独立接口触发，上传后仍为 `parsed`。见 [ADR 0002](docs/adr/0002-deterministic-text-chunks.md) 与 [ADR 0003](docs/adr/0003-idempotent-chunk-persistence.md)。
+- **文档链路：** 工作空间与知识库管理，TXT/Markdown 上传、磁盘保存、解析、确定性切块、事务与重复请求复用。
+- **问答链路：** 百炼 1024 维向量、PostgreSQL/pgvector 知识库检索、DeepSeek 基于证据回答、逐字引用校验和证据不足时弃答。
+- **检索增强：** [阶段 2.1](docs/phase2-hybrid-retrieval.md)已接入可选词项与向量混合策略，按块 ID 合并、融合名次并返回各路排名。小规模处理上限明确，真实两路召回收益尚待验收。
+- **验证能力：** 文件对账、真实数据库故障测试、检索及上下文覆盖、逐项语义审核、模型辅助评审、生成输入快照和固定证据提示词对比。
+- **已有真实演示：** [首次六题联调](docs/evaluation/live-rag-smoke-2026-10-10.md)给出四个回答和两个弃答；[带干扰资料检索](docs/evaluation/retrieval-eval-2026-10-10.md)使用四份文档、二十九个候选块。它们是小规模链路与证据覆盖验证，不能推广为企业资料的质量成绩。
+- **当前验收：** [提示词对比](docs/phase1-prompt-comparison.md)支持六题全选、显式十二次尝试预算和缺失快照预检；受控模拟不调用模型。新的真实六题输入、真实配对与逐项语义核对尚未完成。
+- **候选重排：** [阶段 2.2](docs/phase2-candidate-reranking.md)可选先召回二十段、再由已有生成模型排序，验证完整编号排列并保留引用来源；超时或输出故障明确标记降级。默认关闭，真实排序收益尚待验收。
+- **知识智能体：** [阶段 3.1](docs/phase3-knowledge-agent.md)已有有界运行、只读知识工具、故障观察与引用校验；[阶段 3.2](docs/phase3-native-tools.md)增加原生工具调用、同编号结果回传和历史隔离，旧 JSON 协议可显式选择。多调用整体拒绝，重复动作与证据保护仍由后端执行；真实任务质量待验收。
+- **受限计算器：** [阶段 3.3](docs/phase3-calculator.md)保留两个原文数值的十进制四则运算；[阶段 4.2](docs/phase4-sourced-calculations.md)新增会话内来源引用式计算器，接受已确认用户字段及当前运行先前成功的结果，不允许模型自由填写值。最多八次决策、七次成功计算；暂不做百分比解释、单位换算或业务公式验证。
+- **会话接续：** [阶段 4.1](docs/phase4-conversation-state.md)保存会话、结构化待补条件与有界近期决策上下文；“三次”绑定到待补字段后跨请求恢复为 ready。随后用 `mode=execute` 显式恢复来源绑定算术，运行结果与轮次共同保存；ready 不代表年度费用任务完成。
+- **受控业务流程：** [阶段 4.3](docs/phase4-standard-billing.md)新增标准月费加上门次费估算。完整原文绑定费率，逐项补齐次数及 1..12 个计费月数，用户显式确认规则适用后，由程序固定三步计算。completed 仅代表该标准估算，不是实际账单、扣费或通用政策验证。
+- **后续主线：** 长期记忆与 MCP → 更完整的受限工作流 → 权限、部署和前端；同时完成真实检索和智能体任务验收、补齐 PDF 与资源列表。当前无身份认证或用户界面，上传仅支持 UTF-8 TXT/Markdown、默认 5 MiB。
 
-阶段 1.3 已实现向量服务适配器、1024 维 pgvector 保存和独立触发接口。首个模型由学习者选定为百炼 `text-embedding-v4`；模型请求放在事务外，全部向量和 `ready` 状态在同一事务提交，同配置重试复用结果。已使用模拟 HTTP 与真实 PostgreSQL 验证故障和事务，并完成首个小语料的真实向量生成。模型选择、并发费用与事务取舍见 [ADR 0004](docs/adr/0004-embedding-generation-and-storage.md)。
+当前后端完整回归 **1273 项通过、无跳过（523.88 秒）**，使用独立真实 PostgreSQL/pgvector 与受控模型，覆盖标准计费两条件恢复、固定公式、规则确认与结果、迁移、来源引用式链式算术、持久会话、原生协议、检索增强和既有六题工具。阶段 4.3 新增 139 项测试；真实模型选对收费原文与工具、实际业务语义仍待验收，没有新增真实模型调用。本机应用库已升级为 `20261011_0007`，既有六张表记录数保持一致。首轮完整 1272 项通过后另补引文限长保护，最终版本重新全量通过；此前各阶段的临时目录权限等故障仍保留在[学习记录](docs/learning-progress.md)。测试数量不代表项目完成比例，也不替代模型语义验收。
 
-阶段 1.4 已加入限定知识库的精确余弦检索接口。问题使用与文档相同的向量模型转换；SQL 先过滤工作空间、知识库、`ready` 文档和非空向量，再排序取前几项。返回文本、文档名、块编号、字符位置和距离。已在真实模型上验证链路，较大语料的检索质量仍待评测，没有阈值筛选或重排；取舍见 [ADR 0005](docs/adr/0005-scoped-vector-retrieval.md)。
-
-阶段 1.5 加入独立生成适配器与基于证据的 `/answers` 接口。空结果直接弃答，有证据时在事务外请求结构化答案；程序校验引用编号和逐字引文，并返回真实文档、块和引文字符位置。主题相关不一定足够回答，引用存在也不证明结论正确；首轮真实模型联调已完成，广泛的回答质量评估仍待完成。见 [ADR 0006](docs/adr/0006-evidence-grounded-answers.md)。
-
-2026-10-10 已完成[首次真实 RAG 验证](docs/evaluation/live-rag-smoke-2026-10-10.md)：虚构技术文档切成 5 块，百炼生成向量，DeepSeek 对 6 个固定问题给出 4 个带引用的答案、2 个合理弃答。原始应用响应、题集与可复跑脚本已入库。只有 5 个候选且取前 5 个，这次证明链路可运行，尚不能作为检索质量成绩；未收集 token、费用或部署网关数据。
-
-阶段 1.6 已完成[带干扰资料的检索评测](docs/evaluation/retrieval-eval-2026-10-10.md)：独立知识库有 4 份公开虚构资料、29 个候选块和 6 个固定问题。按学习者选择，以支持问题的连续原文验收，见 [ADR 0007](docs/adr/0007-evidence-level-retrieval-evaluation.md)。真实百炼检索中，同一次前 10 响应的前 5 与前 10 均完整覆盖 4 道正例的 5 条必需证据；2 道负例不计覆盖分。这是小型固定证据基线，不是正式 Recall@K；本轮未调用回答模型，扩大语料后的回答忠实性与弃答仍待评估。
-
-阶段 1.7 已完成[上下文证据覆盖评测](docs/evaluation/context-eval-2026-10-11.md)。共用业务选块函数，离线回放真实检索快照，对前 5、前 10 比较 600、2000、12000 字符预算，生成 36 条选择记录。检索均覆盖 5/5 条必需证据，选中上下文分别覆盖 2/5、4/5、5/5，明确区分检索遗漏与预算损失。没有新增模型调用，见 [ADR 0008](docs/adr/0008-context-evidence-coverage.md)。
-
-2026-10-11 本机数据库口令轮换后的最新完整回归为 **483 项通过、无跳过**（146.59 秒），包含快照跨换行身份测试。此前共享选块函数抽取后完整回归为 482 项通过，新模块随后完成 30 项专项验证。回归使用真实 PostgreSQL/pgvector 与受控模型，不调用真实模型；真实联调与检索评测单独执行。两者都不能替代广泛的语义质量评测。本机项目库沿用 `20261010_0004`，本轮没有修改数据库结构；该迁移此前在临时库通过升级、降级后再升级及模型一致性检查。
+模块完成证据与设计取舍集中在[路线图](docs/roadmap.md)、[架构设计](docs/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/learning-progress.md)。公开演示文档描述的 PDF、管理页、令牌和备份是虚构产品内容，不是本项目已实现能力。
 
 ## 本地启动（PowerShell）
 
@@ -49,7 +50,7 @@ python -m uvicorn app.main:app --reload
 
 上传文件默认保存在仓库根目录的 `uploads/`，可用 `EAAP_UPLOAD_ROOT` 指向其他目录；`EAAP_MAX_UPLOAD_BYTES` 设置单文件字节上限，默认值为 5 MiB。端点按实际读取字节数检查上限。部署到共享环境时，还需要在入口层设置包含表单开销的请求体总量上限。
 
-当前可在 `/docs` 调用十一个资源接口：
+当前可在 `/docs` 调用下列资源接口：
 
 - `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
@@ -98,6 +99,10 @@ EAAP_EMBEDDING_DIMENSIONS=1024
 未解析、未切块或配置冲突返回 `409`，块数超限返回 `422`，模型调用或结果异常返回 `502`，超时返回 `504`；已有向量与状态不一致返回 `500`。单段输入还受服务商令牌上限约束，默认 500 字符切块用于首批小文件，真实语料需在联调时验证。
 
 ## 知识库检索
+
+可选重排请求示例：`{"query":"如何提交退款？","strategy":"hybrid","rerank":true,"candidate_k":20,"top_k":5}`。问答改用 `question` 字段。默认关闭，开启后复用生成服务做至多一次额外模型请求；正文总量上限 20000 字符，超限返回 422。`reranking` 提供成功、降级或空库跳过状态，原距离和融合分数保留用于解释召回，重排成功后的最终顺序由模型排列决定。完整协议和测试练习见[阶段 2.2](docs/phase2-candidate-reranking.md)。
+
+`/search` 与 `/answers` 请求均可增加 `"strategy": "hybrid"`，省略时继续使用 `vector`。混合模式分别从词项与向量通道取前二十，再合并排序；搜索响应提供融合得分及两路排名，原 `distance` 仍是余弦距离，混合结果按融合分数排序。当前支持最多 2000 个就绪块和 100 万正文字符，超限返回 `422`；运行和学习实践见[混合检索说明](docs/phase2-hybrid-retrieval.md)。
 
 完成真实服务配置、文档切块和向量化后，通过 `/docs` 调用知识库的 `/search` 接口：
 
@@ -155,6 +160,12 @@ EAAP_GENERATION_MODEL=deepseek-flash
 
 上下文评测使用 `python backend/scripts/evaluate_context.py --plan` 验证已有快照，用 `--write-report --report docs/evaluation/context-eval-local.json` 保存离线比较。无需 `.env`、数据库或模型密钥，结果和学习实践见[上下文评测说明](docs/evaluation/context-eval-2026-10-11.md)。
 
+逐项审核使用 `python backend/scripts/evaluate_answers.py --plan`，没有模型调用。模型辅助评审使用 `python backend/scripts/review_answers.py --plan`，先确认题目与调用预算；只有显式 `--run` 才读取 `EAAP_REVIEW_*` 并产生服务请求。首轮可用 `--case-id restart_recovery_steps --max-cases 1` 限定一题，具体运行、退出码和统计范围见[操作说明](docs/phase1-model-review.md)。
+
+2026-10-11 已完成[首轮真实单题评审](docs/evaluation/model-review-first-case-2026-10-11.md)：调用一次，三项 AI 建议通过，人工审核尚未完成。公开演示脚本另支持 `--capture-generation`，在新报告中保存准备发送的生成消息与参数，供后续固定证据实验；默认关闭，记录失败阻止请求，尚未采集新的真实生成快照。用法与边界见[阶段 1.10](docs/phase1-generation-snapshots.md)。
+
+两版提示词比较使用 `python backend/scripts/compare_prompts.py --plan` 规划，默认一题两次尝试；`--mock` 演练程序且不调用模型，`--run` 要求实际采集的公开快照。保留原问题、资料与顺序，只改变系统提示词，语义质量仍待审核，详见[阶段 1.11](docs/phase1-prompt-comparison.md)与[模拟记录](docs/evaluation/prompt-comparison-mock-2026-10-11.md)。
+
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库并启用 `vector` 扩展。已有数据库卷的初始化脚本不会重跑，可执行一次：
 
 ```powershell
@@ -190,6 +201,38 @@ python -m app.knowledge.audit
 命令读取当前 `EAAP_DATABASE_URL` 和 `EAAP_UPLOAD_ROOT`，只读核对全部文档记录与本地文件，以 JSON 输出孤儿候选文件 `orphan_candidates`、宽限期内未关联文件 `recent_untracked` 和数据库引用的缺失文件 `missing_files`。默认宽限期一小时，可用 `--grace-seconds 3600` 调整。退出码：`0` 表示未发现差异，`1` 表示发现差异，`2` 表示配置或读取失败。
 
 报告可能受并发上传影响，宽限期不能证明文件可以删除；排查时建议暂停上传并重复核对。命令不补建记录、不删除文件，也不修复停留的文档状态。扫描范围仅包含已发布且符合 UUID 命名规则的普通文件，临时文件和未知命名不计入报告。设计取舍与恢复边界见 [ADR 0001](docs/adr/0001-document-storage-audit.md)。
+
+## 会话状态与短期记忆
+
+在知识库路径后调用 `POST /conversations` 创建会话、`GET /conversations/{conversation_id}`
+读取状态、`POST /conversations/{conversation_id}/messages` 提交消息。
+消息须携带新的 `request_id`、当前 `expected_version` 与 `content`；重试保持原请求不变。
+会话入口可通过 ask_user 保存原问题、规则原文快照和一个非负整数待补字段。
+后续“三次”可绑定为全年上门次数 3，错单位或歧义回复保留等待。
+
+会话保存到 PostgreSQL；近期最多三组完整问答、4000 字符只辅助决策，不进入原文证据池。
+已提交请求可重放，版本冲突返回 409。`mode=new_task` 显式替换待办并重置任务上下文。
+补充成功返回 ready 和 `execution_deferred=explicit_execution_required`，不自动执行。
+阶段 4.2 在同一消息接口增加 `mode=execute`，只接受 ready，按保存的原问题、规则与
+确认条件执行来源绑定算术。结果明确区分原文、用户输入和程序派生值；不会因算术运行
+completed 就声称全年费用任务完成。旧执行结果不会成为下一执行的计算池。
+最新迁移脚本为 `20261011_0007`，启动前运行正常 Alembic 升级；实际本机升级和测试结果见
+[学习记录](docs/learning-progress.md)。数据契约、实践和限制见[阶段 4.1](docs/phase4-conversation-state.md)
+与 [ADR 0019](docs/adr/0019-persistent-conversation-clarification.md)。
+
+来源引用参数、显式执行请求、舍入继承和限制见[阶段 4.2](docs/phase4-sourced-calculations.md)
+与 [ADR 0020](docs/adr/0020-source-referenced-chained-calculations.md)。存在 execute 轮次时，
+新迁移会拒绝无损降级，不删除或改写执行历史。
+
+阶段 4.3 新任务可选择 prepare_billing，只接受完整块符合“月费 N 元，每次上门服务费 M 元”
+的受控语法，金额最多两位小数；若所选块还含优惠、套餐、标题或其他条款则拒绝。
+“三次”补齐次数后仍等待计费月数，两项补齐才 ready，不从“全年”无条件使用 12。
+核对同一期间及所选规则适用后，再发送 `mode=execute`、`confirm_billing_rule=true`。
+固定计算不调用模型，保存独立 billing_result 和三个带来源的步骤后才 completed。
+结果仅是所选标准规则估算；没有自动验证其他块或文档中的政策，不支持通用单位换算。
+旧单字段任务仍走原算术流程，不静默升级；完成后改变条件使用 new_task，不删除历史。
+存在当前或历史标准计费数据时，0007 拒绝不兼容降级。完整请求与小实践见
+[阶段 4.3](docs/phase4-standard-billing.md)和 [ADR 0021](docs/adr/0021-controlled-standard-billing.md)。
 
 ## 工程设计取舍
 
