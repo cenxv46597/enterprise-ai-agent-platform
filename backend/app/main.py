@@ -3,6 +3,8 @@
 from fastapi import FastAPI
 
 from app.api.answers import router as answers_router
+from app.api.agent_runs import router as agent_runs_router
+from app.api.conversations import router as conversations_router
 from app.api.health import router as health_router
 from app.api.documents import router as documents_router
 from app.api.knowledge_bases import router as knowledge_bases_router
@@ -20,6 +22,8 @@ def create_app() -> FastAPI:
     application.include_router(documents_router)
     application.include_router(search_router)
     application.include_router(answers_router)
+    application.include_router(agent_runs_router)
+    application.include_router(conversations_router)
     return application
 
 

@@ -17,7 +17,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -153,3 +153,54 @@ class Chunk(Base):
     embedding: Mapped[list[float] | None] = mapped_column(VECTOR(1024), nullable=True)
 
     document: Mapped[Document] = relationship(back_populates="chunks", passive_deletes=True)
+
+
+class Conversation(Base):
+    """一个知识库内的会话；version 控制跨请求的状态更新。"""
+    __tablename__ = "conversations"
+    __table_args__ = (
+        CheckConstraint("version >= 0 AND version <= 200", name="version_valid"),
+        CheckConstraint("status IN ('idle', 'waiting_for_user', 'ready', 'completed')", name="status_valid"),
+        CheckConstraint(
+            "(status = 'idle' AND task IS NULL) OR (status IN ('waiting_for_user', 'ready', 'completed') AND task IS NOT NULL)",
+            name="task_status_valid",
+        ),
+        Index("ix_conversations_knowledge_base_id", "knowledge_base_id"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    knowledge_base_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="RESTRICT"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    status: Mapped[str] = mapped_column(String(24), nullable=False, server_default=text("'idle'"))
+    task: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class ConversationTurn(Base):
+    """一轮请求、公开回复和结果一起提交；请求编号只在该会话内唯一。"""
+    __tablename__ = "conversation_turns"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "request_id", name="uq_conversation_turns_request"),
+        UniqueConstraint("conversation_id", "version", name="uq_conversation_turns_version"),
+        CheckConstraint("version > 0 AND version <= 200", name="version_valid"),
+        CheckConstraint("char_length(content) BETWEEN 1 AND 2000", name="content_length_valid"),
+        CheckConstraint("char_length(reply) BETWEEN 1 AND 12000", name="reply_length_valid"),
+        CheckConstraint("request_digest ~ '^[0-9a-f]{64}$'", name="request_digest_valid"),
+        CheckConstraint("mode IN ('continue', 'new_task', 'execute')", name="mode_valid"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'continue'"))
+    reply: Mapped[str] = mapped_column(Text, nullable=False)
+    response: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
