@@ -222,3 +222,76 @@ class AnswerPreference(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now(),
     )
+
+
+class AnswerWorkflow(Base):
+    """固定检索/生成工作流；运行前领取执行权，检查点和结果分步提交。"""
+    __tablename__ = "answer_workflows"
+    __table_args__ = (
+        UniqueConstraint("knowledge_base_id", "creation_request_id", name="uq_answer_workflows_creation_request"),
+        Index("ix_answer_workflows_knowledge_base_id", "knowledge_base_id"),
+        CheckConstraint("char_length(btrim(question)) BETWEEN 1 AND 2000", name="question_valid"),
+        CheckConstraint("creation_digest ~ '^[0-9a-f]{64}$'", name="creation_digest_valid"),
+        CheckConstraint("strategy IN ('vector', 'hybrid')", name="strategy_valid"),
+        CheckConstraint("max_context_characters BETWEEN 1 AND 12000", name="context_valid"),
+        CheckConstraint("version BETWEEN 0 AND 32 AND attempt_count BETWEEN 0 AND 5", name="counters_valid"),
+        CheckConstraint("status IN ('pending', 'running', 'failed', 'completed')", name="status_valid"),
+        CheckConstraint("next_step IN ('retrieve', 'generate', 'done')", name="step_valid"),
+        CheckConstraint(
+            "(status = 'running' AND active_request_id IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+            "(status <> 'running' AND active_request_id IS NULL AND lease_expires_at IS NULL)", name="owner_valid"),
+        CheckConstraint(
+            "(next_step = 'retrieve' AND checkpoint IS NULL) OR "
+            "(next_step IN ('generate', 'done') AND checkpoint IS NOT NULL)", name="checkpoint_valid"),
+        CheckConstraint(
+            "(status = 'completed' AND next_step = 'done' AND result IS NOT NULL) OR "
+            "(status <> 'completed' AND next_step <> 'done' AND result IS NULL)", name="result_valid"),
+        CheckConstraint("(status = 'failed' AND error_code IS NOT NULL) OR "
+                        "(status <> 'failed' AND error_code IS NULL)", name="error_valid"),
+        CheckConstraint("(status = 'pending' AND next_step = 'retrieve' AND attempt_count = 0) OR "
+                        "(status <> 'pending' AND attempt_count > 0)", name="initial_valid"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    knowledge_base_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="RESTRICT"), nullable=False)
+    creation_request_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    creation_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    strategy: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'vector'"))
+    max_context_characters: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("12000"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'pending'"))
+    next_step: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'retrieve'"))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    checkpoint: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    active_request_id: Mapped[UUID | None] = mapped_column(PG_UUID(as_uuid=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class AnswerWorkflowAttempt(Base):
+    """有界执行尝试与不可变终态回执；请求重放不等于重新执行。"""
+    __tablename__ = "answer_workflow_attempts"
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "request_id", name="uq_answer_workflow_attempts_request"),
+        UniqueConstraint("workflow_id", "attempt_number", name="uq_answer_workflow_attempts_number"),
+        CheckConstraint("attempt_number BETWEEN 1 AND 5", name="number_valid"),
+        CheckConstraint("request_digest ~ '^[0-9a-f]{64}$'", name="digest_valid"),
+        CheckConstraint("status IN ('running', 'failed', 'completed', 'interrupted')", name="status_valid"),
+        CheckConstraint("(status = 'running' AND response IS NULL AND finished_at IS NULL) OR "
+                        "(status <> 'running' AND response IS NOT NULL AND finished_at IS NOT NULL)", name="receipt_valid"),
+    )
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    workflow_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("answer_workflows.id", ondelete="RESTRICT"), nullable=False)
+    request_id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), nullable=False)
+    request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default=text("'running'"))
+    response: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
