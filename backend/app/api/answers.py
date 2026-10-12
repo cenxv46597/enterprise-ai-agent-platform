@@ -34,6 +34,7 @@ from app.providers.generation import (
     GenerationSource,
     GenerationTimeoutError,
 )
+from app.memory.contracts import AnswerDetail
 
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,14 @@ class ConfiguredGenerationProvider:
         self._request_observer = request_observer
 
     def generate_answer(self, question: str, sources: Sequence[GenerationSource]) -> GeneratedAnswer:
+        return self._provider().generate_answer(question, sources)
+
+    def generate_answer_with_preferences(
+        self, question: str, sources: Sequence[GenerationSource], answer_detail: AnswerDetail,
+    ) -> GeneratedAnswer:
+        return self._provider().generate_answer_with_preferences(question, sources, answer_detail)
+
+    def _provider(self) -> OpenAICompatibleGenerationProvider:
         try:
             settings = Settings()
             if not settings.generation_base_url or not settings.generation_api_key or not settings.generation_model:
@@ -65,7 +74,7 @@ class ConfiguredGenerationProvider:
             )
         except (GenerationError, TypeError, ValueError):
             raise GenerationConfigurationError("生成服务配置无效或尚未完成") from None
-        return provider.generate_answer(question, sources)
+        return provider
 
 
 def get_generation_provider() -> GenerationProvider:

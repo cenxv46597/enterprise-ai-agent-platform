@@ -7,6 +7,7 @@ from pydantic import SecretStr, ValidationError
 
 from app.providers.compatible_chat import CompatibleJsonChatClient, JsonChatError, JsonChatTimeoutError
 from app.providers.generation import GeneratedAnswer, GenerationError, GenerationSource, GenerationTimeoutError
+from app.memory.contracts import AnswerDetail
 
 
 SYSTEM_PROMPT = """你是企业知识库问答助手。只使用本次提供的资料回答本次问题。
@@ -20,6 +21,11 @@ JSON 字段必须且只能是 answer、abstained、citations。
 每条引用必须且只能含 source_id 和 quote：source_id 使用提供的资料编号，
 quote 是该资料中逐字复制的非空原文，不得改写。引用应直接支持答案中的事实。
 最多输出 20 条引用，每条 quote 最长 1000 字符，answer 最长 4000 字符。"""
+
+ANSWER_DETAIL_INSTRUCTIONS = {
+    "concise": "\n答复风格偏好：尽量简洁，但不能省略证据中的必要条件、步骤或引用；不改变上述证据与弃答规则。",
+    "detailed": "\n答复风格偏好：在证据范围内详细解释必要条件与步骤，不添加无证据的事实；不改变上述引用与弃答规则。",
+}
 
 
 class OpenAICompatibleGenerationProvider:
@@ -40,6 +46,18 @@ class OpenAICompatibleGenerationProvider:
             raise GenerationError(str(error)) from None
 
     def generate_answer(self, question: str, sources: Sequence[GenerationSource]) -> GeneratedAnswer:
+        return self._generate_answer(question, sources, None)
+
+    def generate_answer_with_preferences(
+        self, question: str, sources: Sequence[GenerationSource], answer_detail: AnswerDetail,
+    ) -> GeneratedAnswer:
+        if not isinstance(answer_detail, str) or answer_detail not in ANSWER_DETAIL_INSTRUCTIONS:
+            raise GenerationError("答复偏好无效")
+        return self._generate_answer(question, sources, answer_detail)
+
+    def _generate_answer(
+        self, question: str, sources: Sequence[GenerationSource], answer_detail: AnswerDetail | None,
+    ) -> GeneratedAnswer:
         if not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000:
             raise GenerationError("待回答的问题必须是 1 至 2000 字符的非空文本。")
         if isinstance(sources, (str, bytes)) or not isinstance(sources, Sequence) or not 1 <= len(sources) <= 20:
@@ -54,7 +72,8 @@ class OpenAICompatibleGenerationProvider:
                 raise GenerationError("回答资料的编号或文本格式无效。")
             source_ids.add(source.source_id)
         try:
-            result = self._chat.complete(SYSTEM_PROMPT, {
+            prompt = SYSTEM_PROMPT + (ANSWER_DETAIL_INSTRUCTIONS[answer_detail] if answer_detail else "")
+            result = self._chat.complete(prompt, {
                 "question": question.strip(),
                 "sources": [{"source_id": source.source_id, "content": source.content} for source in sources],
             })

@@ -18,6 +18,8 @@ from app.conversations.contracts import (
 )
 from app.conversations.counts import parse_count
 from app.db.models import Chunk, Conversation, ConversationTurn, Document, KnowledgeBase
+from app.memory.contracts import PreferenceRead
+from app.memory.service import load_preference
 
 
 Runner = Callable[[str, dict], AgentRun]
@@ -159,6 +161,23 @@ def _validate_evidence(session: Session, knowledge_base_id: UUID, task: PendingT
             raise ConversationConflictError("待补条件原文已经变化，请重新开始任务")
 
 
+def _with_preference(context: dict, preference: PreferenceRead | None) -> dict:
+    if preference is not None and preference.answer_detail is not None:
+        return {**context, "answer_preference": preference.model_dump(mode="json")}
+    return context
+
+
+def _used_preference(result: AgentRun, preference: PreferenceRead | None) -> PreferenceRead | None:
+    used = result.answer_preference
+    if used is None:
+        return None
+    # 运行不能伪造别的知识库或后来更新的偏好；使用本轮读取的不可变快照。
+    if (preference is None or preference.answer_detail is None
+            or not isinstance(used, PreferenceRead) or used != preference):
+        raise ConversationStateError("运行使用的答复偏好与本轮快照不一致")
+    return preference
+
+
 def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, conversation_id: UUID,
                  payload: MessageRequest, runner: Runner) -> MessageRead:
     digest = _digest(payload)
@@ -183,9 +202,13 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
             if task.billing_plan is None and payload.confirm_billing_rule:
                 raise ConversationConflictError("旧算术任务不能借确认标志升级为标准计费任务")
             _validate_evidence(session, knowledge_base_id, task)
+        will_run = (payload.mode == "new_task" or payload.mode == "continue" and status == "idle"
+                    or payload.mode == "execute" and task is not None and task.billing_plan is None)
+        preference = load_preference(session, knowledge_base_id) if will_run else None
 
     run = None
     deferred = None
+    used_preference = None
     if payload.mode == "execute":
         assert task is not None
         if task.billing_plan is not None:
@@ -199,10 +222,11 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
             # 旧来源绑定算术仍不代表业务任务完成，也不能静默升级公式。
             context = {"recent_messages": [item.model_dump() for item in memory],
                        "resume_task": task.model_dump(mode="json")}
-            result = runner(task.question, context)
+            result = runner(task.question, _with_preference(context, preference))
             if result.pending_task is not None:
                 raise ConversationStateError("算术执行不能替换已有待补任务")
-            run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task"}, warnings=False)
+            used_preference = _used_preference(result, preference)
+            run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "answer_preference"}, warnings=False)
             reply = (result.result.answer if result.result is not None else
                      f"本轮算术运行{result.status}，原因：{result.stop_reason}。已确认输入保留，可显式再次执行。")
     elif payload.mode == "continue" and status == "ready":
@@ -240,8 +264,9 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
     else:
         # 显式新任务不携带旧任务的对话上下文，防止隐式串用条件。
         context = {"recent_messages": [item.model_dump() for item in memory] if payload.mode == "continue" else []}
-        result = runner(payload.content, context)  # 此处没有活动数据库事务。
-        run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task"}, warnings=False)
+        result = runner(payload.content, _with_preference(context, preference))  # 此处没有活动数据库事务。
+        used_preference = _used_preference(result, preference)
+        run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "answer_preference"}, warnings=False)
         task = result.pending_task
         status = "waiting_for_user" if result.status == "waiting_for_user" else "idle"
         if (status == "waiting_for_user") != (task is not None):
@@ -255,7 +280,7 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
 
     response = MessageRead(conversation_id=conversation_id, request_id=payload.request_id, version=version + 1,
                            status=status, reply=reply, task=public_task(task), execution_deferred=deferred, run=run,
-                           billing_result=task.billing_result if task else None)
+                           billing_result=task.billing_result if task else None, answer_preference=used_preference)
     with session.begin():
         _conversation(session, workspace_id, knowledge_base_id, conversation_id)
         replay = _replay(session, conversation_id, payload, digest)

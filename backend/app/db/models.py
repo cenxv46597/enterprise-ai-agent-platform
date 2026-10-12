@@ -204,3 +204,21 @@ class ConversationTurn(Base):
     reply: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AnswerPreference(Base):
+    """一个知识库的有限回答偏好；空值保留版本，避免旧请求复活已清除内容。"""
+    __tablename__ = "answer_preferences"
+    __table_args__ = (
+        CheckConstraint("version >= 1 AND version <= 2147483647", name="version_valid"),
+        CheckConstraint("answer_detail IS NULL OR answer_detail IN ('concise', 'detailed')", name="answer_detail_valid"),
+    )
+    knowledge_base_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("knowledge_bases.id", ondelete="RESTRICT"), primary_key=True,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    answer_detail: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now(),
+    )

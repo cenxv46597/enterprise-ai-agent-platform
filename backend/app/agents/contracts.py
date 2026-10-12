@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from app.knowledge.answers import AnswerResult
 from app.knowledge.retrieval import SearchHit
 from app.providers.reranking import RerankTrace
+from app.memory.contracts import PreferenceRead
 from app.agents.calculation_contracts import AgentCalculation, CalculationResult
 from app.agents.sourced_contracts import SourcedAgentCalculation, SourcedCalculation
 from app.conversations.contracts import Clarification, PendingTask
@@ -142,6 +143,8 @@ class AgentRun:
     evidence: list[AgentEvidence]
     calculations: list[AgentCalculation | SourcedAgentCalculation] = field(default_factory=list)
     pending_task: PendingTask | None = None
+    # 最终生成调用路径所用偏好；不属于原文证据或数值来源。
+    answer_preference: PreferenceRead | None = None
 
 
 class PlannerProvider(Protocol):

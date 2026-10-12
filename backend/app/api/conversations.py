@@ -1,6 +1,7 @@
 """知识库内的会话创建、读取与跨请求条件补充。"""
 
 import json
+from dataclasses import replace
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -26,6 +27,8 @@ from app.agents.contracts import MAX_AGENT_CHARACTERS, PlannerConfigurationError
 from app.knowledge.retrieval import SearchHit
 from app.agents.contracts import AgentInputError
 from app.providers.generation import GenerationConfigurationError
+from app.memory.contracts import PreferenceRead, PreferenceStateError
+from app.memory.generation import PreferenceGenerationProvider
 
 
 router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/conversations",
@@ -47,7 +50,8 @@ def _http_error(error: Exception) -> HTTPException:
 
 
 ERRORS = (ConversationNotFoundError, ConversationConflictError, ConversationStateError, RetrievalNotFoundError,
-          RetrievalConflictError, RetrievalStateError, PlannerConfigurationError, GenerationConfigurationError, AgentInputError)
+          RetrievalConflictError, RetrievalStateError, PlannerConfigurationError, GenerationConfigurationError,
+          AgentInputError, PreferenceStateError)
 
 
 @router.post("", response_model=ConversationRead, status_code=201)
@@ -82,11 +86,18 @@ def message(workspace_id: UUID, knowledge_base_id: UUID, conversation_id: UUID, 
             registry.register(PrepareBillingTool())
         initial = tuple(SearchHit(item.chunk_id, item.document_id, item.document_name, item.chunk_index,
                                   item.content, item.start_char, item.end_char, 0.0) for item in task.evidence) if task else ()
-        planner_context = {key: value for key, value in context.items() if key != "resume_task"}
-        return run_agent(planner, generation, registry, question, conversation_context=planner_context,
+        raw_preference = context.get("answer_preference")
+        preference = PreferenceRead.model_validate_json(json.dumps(raw_preference)) if raw_preference is not None else None
+        styled = (PreferenceGenerationProvider(generation, preference.answer_detail)
+                  if preference is not None and preference.answer_detail is not None else None)
+        # 偏好只提供给最终生成，不供模型选择工具或解释可信算术输入。
+        planner_context = {key: value for key, value in context.items()
+                           if key not in ("resume_task", "answer_preference")}
+        result = run_agent(planner, styled or generation, registry, question, conversation_context=planner_context,
                          initial_evidence=initial, user_inputs=tuple(task.confirmed_inputs) if task else (),
                          require_calculation=task is not None, max_steps=8 if task else 4,
                          max_evidence_characters=min(Settings().generation_max_context_characters, MAX_AGENT_CHARACTERS))
+        return replace(result, answer_preference=preference) if styled is not None and styled.used else result
     try:
         return send_message(session, workspace_id, knowledge_base_id, conversation_id, payload, runner)
     except ERRORS as error:

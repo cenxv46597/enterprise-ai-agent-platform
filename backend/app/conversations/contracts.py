@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import field_validator
 from app.billing.contracts import BillingPlan, BillingResult
+from app.memory.contracts import PreferenceRead
 
 
 MAX_TURNS = 200
@@ -221,3 +222,5 @@ class MessageRead(BaseModel):
     # 原有公开运行响应的 JSON 快照；原文正文和内部待补状态不在其中。
     run: dict | None = None
     billing_result: BillingResult | None = None
+    # 旧轮次缺省为空；仅保存最终生成调用路径所用版本，不代表真实模型遵守。
+    answer_preference: PreferenceRead | None = None
