@@ -24,6 +24,8 @@ from app.providers.compatible_planner import CompatiblePlannerProvider
 from app.providers.native_planner import NativePlannerProvider
 from app.providers.generation import GenerationConfigurationError
 from app.providers.reranking import RerankConfigurationError
+from app.mcp_tools.client import McpSearchClient, StdioSearchClient
+from app.mcp_tools.tool import McpKnowledgeSearchTool
 
 
 router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}", tags=["agent-runs"])
@@ -58,11 +60,19 @@ class AgentRequest(BaseModel):
     max_steps: int = Field(default=4, ge=1, le=MAX_AGENT_STEPS, strict=True, description="动作决策次数上限；最后一步必须结束，否则停止")
     strategy: SearchStrategy = "vector"
     rerank: bool = Field(default=False, strict=True)
+    search_backend: Literal["local", "mcp"] = "local"
 
     @field_validator("question", mode="before")
     @classmethod
     def strip_question(cls, value: object) -> object:
         return value.strip() if isinstance(value, str) else value
+
+
+def get_mcp_search_client(workspace_id: UUID, knowledge_base_id: UUID, payload: AgentRequest) -> McpSearchClient:
+    return StdioSearchClient(workspace_id, knowledge_base_id, payload.strategy)
+
+
+McpSearchDep = Annotated[McpSearchClient, Depends(get_mcp_search_client)]
 
 
 class AgentRunRead(BaseModel):
@@ -79,12 +89,18 @@ class AgentRunRead(BaseModel):
 @router.post("/agent-runs", response_model=AgentRunRead)
 def start_agent(workspace_id: UUID, knowledge_base_id: UUID, payload: AgentRequest,
                 session: DbSession, embedding: EmbeddingDep, generation: GenerationDep,
-                planner: PlannerDep, rerank_provider: RerankDep) -> AgentRun:
+                planner: PlannerDep, rerank_provider: RerankDep, mcp_client: McpSearchDep) -> AgentRun:
     try:
         validate_scope(session, workspace_id, knowledge_base_id)
+        if payload.search_backend == "mcp" and payload.rerank:
+            raise HTTPException(422, "首版 MCP 搜索暂不支持候选重排；请选择 local 或关闭 rerank")
         registry = ToolRegistry()
-        registry.register(KnowledgeSearchTool(session, embedding, workspace_id, knowledge_base_id,
-                                             strategy=payload.strategy, rerank=payload.rerank, rerank_provider=rerank_provider))
+        if payload.search_backend == "mcp":
+            registry.register(McpKnowledgeSearchTool(session, mcp_client, workspace_id, knowledge_base_id,
+                                                    strategy=payload.strategy))
+        else:
+            registry.register(KnowledgeSearchTool(session, embedding, workspace_id, knowledge_base_id,
+                                                 strategy=payload.strategy, rerank=payload.rerank, rerank_provider=rerank_provider))
         registry.register(CalculatorTool())
         return run_agent(planner, generation, registry, payload.question, max_steps=payload.max_steps,
                          max_evidence_characters=min(Settings().generation_max_context_characters, MAX_AGENT_CHARACTERS))

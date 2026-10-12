@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     agent_total_timeout_seconds: float = Field(default=20, gt=0, le=120)
     agent_max_tokens: int = Field(default=512, ge=128, le=2048)
     agent_protocol: Literal["native", "json"] = "native"
+    mcp_tool_timeout_seconds: float = Field(default=30, gt=0, le=180, allow_inf_nan=False)
     review_base_url: str | None = None
     review_api_key: SecretStr | None = None
     review_model: str | None = None

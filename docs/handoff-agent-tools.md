@@ -7,7 +7,37 @@
 上述只本地提交是当轮授权。随后用户单独授权推送已确认的三条提交，正常推送并核对
 本地与远程为 a167235，进入新模块前工作区干净；不因此自动推送后续模块。
 
-当前最新程序验收完成模块为[阶段 4.4](phase4-answer-preferences.md)与 [ADR 0022](adr/0022-explicit-answer-preferences.md)，真实质量和学习实践仍待：
+当前开发接续为[阶段 4.5](phase4-mcp-search.md)与
+[ADR 0023](adr/0023-allowlisted-local-mcp-search.md)：自建只读 MCP 已完成程序验收。
+用户选择 B，并独立说明删除需要用户批准；导师补充平台
+能力白名单和具体操作权限/确认是不同层。当前不实现删除工具或授权流程，不能把此
+选择记为已完成实践、面试或已实现权限系统。
+采用官方 Python SDK mcp==2.3.0，固定本地 stdio，每次搜索启动短命进程；每次发现并
+严格比对 knowledge_search 的输入/输出 schema，其他工具不注册或发给模型。
+模型仅填写 query，范围与策略由 Host 绑定；Host 在短事务复验 JSON、范围、ready 与
+非空向量，以及完整原文字段，一项不符整批拒绝。应用层 100000 字节/5 hit/12000 字
+检查不能称为 SDK 解码前资源限制；本地子进程不是安全沙箱。
+单次 agent-runs 增加 search_backend=local/mcp，默认 local，支持 vector/hybrid；MCP
+与 rerank=true 同用返回 422。会话入口不变，不静默 fallback，不做自动重发。
+SDK 默认 auto 先 server/discover，必要时 fallback initialize，这是连接协商而非
+tools/call 自动重发或本地业务回退。
+默认连接/发现/调用预算 30 秒，EAAP_MCP_TOOL_TIMEOUT_SECONDS 为正数且不超过 180，
+进程取消清理有额外有界宽限；不要宣称完整请求严格 30 秒内结束。
+无新迁移，schema 仍为 0008；SDK 依赖中的 PyJWT 等不是本项目身份认证功能。
+没有远端 MCP、任意命令、通用插件或生产多租户能力；真实模型质量、用户实践与逐题
+面试仍未完成。最终完整后端 1501 项通过、无跳过（482.40 秒，0:08:02），独立 eaap_test
+PostgreSQL 与模拟/受控模型，新增 MCP 140 项（95 协议、45 API）。协议专项 95 项通过、
+无跳过（13.02 秒）是全量子集，不相加。公开 fixture 真实 stdio、生产固定模块
+app.mcp_tools.server + 真实 stdio + 测试库空知识库链路，与 Client 替身的 Host 非空
+反例区分；空结果不请求真实向量/模型，不称真实非空端到端质量验收。
+初版协议 85 项通过/1 项失败、组合专项 180 项通过/1 项失败保留：早退异常断言需适配
+SDK 嵌套 ExceptionGroup，修为严格检查叶子 ConnectionClosed 后专项与完整回归通过。
+另有故障归类专项发现生产 Client 对 SDK 超时/嵌套组分类错误，已修 public_error_code
+递归解包，仅保留一致已知类别，未知或类别混合固定 mcp_service_error；本轮包含生产
+错误映射修复，不仅是测试断言调整。具体失败/修复轨迹见学习记录和阶段文档。
+本轮安全检查后本地提交，不预填编号，不能继承之前推送授权。
+
+最新历史程序验收完成模块为[阶段 4.4](phase4-answer-preferences.md)与 [ADR 0022](adr/0022-explicit-answer-preferences.md)，真实质量和学习实践仍待：
 用户选择显式有限答复偏好，并独立区分“这次”与“以后”的时间范围；没有完成代码实践。
 知识库 GET/PUT answer-preferences 保存 concise/detailed/null，清除保留版本墓碑，没有 TTL、
 聊天自动抽取或自由文本指令。仅会话最终有证据生成使用读取快照，并发修改下轮生效，
@@ -34,8 +64,8 @@ compare_metadata=[]。程序验收不等于真实模型质量或通用长期记�
 最新学习接续：学习者独立解释本次“三次”属于任务条件、不应在新任务中自动沿用，
 并明确跳过本次输入白名单小实践；未修改或执行该实践，不增加个人编码成绩。
 设置/清除实践与三道面试题仍未完成，按用户要求继续主线。阶段 4.4 实现已本地提交
-8a99e6b，下一模块建议先设计自建只读 MCP Server/Client 与现有知识搜索适配；
-工具发现是否自动获得执行许可的核心问题尚待用户回答，未实施新业务代码。
+8a99e6b；学习接续文档另本地提交 93a4500。上述工具白名单设计问题现已回答并进入
+阶段 4.5 实现及程序验收，实际新 HEAD 仍以 Git 状态为准，不回写历史成绩。
 下列 4.3/4.2/4.1/3.3 是已完成的历史基线，1273 项不能作为 4.4 新代码的验证结果。
 
 阶段 4.3 基线为[受控标准计费](phase4-standard-billing.md)与 [ADR 0021](adr/0021-controlled-standard-billing.md)：
@@ -113,7 +143,7 @@ Git 约定详见 [日常流程](github-workflow.md)。开始新会话先用只�
 
 ## 4. 实际技术栈与业务边界
 
-当前后端：Python、FastAPI、Pydantic、httpx、SQLAlchemy、Alembic、PostgreSQL 17 与 pgvector、pytest。数据库用 Compose 本地运行；应用本身还没有完整生产部署。没有 Redis、LangGraph、MCP、认证前端或新 SDK。
+当前后端：Python、FastAPI、Pydantic、httpx、SQLAlchemy、Alembic、PostgreSQL 17 与 pgvector、pytest，以及阶段 4.5 新增的官方 Python MCP SDK mcp==2.3.0。数据库用 Compose 本地运行；MCP 仅本地固定 stdio 知识搜索，应用本身还没有完整生产部署。没有 Redis、LangGraph、身份认证或前端；SDK 的依赖不等于已实现这些业务能力。
 
 本机应用库与独立测试库分开，测试库配置变量为 `EAAP_TEST_DATABASE_URL`。阶段 3.3 时
 迁移为 `20261010_0004`，后来应用库已正常升级至 `20261011_0007`。阶段 4.4 增加
@@ -214,7 +244,10 @@ Git 约定详见 [日常流程](github-workflow.md)。开始新会话先用只�
 请核对交接文件中的最终测试记录，区分真实调用、模拟模型、程序规则验收与仍未知的语义质量。
 阶段4.4显式答复偏好程序验收完成，1361项完整回归通过，应用库已正常升级0008且旧表计数一致。
 本次输入白名单小实践已按我的要求跳过，设置/清除实践及逐题面试仍未完成，不记为已实践。
-继续进入自建只读MCP Server/Client与现有知识搜索适配的设计，一次一个核心问题。
+阶段4.5自建只读MCP Server/Client、显式白名单及Host原文整批回验完成程序验收，1501项通过无跳过。
+包含生产固定模块+真实stdio+独立测试库空结果链，不请求真实模型；非空真实向量/模型语义仍未验收。
+只单次agent-runs可选search_backend=mcp，会话不变，MCP与rerank=true同用422，不静默fallback。
+用户已独立说明删除需要批准，当前无删除/授权功能；小实践与逐题面试尚未完成，一次一个核心问题。
 真实风格与忠实性另行预算验收，不把有限偏好当完整长期记忆。
 不得把知识库级偏好称为私有用户记忆，也不要一次生成完整高级Agent系统。
 
