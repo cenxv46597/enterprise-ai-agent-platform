@@ -517,6 +517,17 @@ def test_list_documents_filters_status_before_pagination(upload_context: UploadC
         parsed_documents + failed_documents,
         key=lambda document: (document["created_at"], document["id"]),
     )
+    parsed_page = upload_context.client.get(
+        upload_context.documents_url,
+        params={"status": "parsed", "limit": 5, "offset": 5},
+    )
+    assert parsed_page.status_code == 200
+
+    documents = parsed_page.json()
+    assert len(documents) == 5
+
+    for document in documents:
+        assert document["status"] == "parsed"
 
 
 def test_list_documents_status_filter_preserves_parent_scope(upload_context: UploadContext) -> None:
