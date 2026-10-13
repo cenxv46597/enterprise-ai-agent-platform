@@ -798,6 +798,11 @@ def test_pdf_parse_failure_keeps_safe_metadata_and_cannot_chunk(
     body = response.json()
     assert body["status"] == "failed"
     assert body["error_code"] == expected_code
+    detail = upload_context.client.get(
+        f"{upload_context.documents_url}/{body['id']}"
+    )
+    assert detail.status_code == 200
+    assert detail.json()["error_code"] == expected_code
     assert body["media_type"] == "application/pdf"
     assert body["byte_size"] == len(original)
     assert body["sha256"] == sha256(original).hexdigest()
