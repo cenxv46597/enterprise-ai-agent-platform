@@ -1,9 +1,10 @@
 """限定在工作空间内的知识库接口。"""
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -57,6 +58,26 @@ def create_knowledge_base(
 
     session.refresh(knowledge_base)
     return knowledge_base
+
+
+@router.get("", response_model=list[KnowledgeBaseRead])
+def list_knowledge_bases(
+    workspace_id: UUID,
+    session: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+) -> list[KnowledgeBase]:
+    if session.get(Workspace, workspace_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="工作区不存在")
+
+    statement = (
+        select(KnowledgeBase)
+        .where(KnowledgeBase.workspace_id == workspace_id)
+        .order_by(KnowledgeBase.created_at, KnowledgeBase.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.scalars(statement))
 
 
 @router.get("/{knowledge_base_id}", response_model=KnowledgeBaseRead)

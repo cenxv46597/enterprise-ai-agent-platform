@@ -2,7 +2,7 @@
 
 import os
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -127,3 +127,108 @@ def test_missing_parent_and_invalid_names(client: TestClient) -> None:
             ).status_code
             == 422
         )
+
+
+def test_list_knowledge_bases_filters_before_pagination(client: TestClient) -> None:
+    first = client.post("/api/v1/workspaces", json={"name": "First"}).json()["id"]
+    second = client.post("/api/v1/workspaces", json={"name": "Second"}).json()["id"]
+    expected = []
+    for index in range(3):
+        for workspace_id in (first, second):
+            response = client.post(
+                f"/api/v1/workspaces/{workspace_id}/knowledge-bases",
+                json={"name": f"Docs {index}"},
+            )
+            assert response.status_code == 201
+            if workspace_id == first:
+                expected.append(response.json())
+
+    path = f"/api/v1/workspaces/{first}/knowledge-bases"
+    response = client.get(path, params={"limit": 1, "offset": 1})
+    assert response.status_code == 200
+    assert response.json() == expected[1:2]
+    beyond_page = client.get(path, params={"offset": 3})
+    assert beyond_page.status_code == 200
+    assert beyond_page.json() == []
+
+
+def test_list_knowledge_bases_empty_workspace_and_missing_parent(client: TestClient) -> None:
+    workspace_id = client.post("/api/v1/workspaces", json={"name": "Empty"}).json()["id"]
+    response = client.get(f"/api/v1/workspaces/{workspace_id}/knowledge-bases")
+    assert response.status_code == 200
+    assert response.json() == []
+
+    response = client.get(
+        f"/api/v1/workspaces/{uuid4()}/knowledge-bases", params={"offset": 100}
+    )
+    assert response.status_code == 404
+    assert response.json() == {"detail": "工作区不存在"}
+
+
+def test_list_knowledge_bases_defaults_and_tied_timestamp_order(client: TestClient) -> None:
+    workspace_id = client.post("/api/v1/workspaces", json={"name": "Paged"}).json()["id"]
+    base_ids = [UUID(int=index) for index in range(1, 22)]
+    created_at = datetime(2026, 10, 13, tzinfo=timezone.utc)
+    # 倒序写入同时间记录，验证排序不依赖插入顺序；只使用 fixture 的独立测试模式。
+    for session in client.app.dependency_overrides[get_session]():
+        session.add_all(
+            models.KnowledgeBase(
+                id=base_id,
+                workspace_id=UUID(workspace_id),
+                name=f"Docs {base_id.int}",
+                created_at=created_at,
+            )
+            for base_id in reversed(base_ids)
+        )
+        session.commit()
+
+    path = f"/api/v1/workspaces/{workspace_id}/knowledge-bases"
+    first_page = client.get(path)
+    assert first_page.status_code == 200
+    assert [item["id"] for item in first_page.json()] == [
+        str(value) for value in base_ids[:20]
+    ]
+    assert all(
+        set(item) == {"id", "workspace_id", "name", "created_at"}
+        for item in first_page.json()
+    )
+    second_page = client.get(path, params={"offset": 20})
+    assert second_page.status_code == 200
+    assert [item["id"] for item in second_page.json()] == [str(base_ids[20])]
+    maximum_page = client.get(path, params={"limit": 100})
+    assert maximum_page.status_code == 200
+    assert len(maximum_page.json()) == 21
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": "0"},
+        {"limit": "101"},
+        {"limit": "-1"},
+        {"limit": "1.5"},
+        {"limit": "many"},
+        {"offset": "-1"},
+        {"offset": "1.5"},
+        {"offset": "many"},
+        {"offset": str(2**63)},
+    ],
+)
+def test_list_knowledge_bases_rejects_invalid_pagination_without_database(
+    params: dict[str, str],
+) -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: None
+    with TestClient(app) as test_client:
+        response = test_client.get(
+            f"/api/v1/workspaces/{uuid4()}/knowledge-bases", params=params
+        )
+    assert response.status_code == 422
+
+
+def test_list_knowledge_bases_rejects_invalid_workspace_id_without_database() -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: None
+    with TestClient(app) as test_client:
+        response = test_client.get("/api/v1/workspaces/not-a-uuid/knowledge-bases")
+    assert response.status_code == 422

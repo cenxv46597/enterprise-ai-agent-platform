@@ -72,6 +72,7 @@ python -m uvicorn app.main:app --reload
 
 - `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
+- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；工作空间存在但结果为空返回 `200 []`，不存在返回 `404`。分页不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/data-api-design-proposal.md#知识库列表小步补齐)。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`。
 - 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
 - 在具体文档路径后追加 `/embeddings`，使用 `POST` 生成并保存向量，不需要请求体。
