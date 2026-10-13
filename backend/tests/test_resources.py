@@ -185,6 +185,7 @@ def test_list_knowledge_bases_defaults_and_tied_timestamp_order(client: TestClie
     path = f"/api/v1/workspaces/{workspace_id}/knowledge-bases"
     first_page = client.get(path)
     assert first_page.status_code == 200
+    assert len(first_page.json()) == 20
     assert [item["id"] for item in first_page.json()] == [
         str(value) for value in base_ids[:20]
     ]
