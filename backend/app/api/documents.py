@@ -2,7 +2,7 @@
 
 from datetime import datetime
 import logging
-from typing import Annotated, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -203,6 +203,10 @@ def list_documents(
     session: DbSession,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+    document_status: Annotated[
+        Literal["uploaded", "processing", "parsed", "ready", "failed"] | None,
+        Query(alias="status"),
+    ] = None,
 ) -> list[Document]:
     parent_id = session.scalar(
         select(KnowledgeBase.id).where(
@@ -220,9 +224,11 @@ def list_documents(
             Document.knowledge_base_id == knowledge_base_id,
             KnowledgeBase.workspace_id == workspace_id,
         )
-        .order_by(Document.created_at, Document.id)
-        .offset(offset)
-        .limit(limit)
+    )
+    if document_status is not None:
+        statement = statement.where(Document.status == document_status)
+    statement = (
+        statement.order_by(Document.created_at, Document.id).offset(offset).limit(limit)
     )
     return list(session.scalars(statement))
 

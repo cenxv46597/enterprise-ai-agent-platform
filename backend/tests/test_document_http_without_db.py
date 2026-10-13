@@ -104,6 +104,20 @@ def test_list_documents_rejects_invalid_pagination_without_database(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("document_status", ["normal", "FAILED", "", "null"])
+def test_list_documents_rejects_invalid_status_without_database(
+    document_status: str,
+) -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: None
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/v1/workspaces/{uuid4()}/knowledge-bases/{uuid4()}/documents",
+            params={"status": document_status},
+        )
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize("invalid_parent", ["workspace", "knowledge_base"])
 def test_list_documents_rejects_invalid_parent_id_without_database(
     invalid_parent: str,

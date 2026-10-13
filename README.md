@@ -20,7 +20,7 @@
 - **显式答复偏好：** [阶段 4.4](docs/phase4-answer-preferences.md)已实现知识库级简洁/详细设置、版本化更新与清除，不从聊天自动抽取。只影响会话最终有证据生成，不能改变证据、工具或计费公式；完整程序回归通过、应用库已升级至 0008。这是本地单用户设置，不是私有用户记忆或完整长期记忆平台，真实风格与忠实性未知，学习者实践仍待完成。
 - **只读 MCP 接入：** [阶段 4.5](docs/phase4-mcp-search.md)已实现并完成程序验收：自建本地 stdio Server、官方 Python SDK Client 和显式工具白名单；单次 Agent 可选择 MCP 搜索，Host 整批回验知识库范围与完整原文。默认本地搜索不变，不开放删除或任意命令，不静默回退。真实非空向量/模型端到端质量和学习者实践尚未验收。
 - **检查点问答：** [阶段 4.6](docs/phase4-answer-workflows.md)独立固定两步工作流程序验收完成：创建任务、显式领取执行权、保存检索检查点、生成并校验引用、保存不可变回执；合法检查点在新请求中复验来源后继续生成，过期中断执行需显式接管。不是任意 Agent 恢复，也不能保证外部模型费用恰好一次；个人实践与真实语义质量待验收。
-- **后续主线：** 先完成阶段 4.6 个人实践与逐题面试，再确认下一模块；后续计划权限、部署和前端，根据明确需求扩展长期记忆与工作流，同时完成真实检索和智能体任务验收、补齐 PDF 与资源列表。当前无身份认证或用户界面，上传仅支持 UTF-8 TXT/Markdown、默认 5 MiB。
+- **后续主线：** 学习者已要求继续首版资源浏览补齐，阶段 4.6 个人实践与逐题面试保持待完成，不自动记为跳过。工作空间、知识库、文档三级列表及可选文档状态筛选已接入；接下来巩固本轮实践，再补 PDF、权限、部署和前端，完成真实检索与智能体任务验收。长期记忆与工作流按明确需求扩展。当前无身份认证或用户界面，上传仅支持 UTF-8 TXT/Markdown、默认 5 MiB。
 
 阶段 4.3 最终历史完整回归 **1273 项通过、无跳过（523.88 秒）**，使用独立真实 PostgreSQL/pgvector 与受控模型，覆盖标准计费两条件恢复、固定公式、规则确认与结果、迁移、来源引用式链式算术、持久会话、原生协议、检索增强和既有六题工具。阶段 4.3 新增 139 项测试；真实模型选对收费原文与工具、实际业务语义仍待验收，没有新增真实模型调用。本机应用库已升级为 `20261011_0007`，既有六张表记录数保持一致。首轮完整 1272 项通过后另补引文限长保护，最终版本重新全量通过；此前各阶段的临时目录权限等故障仍保留在[学习记录](docs/learning-progress.md)。该结果不能用于宣称阶段 4.4 新代码已通过完整回归。测试数量不代表项目完成比例，也不替代模型语义验收。
 
@@ -71,14 +71,19 @@ python -m uvicorn app.main:app --reload
 当前可在 `/docs` 调用下列资源接口：
 
 - `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
+- `GET /api/v1/workspaces?limit=20&offset=0`：分页列出本地工作空间的 ID、名称和创建时间，默认 20、最多 100 条，按创建时间和 ID 升序；没有工作空间返回 `200 []`。当前是本地单用户全局列表，不是“当前用户有权访问的工作空间”。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
 - `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；工作空间存在但结果为空返回 `200 []`，不存在返回 `404`。分页不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/data-api-design-proposal.md#知识库列表小步补齐)。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`。
-- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents?limit=20&offset=0`：分页浏览文档元数据，包含尚未就绪或处理失败的记录及安全错误码；默认 20、最多 100 条。管理列表不读取文件正文、不调用模型，也不改变检索仅使用 `ready` 文档的规则，见[文档列表契约](docs/data-api-design-proposal.md#文档列表小步补齐)。
+- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents?limit=20&offset=0`：分页浏览文档元数据，包含尚未就绪或处理失败的记录及安全错误码；默认 20、最多 100 条。可加 `status=failed` 查找失败记录，支持五种已有处理状态；不传时仍显示全部状态。数据库先限定父级与状态，再排序分页，不是获取一页后再筛选。管理列表不读取正文、不调用模型，也不改变检索仅使用 `ready` 文档的规则，见[文档列表契约](docs/data-api-design-proposal.md#文档列表小步补齐)。
 - 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
 - 在具体文档路径后追加 `/embeddings`，使用 `POST` 生成并保存向量，不需要请求体。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/search`：在指定知识库内检索相关段落。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/answers`：基于检索证据回答或弃答，返回逐字引用。
+
+浏览顺序是先从工作空间列表选取返回的 ID，再查询该工作空间的知识库，最后用返回的知识库 ID 查询文档；三级浏览已具备后端接口，不代表已有管理页面。
+
+本轮资源浏览与状态筛选相关回归 **66 项通过、无跳过（59.62 秒）**，使用独立 PostgreSQL 测试库与临时存储，无模型调用；不是完整后端回归或真实模型质量验收，个人实践状态见[学习记录](docs/learning-progress.md#2026-10-13资源浏览与失败文档定位)。
 
 知识库名称在同一工作空间内重复时返回 `409`，路径中的父子资源不匹配时返回 `404`。上传接口的表单字段名是 `file`；首批支持 UTF-8 的 `.txt`、`.md`。解析失败仍会创建文档记录，响应中的 `failed` 状态和安全错误码用于判断原因。
 

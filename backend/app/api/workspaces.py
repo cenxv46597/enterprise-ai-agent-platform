@@ -4,8 +4,9 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Workspace
@@ -40,6 +41,21 @@ def create_workspace(payload: WorkspaceCreate, session: DbSession) -> Workspace:
     session.commit()
     session.refresh(workspace)
     return workspace
+
+
+@router.get("", response_model=list[WorkspaceRead])
+def list_workspaces(
+    session: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+) -> list[Workspace]:
+    statement = (
+        select(Workspace)
+        .order_by(Workspace.created_at, Workspace.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.scalars(statement))
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceRead)

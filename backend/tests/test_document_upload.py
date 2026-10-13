@@ -472,3 +472,172 @@ def test_list_documents_defaults_and_tied_timestamp_order(upload_context: Upload
     beyond_page = upload_context.client.get(upload_context.documents_url, params={"offset": 21})
     assert beyond_page.status_code == 200
     assert beyond_page.json() == []
+
+
+def test_list_documents_filters_status_before_pagination(upload_context: UploadContext) -> None:
+    parsed_documents = []
+    for index in range(20):
+        response = _upload(upload_context, f"guide-{index}.txt", b"public guide", "text/plain")
+        assert response.status_code == 201
+        parsed_documents.append(response.json())
+    failed_documents = []
+    for index in range(2):
+        response = _upload(upload_context, f"broken-{index}.txt", b"\xff", "text/plain")
+        assert response.status_code == 201
+        failed_documents.append(response.json())
+    failed_documents.sort(key=lambda document: (document["created_at"], document["id"]))
+
+    # 失败记录位于未筛选集合的第二页，必须先筛选再分页才能直接找到。
+    default_page = upload_context.client.get(upload_context.documents_url)
+    assert default_page.status_code == 200
+    assert len(default_page.json()) == 20
+    assert {item["id"] for item in default_page.json()} == {
+        document["id"] for document in parsed_documents
+    }
+    for offset in range(2):
+        response = upload_context.client.get(
+            upload_context.documents_url,
+            params={"status": "failed", "limit": 1, "offset": offset},
+        )
+        assert response.status_code == 200
+        assert response.json() == failed_documents[offset:offset + 1]
+    beyond_page = upload_context.client.get(
+        upload_context.documents_url, params={"status": "failed", "limit": 1, "offset": 2}
+    )
+    assert beyond_page.status_code == 200
+    assert beyond_page.json() == []
+    no_matching_status = upload_context.client.get(
+        upload_context.documents_url, params={"status": "ready"}
+    )
+    assert no_matching_status.status_code == 200
+    assert no_matching_status.json() == []
+    all_documents = upload_context.client.get(upload_context.documents_url, params={"limit": 100})
+    assert all_documents.status_code == 200
+    assert all_documents.json() == sorted(
+        parsed_documents + failed_documents,
+        key=lambda document: (document["created_at"], document["id"]),
+    )
+
+
+def test_list_documents_status_filter_preserves_parent_scope(upload_context: UploadContext) -> None:
+    client = upload_context.client
+    same_workspace_base = client.post(
+        f"/api/v1/workspaces/{upload_context.workspace_id}/knowledge-bases",
+        json={"name": "Other in same workspace"},
+    )
+    assert same_workspace_base.status_code == 201
+    other_workspace = client.post("/api/v1/workspaces", json={"name": "Other"})
+    assert other_workspace.status_code == 201
+    other_workspace_id = other_workspace.json()["id"]
+    other_base = client.post(
+        f"/api/v1/workspaces/{other_workspace_id}/knowledge-bases", json={"name": "Guides"}
+    )
+    assert other_base.status_code == 201
+    target_failed = _upload(upload_context, "broken.txt", b"\xff", "text/plain")
+    target_parsed = _upload(upload_context, "guide.txt", b"guide", "text/plain")
+    assert target_failed.status_code == target_parsed.status_code == 201
+    for workspace_id, base_id in (
+        (upload_context.workspace_id, same_workspace_base.json()["id"]),
+        (other_workspace_id, other_base.json()["id"]),
+    ):
+        response = client.post(
+            f"/api/v1/workspaces/{workspace_id}/knowledge-bases/{base_id}/documents",
+            files={"file": ("broken.txt", b"\xff", "text/plain")},
+        )
+        assert response.status_code == 201
+        assert response.json()["status"] == "failed"
+
+    filtered = client.get(upload_context.documents_url, params={"status": "failed"})
+    assert filtered.status_code == 200
+    assert filtered.json() == [target_failed.json()]
+    wrong_parent = client.get(
+        f"/api/v1/workspaces/{other_workspace_id}"
+        f"/knowledge-bases/{upload_context.knowledge_base_id}/documents",
+        params={"status": "failed"},
+    )
+    assert wrong_parent.status_code == 404
+    assert wrong_parent.json() == {"detail": "知识库不存在"}
+
+
+def test_list_documents_accepts_each_supported_status(upload_context: UploadContext) -> None:
+    states = ("uploaded", "processing", "parsed", "ready", "failed")
+    created_at = datetime(2026, 10, 13, tzinfo=timezone.utc)
+    # 人工元数据仅验证管理筛选；这里的 ready 不代表向量生成或检索链路通过。
+    with Session(upload_context.engine) as session:
+        session.add_all(
+            Document(
+                id=UUID(int=index),
+                knowledge_base_id=UUID(upload_context.knowledge_base_id),
+                original_filename=f"guide-{index}.txt",
+                media_type="text/plain",
+                storage_key=f"test/status-{index}",
+                byte_size=1,
+                sha256="0" * 64,
+                status=document_status,
+                error_code="INVALID_UTF8" if document_status == "failed" else None,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+            for index, document_status in enumerate(states, start=1)
+        )
+        session.commit()
+    for index, document_status in enumerate(states, start=1):
+        response = upload_context.client.get(
+            upload_context.documents_url, params={"status": document_status}
+        )
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [str(UUID(int=index))]
+        assert response.json()[0]["status"] == document_status
+
+
+def test_browse_workspaces_knowledge_bases_and_documents(upload_context: UploadContext) -> None:
+    client = upload_context.client
+    other_workspace = client.post("/api/v1/workspaces", json={"name": "Operations"})
+    assert other_workspace.status_code == 201
+    other_workspace_id = other_workspace.json()["id"]
+    other_base = client.post(
+        f"/api/v1/workspaces/{other_workspace_id}/knowledge-bases", json={"name": "Guides"}
+    )
+    assert other_base.status_code == 201
+    first_document = _upload(upload_context, "guide.txt", b"Product guide", "text/plain")
+    second_document = client.post(
+        f"/api/v1/workspaces/{other_workspace_id}"
+        f"/knowledge-bases/{other_base.json()['id']}/documents",
+        files={"file": ("guide.txt", b"Operations guide", "text/plain")},
+    )
+    assert first_document.status_code == second_document.status_code == 201
+    expected_by_workspace = {
+        upload_context.workspace_id: first_document.json(),
+        other_workspace_id: second_document.json(),
+    }
+
+    # 用上一层列表返回的 ID 构造下一层 URL，而不是预先写死浏览链路。
+    workspaces = client.get("/api/v1/workspaces")
+    assert workspaces.status_code == 200
+    assert {item["id"] for item in workspaces.json()} == set(expected_by_workspace)
+    for workspace in workspaces.json():
+        bases = client.get(f"/api/v1/workspaces/{workspace['id']}/knowledge-bases")
+        assert bases.status_code == 200
+        assert len(bases.json()) == 1
+        base = bases.json()[0]
+        assert base["name"] == "Guides"
+        assert base["workspace_id"] == workspace["id"]
+        documents_url = (
+            f"/api/v1/workspaces/{workspace['id']}"
+            f"/knowledge-bases/{base['id']}/documents"
+        )
+        documents = client.get(documents_url)
+        assert documents.status_code == 200
+        assert documents.json() == [expected_by_workspace[workspace["id"]]]
+        document = documents.json()[0]
+        assert document["original_filename"] == "guide.txt"
+        detail = client.get(f"{documents_url}/{document['id']}")
+        assert detail.status_code == 200
+        assert detail.json() == document
+
+    wrong_parent = client.get(
+        f"/api/v1/workspaces/{other_workspace_id}"
+        f"/knowledge-bases/{upload_context.knowledge_base_id}/documents"
+    )
+    assert wrong_parent.status_code == 404
+    assert wrong_parent.json() == {"detail": "知识库不存在"}
