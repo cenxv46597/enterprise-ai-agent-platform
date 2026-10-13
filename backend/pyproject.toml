@@ -13,6 +13,7 @@ dependencies = [
   "httpx>=0.28.1,<0.29",
   "mcp==2.3.0",
   "pgvector>=0.4.2,<0.5",
+  "pypdf>=6.19,<7",
   "pydantic-settings>=2.15,<3",
   "psycopg[binary]>=3.3.6,<4",
   "python-multipart>=0.0.32,<0.1",

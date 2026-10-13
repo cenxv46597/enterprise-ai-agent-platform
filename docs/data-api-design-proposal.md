@@ -18,7 +18,7 @@ erDiagram
 - **工作空间（`Workspace`）：** `id`（UUID）、`name`、`created_at`（UTC 时间）。一个工作空间包含多个知识库。名称无需全局唯一，因为资源由 ID 唯一标识。
 - **知识库（`KnowledgeBase`）：** `id`（UUID）、`workspace_id`（外键）、`name`、`created_at`，以及可空的 `embedding_provider`、`embedding_model`、`embedding_dimensions`。首个完整向量结果提交后固定接口身份、模型和 1024 维配置，不保存密钥。数据库约束 `(workspace_id, name)` 唯一：同一工作空间不可创建同名知识库，不同工作空间可以同名。
 - **文档（`Document`）：** `id`（UUID）、`knowledge_base_id`（外键）、`original_filename`、`media_type`、`storage_key`、`byte_size`、`sha256`、`status`、可选且经过清理的 `error_code`、`created_at`、`updated_at`。一次上传只属于一个知识库；若同一文件要进入另一个知识库，需要重新上传。开发阶段原文件保存在本地文件存储中，数据库只保存定位它的存储键，不保存文件字节。重复上传会获得新的 ID；`sha256` 只作诊断信息，不强制唯一。
-- **文本块（`Chunk`，已实现）：** `id`（UUID）、`document_id`（外键）、从 1 开始的 `chunk_index`、`content`、`start_char`、`end_char`，以及可空的 `embedding`（`VECTOR(1024)`）。`(document_id, chunk_index)` 唯一，字符范围满足 `解析文本[start_char:end_char] == content`。当前无页码、章节或创建时间字段；PDF 页码和章节追溯待对应解析模块设计。
+- **文本块（`Chunk`，已实现）：** `id`（UUID）、`document_id`（外键）、从 1 开始的 `chunk_index`、`content`、`start_char`、`end_char`，以及可空的 `embedding`（`VECTOR(1024)`）。`(document_id, chunk_index)` 唯一，字符范围满足 `解析文本[start_char:end_char] == content`。PDF 的解析文本是按固定规则合并的提取文字；当前无页码、章节或创建时间字段，不能把字符位置当作 PDF 页码或字节偏移。
 
 暂不在文档或文本块中重复保存 `workspace_id`。查询时沿外键找到所属知识库，再核对路径中的工作空间。外键能保证父子记录存在，但应用仍须检查“这个知识库是否属于这个工作空间”“这个文档是否属于这个知识库”。文本块由入库流程生成，第一版不开放手工创建或修改文本块的接口。
 
@@ -35,6 +35,8 @@ erDiagram
 - 所有文本块和向量写入成功后，在同一个数据库事务中把文档标记为 `ready`。检索只读取 `ready` 文档，避免部分处理结果进入回答。
 - 解析文件和调用向量生成服务期间不长时间占用数据库事务。文件存储与数据库提交无法组成一个原子事务；实现时需要明确清理或恢复路径。
 - 进程崩溃可能使文档一直停在 `processing`。自动检测与重试留到后续工程阶段，第一版要如实记录这一限制。
+
+PDF 扩展沿用相同状态机：已接收文件在损坏、加密、无可提取文字或超过 PDF 解析上限时保留 `failed` 和固定安全错误码；扩展名不支持、空文件或超过上传字节上限仍在创建记录前拒绝。`parsed` 只表示提取文本通过校验，尚未切块或生成向量；不支持扫描件 OCR。取舍见 [ADR 0025](adr/0025-text-layer-pdf-ingestion.md)。
 
 **第一版已确认：** 限制文件规模，同步处理。上传接口完成解析，返回 `201 Created` 和 `parsed` 或 `failed`；切块与向量生成由两个独立接口触发，各自同步返回。完整向量保存后才是 `ready`。HTTP 状态码表示请求结果，处理状态表达数据准备程度。以后加入可靠的后台任务后，再评估返回 `202 Accepted`。首批上传细节见[阶段 1.1 设计](phase1-document-ingestion.md)。
 
@@ -53,13 +55,21 @@ erDiagram
 
 ### 第 1 阶段：文档接口
 
-- `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents`：上传一个文件；返回 `201`，包含文档 ID、文件名、处理状态、失败时的安全错误代码和时间戳。首批文本解析成功时状态为 `parsed`。
+- `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents`：上传一个文件；返回 `201`，包含文档 ID、文件名、处理状态、失败时的安全错误代码和时间戳。支持 UTF-8 TXT/Markdown 与可提取文字 PDF；解析成功时状态为 `parsed`。
 - `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`：查询文档处理状态。
 - `POST .../documents/{document_id}/chunks`：传入 `chunk_size`、`overlap`（或 `{}` 使用默认值）保存全部文本块；相同配置复用结果。
 - `GET .../documents/{document_id}/chunks`：按编号返回块与字符范围，不返回内部存储键或向量。
 - `POST .../documents/{document_id}/embeddings`：无需请求体，为已保存文本块生成向量；返回文档 ID、状态、模型、维度、块数和 `reused`。
 
 工作空间、知识库与文档三级列表已按下节补齐；调用方可以使用上一级列表返回的 ID 查询下一级，不必只依靠创建接口返回的 ID。尚无管理页面或身份授权。
+
+### 可提取文字 PDF 扩展
+
+- `.pdf` 使用 `application/pdf` 媒体类型；默认单文件字节上限继续为 5 MiB，额外限制最多 100 页和 1,000,000 个提取字符。上限仅约束本地单用户版本的常见输入规模，不能证明能抵抗恶意压缩流的资源耗尽；对外开放时需进程隔离与更严格的资源预算。
+- 上传先按既有流程保存一份原 PDF，再调用共用文本解析函数验证；首次切块从原 PDF 调用该函数再次提取。TXT/Markdown 通过同一入口按 UTF-8 读取。不另外保存文字文件，不修改数据库表或 `Chunk`/`Document` 响应结构；同配置切块重试沿用已有结果。
+- PDF 提取文字按固定规则合并为一个字符串，切块的 `[start_char,end_char)` 针对该字符串，引用不声称原 PDF 字节位置或页码。真实 PDF 的文字顺序、表格、版面与后续语义质量仍需另行验收。
+- 不做 OCR；扫描件或只有图片且无可提取文字的文件保留 `failed` 记录。损坏、加密或超解析上限也以固定安全错误码表达，不返回解析器原始异常；调用切块时若原件后来不可读，则走既有来源错误路径。
+- PDF 固定错误码为 `PDF_INVALID`（损坏或无法安全解析）、`PDF_PASSWORD_REQUIRED`（加密）、`PDF_NO_TEXT`（无可提取文字）、`PDF_TOO_MANY_PAGES` 和 `PDF_TEXT_TOO_LONG`。列表与详情仍返回相同的安全元数据字段。
 
 ### 工作空间列表与三级浏览
 
@@ -76,7 +86,7 @@ erDiagram
 - 学习者确认方案B：这是文档管理视图，展示 `uploaded`、`processing`、`parsed`、`ready`、`failed` 各状态，不把可检索性当作可见性。方案A只列ready适用于可检索资料视图，但不满足查看待处理/失败文件的管理需求。
 - 后续补齐可选查询参数 `status`，只能取上述五种精确值；省略返回全部，空字符串、大小写变体或其他值返回422，不自行猜测“正常”的含义。Python参数命名为 `document_status`，通过 `Query(alias="status")` 保持HTTP名称，避免覆盖 `fastapi.status`。
 - 方案A获取一页后筛选，会把页外的失败记录漏掉或产生假空页；选择方案B由数据库先限定工作空间/知识库，再加可选状态条件，最后排序分页。存在的知识库无该状态记录返回200[]，父级不存在或错配仍返回404。减少无关结果传输是预期收益，未进行性能基准测量。
-- 列表不读取原文件或构造模型提供方，不调用模型，无新迁移或依赖；检索仍只使用ready且有向量的候选。不增加总数/游标、PDF、删除或身份授权；offset分页并非跨请求数据快照。
+- 列表不读取原文件或构造模型提供方，不调用模型；检索仍只使用ready且有向量的候选。此处列表接口不增加总数/游标、删除或身份授权；PDF 上传与解析作为独立扩展，不改变列表契约。offset分页并非跨请求数据快照。
 - 增加状态筛选前的文档专项30项通过、无跳过（27.09秒），仅是当时版本的验证证据。本轮相关测试结果另记于学习记录，不把构造的测试状态记录称为真实向量处理或模型质量验收。
 
 ### 知识库列表：小步补齐

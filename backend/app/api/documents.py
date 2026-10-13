@@ -188,7 +188,7 @@ def upload_document(
     except UnsupportedFileTypeError as exc:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail="仅支持文本和 Markdown 文件",
+            detail="仅支持文本、Markdown 和 PDF 文件",
         ) from exc
     except EmptyUploadError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="文件不能为空") from exc

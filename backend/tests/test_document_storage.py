@@ -23,6 +23,8 @@ def test_store_preserves_bytes_and_digest(tmp_path: Path) -> None:
     assert saved.sha256 == sha256(content).hexdigest()
     assert (tmp_path / saved.storage_key).read_bytes() == content
     assert store.read_text_utf8(saved.storage_key) == "# 使用指南\n"
+    with store.open_binary(saved.storage_key) as source:
+        assert source.read() == content
 
     store.delete(saved.storage_key)
     store.delete(saved.storage_key)
@@ -67,5 +69,7 @@ def test_storage_key_cannot_escape_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         store.read_text_utf8("../outside.txt")
+    with pytest.raises(ValueError):
+        store.open_binary("../outside.txt")
     with pytest.raises(ValueError):
         store.delete("documents/../../outside.txt")

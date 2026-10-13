@@ -12,6 +12,7 @@ from app.knowledge.chunking import (
     DEFAULT_CHUNK_SIZE,
     split_text,
 )
+from app.knowledge.document_text import read_document_text
 from app.knowledge.storage import LocalDocumentStore
 
 
@@ -55,7 +56,7 @@ def persist_document_chunks(
     """调用方提供无活动事务的会话；本函数负责整批提交或回滚。
 
     同一文档只保留一套配置。文件由上传流程保存后保持不变；字符位置
-    对应 read_text_utf8 返回的解析文本，不对应原始文件的字节位置。
+    对应 read_document_text 返回的解析文本，不对应原始文件的字节位置。
     """
     # 复用纯函数的参数验证，在获取数据库锁前拒绝无效参数。
     split_text(document_id, "", chunk_size=chunk_size, overlap=overlap)
@@ -89,7 +90,7 @@ def persist_document_chunks(
             raise ChunkStateError("存在文本块但缺少切块配置")
 
         try:
-            text = store.read_text_utf8(document.storage_key)
+            text = read_document_text(store, document.storage_key, document.media_type)
         except (OSError, UnicodeError, ValueError) as exc:
             raise ChunkSourceError("无法读取文档的解析文本") from exc
         if "\x00" in text:

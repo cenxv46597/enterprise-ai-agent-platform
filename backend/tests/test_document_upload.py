@@ -20,7 +20,7 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 from app.api.documents import get_document_store, get_embedding_provider, get_max_upload_bytes
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import Document
+from app.db.models import Chunk, Document
 from app.db.session import get_session
 from app.knowledge.audit import audit_document_storage
 from app.knowledge.storage import LocalDocumentStore
@@ -123,6 +123,39 @@ def _upload(
     )
 
 
+def _pdf_bytes(*page_texts: str | None, password: str | None = None) -> bytes:
+    """构造无需外部样本文件的 PDF；None 表示没有文字层的页面。"""
+    from pypdf import PdfWriter
+    from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
+
+    writer = PdfWriter()
+    font = DictionaryObject(
+        {
+            NameObject("/Type"): NameObject("/Font"),
+            NameObject("/Subtype"): NameObject("/Type1"),
+            NameObject("/BaseFont"): NameObject("/Helvetica"),
+        }
+    )
+    font_ref = writer._add_object(font)
+    for page_text in page_texts:
+        page = writer.add_blank_page(width=612, height=792)
+        if page_text is None:
+            continue
+        # 测试文本固定为简单 ASCII，避免把 PDF 字符串转义混入解析测试。
+        assert page_text.isascii() and not any(char in page_text for char in "()\\")
+        page[NameObject("/Resources")] = DictionaryObject(
+            {NameObject("/Font"): DictionaryObject({NameObject("/F1"): font_ref})}
+        )
+        stream = DecodedStreamObject()
+        stream.set_data(f"BT /F1 12 Tf 72 720 Td ({page_text}) Tj ET".encode("ascii"))
+        page[NameObject("/Contents")] = writer._add_object(stream)
+    if password is not None:
+        writer.encrypt(password)
+    output = BytesIO()
+    writer.write(output)
+    return output.getvalue()
+
+
 @pytest.mark.parametrize(
     ("filename", "content", "submitted_media_type", "expected_media_type"),
     [
@@ -209,7 +242,12 @@ def test_storage_audit_reads_real_records_without_mutating_them(upload_context: 
     ("filename", "content", "media_type", "expected_status"),
     [
         ("empty.txt", b"", "text/plain", 422),
-        ("manual.pdf", b"PDF", "application/pdf", 415),
+        (
+            "manual.docx",
+            b"DOCX",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            415,
+        ),
         ("../outside.txt", b"hello", "text/plain", 422),
         (r"..\outside.txt", b"hello", "text/plain", 422),
     ],
@@ -652,3 +690,127 @@ def test_browse_workspaces_knowledge_bases_and_documents(upload_context: UploadC
     )
     assert wrong_parent.status_code == 404
     assert wrong_parent.json() == {"detail": "知识库不存在"}
+
+
+def test_pdf_upload_preserves_original_and_chunks_two_pages_in_order(
+    upload_context: UploadContext,
+) -> None:
+    first_page = "First page: 120 yuan monthly."
+    second_page = "Second page: 30 yuan per visit."
+    original = _pdf_bytes(first_page, second_page)
+    response = _upload(upload_context, "manual.PDF", original, "text/plain")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "parsed"
+    assert body["error_code"] is None
+    assert body["media_type"] == "application/pdf"
+    assert body["byte_size"] == len(original)
+    assert body["sha256"] == sha256(original).hexdigest()
+    assert "storage_key" not in body
+    assert first_page not in response.text
+
+    row = upload_context.rows()[0]
+    assert (upload_context.root / row.storage_key).read_bytes() == original
+    chunks_url = f"{upload_context.documents_url}/{body['id']}/chunks"
+    created = upload_context.client.post(
+        chunks_url, json={"chunk_size": 17, "overlap": 0}
+    )
+    assert created.status_code == 200
+    chunks = created.json()
+    assert len(chunks) > 1
+    retrieved = upload_context.client.get(chunks_url)
+    assert retrieved.status_code == 200
+    assert retrieved.json() == chunks
+
+    extracted = "".join(chunk["content"] for chunk in chunks)
+    assert first_page in extracted
+    assert second_page in extracted
+    assert extracted.index(first_page) < extracted.index(second_page)
+    cursor = 0
+    for index, chunk in enumerate(chunks, start=1):
+        assert chunk["chunk_index"] == index
+        assert chunk["start_char"] == cursor
+        assert chunk["end_char"] == cursor + len(chunk["content"])
+        assert chunk["content"] == extracted[cursor:chunk["end_char"]]
+        cursor = chunk["end_char"]
+    assert cursor == len(extracted)
+
+    # 同名 PDF 在另一个知识库有独立记录，详情与切块都遵守父级范围。
+    other_base = upload_context.client.post(
+        f"/api/v1/workspaces/{upload_context.workspace_id}/knowledge-bases",
+        json={"name": "Other Guides"},
+    )
+    assert other_base.status_code == 201
+    other_url = (
+        f"/api/v1/workspaces/{upload_context.workspace_id}"
+        f"/knowledge-bases/{other_base.json()['id']}/documents"
+    )
+    other = upload_context.client.post(
+        other_url,
+        files={"file": ("manual.PDF", _pdf_bytes("Other base only."), "application/pdf")},
+    )
+    assert other.status_code == 201
+    assert other.json()["status"] == "parsed"
+    assert other.json()["id"] != body["id"]
+    current_detail = upload_context.client.get(f"{upload_context.documents_url}/{body['id']}")
+    assert current_detail.status_code == 200
+    assert upload_context.client.get(upload_context.documents_url).json() == [
+        current_detail.json()
+    ]
+    assert upload_context.client.get(other_url).json() == [other.json()]
+    assert upload_context.client.get(f"{other_url}/{body['id']}").status_code == 404
+    assert upload_context.client.get(f"{other_url}/{body['id']}/chunks").status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_code"),
+    [
+        ("invalid", "PDF_INVALID"),
+        ("blank", "PDF_NO_TEXT"),
+        ("encrypted", "PDF_PASSWORD_REQUIRED"),
+        ("too_many_pages", "PDF_TOO_MANY_PAGES"),
+        ("too_much_text", "PDF_TEXT_TOO_LONG"),
+    ],
+)
+def test_pdf_parse_failure_keeps_safe_metadata_and_cannot_chunk(
+    upload_context: UploadContext,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    expected_code: str,
+) -> None:
+    if case == "invalid":
+        original = b"not-a-pdf: private-pdf-data"
+    elif case == "blank":
+        original = _pdf_bytes(None)
+    elif case == "encrypted":
+        original = _pdf_bytes("private-pdf-data", password="test-password")
+    elif case == "too_much_text":
+        from app.knowledge import document_text
+
+        assert document_text.MAX_PDF_TEXT_CHARACTERS == 1_000_000
+        monkeypatch.setattr(document_text, "MAX_PDF_TEXT_CHARACTERS", 10)
+        original = _pdf_bytes("private-pdf-data")
+    else:
+        original = _pdf_bytes(*([None] * 101))
+
+    response = _upload(upload_context, f"{case}.pdf", original, "application/pdf")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "failed"
+    assert body["error_code"] == expected_code
+    assert body["media_type"] == "application/pdf"
+    assert body["byte_size"] == len(original)
+    assert body["sha256"] == sha256(original).hexdigest()
+    assert "storage_key" not in body
+    assert "private-pdf-data" not in response.text
+    assert "PdfReadError" not in response.text
+
+    row = upload_context.rows()[0]
+    assert row.status == "failed" and row.error_code == expected_code
+    assert (upload_context.root / row.storage_key).read_bytes() == original
+    chunks_url = f"{upload_context.documents_url}/{body['id']}/chunks"
+    cannot_chunk = upload_context.client.post(chunks_url, json={})
+    assert cannot_chunk.status_code == 409
+    assert cannot_chunk.json() == {"detail": "文档尚未成功解析"}
+    with Session(upload_context.engine) as session:
+        assert list(session.scalars(select(Chunk))) == []

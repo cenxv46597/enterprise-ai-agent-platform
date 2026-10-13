@@ -8,11 +8,12 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from app.db.models import Document
+from app.knowledge.document_text import PdfTextError, read_document_text
 from app.knowledge.storage import LocalDocumentStore
 
 logger = logging.getLogger(__name__)
 
-MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown"}
+MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown", ".pdf": "application/pdf"}
 
 
 class InvalidFilenameError(ValueError):
@@ -82,13 +83,16 @@ def ingest_document(
         raise
 
     try:
-        content = store.read_text_utf8(saved.storage_key)
+        content = read_document_text(store, saved.storage_key, media_type)
         if not content.strip():
             document.status = "failed"
             document.error_code = "EMPTY_TEXT"
         else:
             document.status = "parsed"
             document.error_code = None
+    except PdfTextError as exc:
+        document.status = "failed"
+        document.error_code = exc.code
     except UnicodeError:
         document.status = "failed"
         document.error_code = "INVALID_UTF8"
