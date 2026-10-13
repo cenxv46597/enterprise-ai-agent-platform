@@ -5,7 +5,7 @@ import logging
 from typing import Annotated, Self
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -194,6 +194,37 @@ def upload_document(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="文件不能为空") from exc
     except UploadTooLargeError as exc:
         raise HTTPException(status_code=status.HTTP_413_CONTENT_TOO_LARGE, detail="文件超过大小上限") from exc
+
+
+@router.get("", response_model=list[DocumentRead])
+def list_documents(
+    workspace_id: UUID,
+    knowledge_base_id: UUID,
+    session: DbSession,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0,
+) -> list[Document]:
+    parent_id = session.scalar(
+        select(KnowledgeBase.id).where(
+            KnowledgeBase.id == knowledge_base_id,
+            KnowledgeBase.workspace_id == workspace_id,
+        )
+    )
+    if parent_id is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在")
+
+    statement = (
+        select(Document)
+        .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
+        .where(
+            Document.knowledge_base_id == knowledge_base_id,
+            KnowledgeBase.workspace_id == workspace_id,
+        )
+        .order_by(Document.created_at, Document.id)
+        .offset(offset)
+        .limit(limit)
+    )
+    return list(session.scalars(statement))
 
 
 @router.get("/{document_id}", response_model=DocumentRead)

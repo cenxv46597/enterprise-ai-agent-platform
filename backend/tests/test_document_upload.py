@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
@@ -16,7 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 from sqlalchemy.schema import CreateSchema, DropSchema
 
-from app.api.documents import get_max_upload_bytes
+from app.api.documents import get_document_store, get_embedding_provider, get_max_upload_bytes
 from app.core.config import Settings
 from app.db.base import Base
 from app.db.models import Document
@@ -348,3 +349,125 @@ def test_document_routes_enforce_parent_scope(upload_context: UploadContext) -> 
         ).status_code
         == 404
     )
+
+
+def test_list_documents_includes_parsed_and_failed_metadata(upload_context: UploadContext) -> None:
+    parsed = _upload(upload_context, "guide.txt", b"public guide text", "text/plain")
+    failed = _upload(upload_context, "broken.txt", b"private:\xff\xfe", "text/plain")
+    assert parsed.status_code == failed.status_code == 201
+
+    def unexpected_dependency() -> None:
+        raise AssertionError("文档列表不应读取文件或构造向量提供方")
+
+    upload_context.client.app.dependency_overrides[get_document_store] = unexpected_dependency
+    upload_context.client.app.dependency_overrides[get_embedding_provider] = unexpected_dependency
+    response = upload_context.client.get(upload_context.documents_url)
+    assert response.status_code == 200
+    expected = sorted(
+        [parsed.json(), failed.json()],
+        key=lambda document: (document["created_at"], document["id"]),
+    )
+    assert response.json() == expected
+    assert {item["status"] for item in response.json()} == {"parsed", "failed"}
+    assert failed.json()["error_code"] == "INVALID_UTF8"
+    public_fields = {
+        "id", "knowledge_base_id", "original_filename", "media_type", "byte_size",
+        "sha256", "status", "error_code", "created_at", "updated_at",
+    }
+    assert all(set(item) == public_fields for item in response.json())
+    assert "public guide text" not in response.text
+    assert "private:" not in response.text
+    assert "storage_key" not in response.text
+    assert "UnicodeDecodeError" not in response.text
+
+
+def test_list_documents_filters_knowledge_base_and_workspace(upload_context: UploadContext) -> None:
+    client = upload_context.client
+    same_workspace_base = client.post(
+        f"/api/v1/workspaces/{upload_context.workspace_id}/knowledge-bases",
+        json={"name": "Other in same workspace"},
+    ).json()["id"]
+    other_workspace = client.post("/api/v1/workspaces", json={"name": "Other"}).json()["id"]
+    other_base = client.post(
+        f"/api/v1/workspaces/{other_workspace}/knowledge-bases", json={"name": "Guides"}
+    ).json()["id"]
+    expected = []
+    for index in range(2):
+        for workspace_id, base_id in (
+            (upload_context.workspace_id, same_workspace_base),
+            (other_workspace, other_base),
+            (upload_context.workspace_id, upload_context.knowledge_base_id),
+        ):
+            response = client.post(
+                f"/api/v1/workspaces/{workspace_id}/knowledge-bases/{base_id}/documents",
+                files={"file": (f"guide-{index}.txt", b"public text", "text/plain")},
+            )
+            assert response.status_code == 201
+            if base_id == upload_context.knowledge_base_id:
+                expected.append(response.json())
+    response = client.get(upload_context.documents_url, params={"limit": 1, "offset": 1})
+    assert response.status_code == 200
+    assert response.json() == expected[1:2]
+    wrong_parent = client.get(
+        f"/api/v1/workspaces/{other_workspace}"
+        f"/knowledge-bases/{upload_context.knowledge_base_id}/documents"
+    )
+    assert wrong_parent.status_code == 404
+    assert wrong_parent.json() == {"detail": "知识库不存在"}
+
+
+def test_list_documents_empty_and_missing_parent(upload_context: UploadContext) -> None:
+    response = upload_context.client.get(upload_context.documents_url)
+    assert response.status_code == 200
+    assert response.json() == []
+    for workspace_id, knowledge_base_id in (
+        (upload_context.workspace_id, uuid4()),
+        (uuid4(), upload_context.knowledge_base_id),
+    ):
+        response = upload_context.client.get(
+            f"/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents",
+            params={"offset": 100},
+        )
+        assert response.status_code == 404
+        assert response.json() == {"detail": "知识库不存在"}
+
+
+def test_list_documents_defaults_and_tied_timestamp_order(upload_context: UploadContext) -> None:
+    document_ids = [UUID(int=index) for index in range(1, 22)]
+    created_at = datetime(2026, 10, 13, tzinfo=timezone.utc)
+    states = ("uploaded", "processing", "parsed", "ready", "failed")
+    # 只构造测试元数据，不生成向量或写原文件；管理列表不验证可检索性。
+    with Session(upload_context.engine) as session:
+        session.add_all(
+            Document(
+                id=document_id,
+                knowledge_base_id=UUID(upload_context.knowledge_base_id),
+                original_filename=f"guide-{document_id.int}.txt",
+                media_type="text/plain",
+                storage_key=f"test/{document_id}",
+                byte_size=1,
+                sha256="0" * 64,
+                status=states[(document_id.int - 1) % len(states)],
+                error_code="INVALID_UTF8" if document_id.int % len(states) == 0 else None,
+                created_at=created_at,
+                updated_at=created_at,
+            )
+            for document_id in reversed(document_ids)
+        )
+        session.commit()
+    first_page = upload_context.client.get(upload_context.documents_url)
+    assert first_page.status_code == 200
+    assert len(first_page.json()) == 20
+    assert [item["id"] for item in first_page.json()] == [
+        str(value) for value in document_ids[:20]
+    ]
+    assert {item["status"] for item in first_page.json()} == set(states)
+    second_page = upload_context.client.get(upload_context.documents_url, params={"offset": 20})
+    assert second_page.status_code == 200
+    assert [item["id"] for item in second_page.json()] == [str(document_ids[20])]
+    maximum_page = upload_context.client.get(upload_context.documents_url, params={"limit": 100})
+    assert maximum_page.status_code == 200
+    assert len(maximum_page.json()) == 21
+    beyond_page = upload_context.client.get(upload_context.documents_url, params={"offset": 21})
+    assert beyond_page.status_code == 200
+    assert beyond_page.json() == []

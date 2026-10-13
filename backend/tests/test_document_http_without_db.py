@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.documents import get_document_store, get_max_upload_bytes
@@ -74,3 +75,46 @@ def test_multipart_upload_and_size_error_mapping(tmp_path: Path) -> None:
         )
         assert too_large.status_code == 413
         assert len(list((tmp_path / "documents").iterdir())) == 1
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": "0"},
+        {"limit": "101"},
+        {"limit": "-1"},
+        {"limit": "1.5"},
+        {"limit": "many"},
+        {"offset": "-1"},
+        {"offset": "1.5"},
+        {"offset": "many"},
+        {"offset": str(2**63)},
+    ],
+)
+def test_list_documents_rejects_invalid_pagination_without_database(
+    params: dict[str, str],
+) -> None:
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: None
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/v1/workspaces/{uuid4()}/knowledge-bases/{uuid4()}/documents",
+            params=params,
+        )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("invalid_parent", ["workspace", "knowledge_base"])
+def test_list_documents_rejects_invalid_parent_id_without_database(
+    invalid_parent: str,
+) -> None:
+    workspace_id = "not-a-uuid" if invalid_parent == "workspace" else str(uuid4())
+    knowledge_base_id = "not-a-uuid" if invalid_parent == "knowledge_base" else str(uuid4())
+    app = create_app()
+    app.dependency_overrides[get_session] = lambda: None
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/v1/workspaces/{workspace_id}"
+            f"/knowledge-bases/{knowledge_base_id}/documents"
+        )
+    assert response.status_code == 422
