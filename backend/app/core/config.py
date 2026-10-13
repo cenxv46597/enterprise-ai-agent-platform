@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "Enterprise AI Agent Platform"
     app_env: Literal["local", "test", "production"] = "local"
     database_url: str | None = None
+    jwt_secret_key: SecretStr | None = None
     upload_root: Path = REPOSITORY_ROOT / "uploads"
     max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
     embedding_base_url: str | None = None

@@ -4,7 +4,7 @@
 
 ## 当前进度
 
-目前已有可运行的**本地单用户 RAG 后端**，完整企业级平台仍在开发。
+目前已有 RAG 后端，并在代码中接入首版用户登录与工作空间成员边界；新权限模块已完成分段程序回归，日常应用库的迁移与旧空间归属尚待确认，完整企业级平台仍在开发。
 
 - **文档链路：** 工作空间与知识库管理，TXT/Markdown 与可提取文字 PDF 上传、原文件保存、解析、确定性切块、事务与重复请求复用。PDF 不支持扫描件 OCR。
 - **问答链路：** 百炼 1024 维向量、PostgreSQL/pgvector 知识库检索、DeepSeek 基于证据回答、逐字引用校验和证据不足时弃答。
@@ -17,10 +17,11 @@
 - **受限计算器：** [阶段 3.3](docs/phase3-calculator.md)保留两个原文数值的十进制四则运算；[阶段 4.2](docs/phase4-sourced-calculations.md)新增会话内来源引用式计算器，接受已确认用户字段及当前运行先前成功的结果，不允许模型自由填写值。最多八次决策、七次成功计算；暂不做百分比解释、单位换算或业务公式验证。
 - **会话接续：** [阶段 4.1](docs/phase4-conversation-state.md)保存会话、结构化待补条件与有界近期决策上下文；“三次”绑定到待补字段后跨请求恢复为 ready。随后用 `mode=execute` 显式恢复来源绑定算术，运行结果与轮次共同保存；ready 不代表年度费用任务完成。
 - **受控业务流程：** [阶段 4.3](docs/phase4-standard-billing.md)新增标准月费加上门次费估算。完整原文绑定费率，逐项补齐次数及 1..12 个计费月数，用户显式确认规则适用后，由程序固定三步计算。completed 仅代表该标准估算，不是实际账单、扣费或通用政策验证。
-- **显式答复偏好：** [阶段 4.4](docs/phase4-answer-preferences.md)已实现知识库级简洁/详细设置、版本化更新与清除，不从聊天自动抽取。只影响会话最终有证据生成，不能改变证据、工具或计费公式；完整程序回归通过、应用库已升级至 0008。这是本地单用户设置，不是私有用户记忆或完整长期记忆平台，真实风格与忠实性未知，学习者实践仍待完成。
+- **显式答复偏好：** [阶段 4.4](docs/phase4-answer-preferences.md)已实现知识库级简洁/详细设置、版本化更新与清除，不从聊天自动抽取。只影响会话最终有证据生成，不能改变证据、工具或计费公式；该阶段完整程序回归通过、应用库当时已升级至 0008。设置由有权限的工作空间成员共享，不是私有用户记忆或完整长期记忆平台，真实风格与忠实性未知，学习者实践仍待完成。
 - **只读 MCP 接入：** [阶段 4.5](docs/phase4-mcp-search.md)已实现并完成程序验收：自建本地 stdio Server、官方 Python SDK Client 和显式工具白名单；单次 Agent 可选择 MCP 搜索，Host 整批回验知识库范围与完整原文。默认本地搜索不变，不开放删除或任意命令，不静默回退。真实非空向量/模型端到端质量和学习者实践尚未验收。
 - **检查点问答：** [阶段 4.6](docs/phase4-answer-workflows.md)独立固定两步工作流程序验收完成：创建任务、显式领取执行权、保存检索检查点、生成并校验引用、保存不可变回执；合法检查点在新请求中复验来源后继续生成，过期中断执行需显式接管。不是任意 Agent 恢复，也不能保证外部模型费用恰好一次；个人实践与真实语义质量待验收。
-- **后续主线：** 工作空间、知识库、文档三级列表及可选文档状态筛选已接入；当前扩展可提取文字 PDF 的上传与切块。随后还需身份认证与权限、部署和前端，以及真实检索与智能体任务验收。阶段 4.6 个人实践等未完成事项保持原状态。长期记忆与工作流按明确需求扩展。当前仍是本地单用户后端，无身份认证或用户界面；单文件默认上限 5 MiB。
+- **身份与成员：** 注册、登录和当前用户查询已接入；签名访问令牌标识用户，数据库成员关系决定其可访问的工作空间。创建者为所有者，仅所有者能添加已注册成员；成员可使用当前工作空间内的业务接口。设计见 [ADR 0026](docs/adr/0026-user-workspace-access.md)。1709 项以分段方式覆盖并通过，未取得单次连续完整回归全绿；个人实践和真实部署验收仍待完成。
+- **后续主线：** 工作空间、知识库、文档三级列表、可选文档状态筛选和可提取文字 PDF 入库已接入。接下来还需完成身份模块验证、部署和前端，以及真实检索与智能体任务验收。阶段 4.6 个人实践等未完成事项保持原状态。长期记忆与工作流按明确需求扩展；当前没有用户界面，单文件默认上限 5 MiB。
 
 阶段 4.3 最终历史完整回归 **1273 项通过、无跳过（523.88 秒）**，使用独立真实 PostgreSQL/pgvector 与受控模型，覆盖标准计费两条件恢复、固定公式、规则确认与结果、迁移、来源引用式链式算术、持久会话、原生协议、检索增强和既有六题工具。阶段 4.3 新增 139 项测试；真实模型选对收费原文与工具、实际业务语义仍待验收，没有新增真实模型调用。本机应用库已升级为 `20261011_0007`，既有六张表记录数保持一致。首轮完整 1272 项通过后另补引文限长保护，最终版本重新全量通过；此前各阶段的临时目录权限等故障仍保留在[学习记录](docs/learning-progress.md)。该结果不能用于宣称阶段 4.4 新代码已通过完整回归。测试数量不代表项目完成比例，也不替代模型语义验收。
 
@@ -39,7 +40,7 @@ knowledge_bases=2、documents=5、chunks=34、conversations=0、conversation_tur
 新 answer_preferences=0，compare_metadata=[]。阶段 4.4 程序验收完成；真实风格与忠实性、
 学习者实践及三道面试题尚未完成。本轮按完成模块本地提交、不推送，不预填提交编号；真实模型调用为零。
 
-模块完成证据与设计取舍集中在[路线图](docs/roadmap.md)、[架构设计](docs/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/learning-progress.md)。公开演示文档描述的管理页、令牌和备份是虚构产品内容，不是本项目已实现能力；演示资料中提及 PDF 也不构成本项目 PDF 解析质量的验收证据。
+模块完成证据与设计取舍集中在[路线图](docs/roadmap.md)、[架构设计](docs/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/learning-progress.md)。公开演示文档描述的管理页、备份和具体令牌规则是虚构产品内容；本项目首版 JWT 的实际能力以代码和 ADR 0026 为准。演示资料中提及 PDF 也不构成本项目 PDF 解析质量的验收证据。
 
 ## 本地启动（PowerShell）
 
@@ -52,6 +53,7 @@ python -m pip install -e ".\backend[dev]"
 if (-not (Test-Path .env)) {
     Copy-Item .env.example .env
     python -c "import secrets; from dotenv import set_key; set_key('.env', 'EAAP_POSTGRES_PASSWORD', secrets.token_urlsafe(32))"
+    python -c "import secrets; from dotenv import set_key; set_key('.env', 'EAAP_JWT_SECRET_KEY', secrets.token_urlsafe(48))"
 }
 docker compose -f compose.yaml up -d --wait db
 python -m alembic -c backend/alembic.ini upgrade head
@@ -60,7 +62,7 @@ python -m uvicorn app.main:app --reload
 
 打开 `http://127.0.0.1:8000/health` 查看进程健康状态，打开 `http://127.0.0.1:8000/docs` 查看自动生成的接口文档。
 
-首次初始化会生成独立随机口令并写入被 Git 忽略的 `.env`，不会显示口令。已有 `.env` 不会被覆盖：请确认其中已有非空的 `EAAP_POSTGRES_PASSWORD`，并让数据库与测试库连接地址使用同一口令。
+首次初始化会生成独立数据库口令和令牌签名密钥，写入被 Git 忽略的 `.env`，不会显示真实值。已有 `.env` 不会被覆盖：请确认其中已有非空的 `EAAP_POSTGRES_PASSWORD`，并让数据库与测试库连接地址使用同一口令。若旧 `.env` 尚未设置 `EAAP_JWT_SECRET_KEY`，本地应用每次启动会随机生成临时密钥；重启后需要重新登录。生产环境必须在私有配置中提供至少 32 字符的密钥，否则应用拒绝启动。
 
 `.env.example` 没有可登录的默认密码。Compose 和应用配置分别从本机 `.env` 读取口令，连接地址中的 `${EAAP_POSTGRES_PASSWORD}` 由环境文件加载器展开；如端口或账号不同，请调整本机配置。不要运行会输出完整口令的 `docker compose config`，检查配置可使用 `docker compose config --quiet`。
 
@@ -68,12 +70,13 @@ python -m uvicorn app.main:app --reload
 
 上传文件默认保存在仓库根目录的 `uploads/`，可用 `EAAP_UPLOAD_ROOT` 指向其他目录；`EAAP_MAX_UPLOAD_BYTES` 设置单文件字节上限，默认值为 5 MiB。端点按实际读取字节数检查上限。部署到共享环境时，还需要在入口层设置包含表单开销的请求体总量上限。
 
-当前可在 `/docs` 调用下列资源接口：
+当前可在 `/docs` 调用下列资源接口。先调用 `POST /api/v1/auth/register` 注册（用户名规范化为 3–32 位小写字母、数字或下划线，首位为字母；密码 12–128 字符），再调用 `POST /api/v1/auth/login` 获取有效期 30 分钟的 Bearer 令牌，并在 `/docs` 的授权入口设置令牌；`GET /api/v1/auth/me` 可核对当前身份。`/health`、注册和登录不要求令牌，其余业务接口要求有效令牌。仅修改 URL 中的工作空间 ID 不能取得访问权。
 
-- `POST /api/v1/workspaces` 和 `GET /api/v1/workspaces/{workspace_id}`；
-- `GET /api/v1/workspaces?limit=20&offset=0`：分页列出本地工作空间的 ID、名称和创建时间，默认 20、最多 100 条，按创建时间和 ID 升序；没有工作空间返回 `200 []`。当前是本地单用户全局列表，不是“当前用户有权访问的工作空间”。
+- `POST /api/v1/workspaces`：创建工作空间时把当前用户加入为 `owner`；`GET /api/v1/workspaces/{workspace_id}` 只允许该工作空间成员读取。
+- `POST /api/v1/workspaces/{workspace_id}/members`：所有者通过 `{"username":"已注册用户名"}` 把用户加入为 `member`。普通成员不能添加成员；当前普通成员仍可使用知识库内已有的上传、偏好设置和模型接口，不是只读角色。
+- `GET /api/v1/workspaces?limit=20&offset=0`：仅列出当前用户所属工作空间的 ID、名称和创建时间，先按成员关系筛选，再按创建时间和 ID 升序分页；默认 20、最多 100 条，无成员关系时返回 `200 []`。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
-- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；工作空间存在但结果为空返回 `200 []`，不存在返回 `404`。分页不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/data-api-design-proposal.md#知识库列表小步补齐)。
+- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：先校验工作空间成员关系，再按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；有权限的工作空间中结果为空返回 `200 []`，不存在或无访问权返回 `404`。分页本身不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/data-api-design-proposal.md#知识库列表小步补齐)。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`。
 - `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents?limit=20&offset=0`：分页浏览文档元数据，包含尚未就绪或处理失败的记录及安全错误码；默认 20、最多 100 条。可加 `status=failed` 查找失败记录，支持五种已有处理状态；不传时仍显示全部状态。数据库先限定父级与状态，再排序分页，不是获取一页后再筛选。管理列表不读取正文、不调用模型，也不改变检索仅使用 `ready` 文档的规则，见[文档列表契约](docs/data-api-design-proposal.md#文档列表小步补齐)。
 - 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
@@ -81,7 +84,9 @@ python -m uvicorn app.main:app --reload
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/search`：在指定知识库内检索相关段落。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/answers`：基于检索证据回答或弃答，返回逐字引用。
 
-浏览顺序是先从工作空间列表选取返回的 ID，再查询该工作空间的知识库，最后用返回的知识库 ID 查询文档；三级浏览已具备后端接口，不代表已有管理页面。
+浏览顺序是登录后从本人工作空间列表选取 ID，再查询该工作空间的知识库，最后用返回的知识库 ID 查询文档；三级浏览已具备后端接口，不代表已有管理页面。未认证请求返回 `401`；无成员关系的工作空间及其下级资源返回 `404`。迁移 `0010` 不自动把旧工作空间分给新用户：管理员须先注册用户，再对已知的旧工作空间 UUID 显式执行 `python -m app.auth.assign_owner --workspace-id <UUID> --username <用户名>`，仅没有任何成员的旧空间允许指定首位所有者。该命令仅用于本机维护，不是公开接管接口。
+
+2026-10-13 核对：本机日常应用库仍为 `0009`，含两个旧演示工作空间；本轮没有执行 `0010` 或指定所有者，以免在未确认归属时使旧资料对当前用户不可见。身份专项最终 9 项通过；全套收集 1709 项，按前半段、修正后的文档专项、后半段分别通过，并非单次连续完整回归。数据库测试使用独立 `eaap_test` 和随机测试模式，无新增真实模型调用。
 
 本轮资源浏览与状态筛选相关回归 **66 项通过、无跳过（59.62 秒）**，使用独立 PostgreSQL 测试库与临时存储，无模型调用；不是完整后端回归或真实模型质量验收，个人实践状态见[学习记录](docs/learning-progress.md#2026-10-13资源浏览与失败文档定位)。
 
@@ -143,7 +148,7 @@ EAAP_EMBEDDING_DIMENSIONS=1024
 
 模型配置正常时，空知识库或没有可检索块返回 `200` 和空结果，不调用模型；尚未建立模型配置时，响应中的 `model`、`dimensions` 为 `null`。HTTP 接口仍需要配置向量提供方依赖，未配置时返回 `503`。知识库不存在或归属不符返回 `404`，查询模型与已有向量配置不同返回 `409`，无效参数返回 `422`，模型故障返回 `502`、超时返回 `504`，选中数据的距离异常返回 `500`。
 
-查询向量在数据库事务外生成，调用前后都检查知识库归属和完整模型身份；数据库读取阶段用短暂共享锁保持配置稳定。每次有候选的查询都会生成问题向量，当前没有查询缓存。资源路径只限定数据范围，当前仍未实现身份认证与用户权限控制。
+查询向量在数据库事务外生成，调用前后都检查知识库归属和完整模型身份；数据库读取阶段用短暂共享锁保持配置稳定。每次有候选的查询都会生成问题向量，当前没有查询缓存。HTTP 入口先验证用户及工作空间成员关系，再由原有服务检查知识库的父子归属；签名令牌本身不授予任意工作空间权限。
 
 ## 基于证据的回答
 
@@ -275,7 +280,7 @@ MessageRead.answer_preference 记录进入偏好生成能力调用路径时的�
 无有效偏好或已清除时该字段整体为 null；清除后的值与墓碑版本通过偏好 GET 查询。
 追问、空检索、停止、计算器和确定性计费不标记风格应用；单次 /answers、/agent-runs
 暂不读取偏好。new_task 和新会话不清除设置，旧 request_id 重放保留旧响应与旧快照。
-当前清除不擦除历史轮次记录，也没有聊天自动抽取、自由文本指令或身份权限隔离。
+当前清除不擦除历史轮次记录，也没有聊天自动抽取或自由文本指令。偏好属于知识库，同一工作空间成员可读取和修改；当前没有每个用户私有的偏好或会话隔离。
 设计、显式请求和待用户实践见[阶段 4.4](docs/phase4-answer-preferences.md)与
 [ADR 0022](docs/adr/0022-explicit-answer-preferences.md)。完整回归通过，本机已正常升级至 0008。
 小实践优先用 TestClient、独立 retrieval_context 与 StyledGeneration 替身；在 /docs 直接发送
@@ -284,7 +289,7 @@ MessageRead.answer_preference 记录进入偏好生成能力调用路径时的�
 
 ## 工程设计取舍
 
-我们先采用模块化 FastAPI 应用，已使用 PostgreSQL 和 pgvector 保存文本块及向量，逐步构建检索增强生成链路。已有可选重排与本地只读 MCP，近似索引、Redis 和 LangGraph 按明确需求决定是否引入。身份认证和权限控制实现之前，本项目仅是本地单用户原型。
+我们采用模块化 FastAPI 应用，使用 PostgreSQL 和 pgvector 保存文本块及向量。首版身份层使用密码哈希、30 分钟签名令牌及数据库成员关系；它区分员工是否属于工作空间，只有所有者能添加成员。公开注册暂无限流、邮箱验证、密码重置或令牌撤销；成员可使用当前全部下级业务接口，尚未形成细粒度 RBAC，也没有按员工隔离的会话。部署前仍需 HTTPS、入口防护及完整权限验收。已有可选重排与本地只读 MCP，近似索引、Redis 和 LangGraph 按明确需求决定是否引入。
 
 ## 自建只读 MCP 搜索：阶段 4.5 程序验收完成
 

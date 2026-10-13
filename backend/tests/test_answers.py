@@ -29,6 +29,7 @@ from app.knowledge.answers import (
     answer_knowledge_base,
 )
 from app.main import create_app
+from auth_helpers import create_authenticated_user
 from app.providers.embeddings import EmbeddingError, EmbeddingProfile, EmbeddingTimeoutError
 from app.providers.generation import (
     GeneratedAnswer,
@@ -234,6 +235,7 @@ def answer_context() -> Iterator[AnswerContext]:
         app.dependency_overrides[document_api.get_embedding_provider] = lambda: embedding
         app.dependency_overrides[answer_api.get_generation_provider] = lambda: generation
         with TestClient(app) as client:
+            create_authenticated_user(client, scoped_engine, workspace_ids=[workspace_id])
             yield AnswerContext(client, scoped_engine, workspace_id, knowledge_base_id, embedding, generation)
     finally:
         with engine.begin() as connection:

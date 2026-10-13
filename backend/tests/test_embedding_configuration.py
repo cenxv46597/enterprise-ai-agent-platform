@@ -10,6 +10,7 @@ from app.api import documents as document_api
 from app.core.config import REPOSITORY_ROOT, Settings
 from app.db.session import get_session
 from app.main import create_app
+from auth_helpers import isolate_request_validation
 
 
 def test_integer_limits_can_be_loaded_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,6 +52,7 @@ def test_invalid_provider_configuration_returns_safe_503(
     app = create_app()
     # 错误在 provider 依赖中返回，不需要真实数据库。
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     url = (
         f"/api/v1/workspaces/{uuid4()}/knowledge-bases/{uuid4()}"
         f"/documents/{uuid4()}/embeddings"

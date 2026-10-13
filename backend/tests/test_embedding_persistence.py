@@ -31,6 +31,7 @@ from app.knowledge.embedding_repository import (
 )
 from app.knowledge.storage import LocalDocumentStore
 from app.main import create_app
+from auth_helpers import create_authenticated_user
 from app.providers.embeddings import (
     EmbeddingError,
     EmbeddingProfile,
@@ -188,6 +189,7 @@ def embedding_context(tmp_path: Path) -> Iterator[EmbeddingContext]:
                 KnowledgeBase(id=knowledge_base_id, workspace_id=workspace_id, name="技术文档")
             )
         with TestClient(app) as client:
+            create_authenticated_user(client, scoped_engine, workspace_ids=[workspace_id])
             yield EmbeddingContext(
                 client, scoped_engine, store, workspace_id, knowledge_base_id, provider
             )

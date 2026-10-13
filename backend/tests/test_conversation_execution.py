@@ -45,6 +45,7 @@ def decisions(reference):
 def test_fresh_app_executes_restored_sources_without_new_search_or_generation(retrieval_context):
     from fastapi.testclient import TestClient
     from app.main import create_app
+    from auth_helpers import copy_auth
     context = retrieval_context
     identifier, reference, before, ids = ready(context)
     planner, generation = install(context, decisions(reference))
@@ -52,6 +53,7 @@ def test_fresh_app_executes_restored_sources_without_new_search_or_generation(re
     fresh.dependency_overrides.update(context.client.app.dependency_overrides)
     request = execution()
     with TestClient(fresh) as client:
+        copy_auth(context.client, client)
         response = client.post(f"{root(context)}/{identifier}/messages", json=request)
     assert response.status_code == 200
     body = response.json()

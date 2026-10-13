@@ -100,6 +100,7 @@ def test_explicit_months_makes_ready_without_implicit_execution(retrieval_contex
 def test_restart_restores_two_conditions_and_fixed_execution_uses_no_model(retrieval_context):
     from fastapi.testclient import TestClient
     from app.main import create_app
+    from auth_helpers import copy_auth
     context = retrieval_context
     identifier, before, visit_request, month_request, _ = billing_ready(context)
     planner, generation = install(context, [])
@@ -107,6 +108,7 @@ def test_restart_restores_two_conditions_and_fixed_execution_uses_no_model(retri
     fresh.dependency_overrides.update(context.client.app.dependency_overrides)
     request = execution()
     with TestClient(fresh) as client:
+        copy_auth(context.client, client)
         restored = client.get(f"{root(context)}/{identifier}").json()
         assert restored["status"] == "ready" and restored["task"] == before["task"]
         response = client.post(f"{root(context)}/{identifier}/messages", json=request)

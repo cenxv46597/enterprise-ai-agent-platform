@@ -17,7 +17,7 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 from app.api import documents as document_api
 from app.core.config import Settings
 from app.db.base import Base
-from app.db.models import Chunk, Document, KnowledgeBase, Workspace
+from app.db.models import Chunk, Document, KnowledgeBase, Workspace, WorkspaceMembership
 from app.db.session import get_session
 from app.knowledge.retrieval import (
     RetrievalConflictError,
@@ -27,6 +27,7 @@ from app.knowledge.retrieval import (
     search_knowledge_base,
 )
 from app.main import create_app
+from auth_helpers import create_authenticated_user
 from app.providers.embeddings import (
     EmbeddingError,
     EmbeddingProfile,
@@ -105,6 +106,13 @@ class RetrievalContext:
         identifier = uuid4()
         with Session(self.engine) as session, session.begin():
             session.add(Workspace(id=identifier, name=f"团队-{identifier}"))
+            session.add(
+                WorkspaceMembership(
+                    workspace_id=identifier,
+                    user_id=self.client.app.state.test_user_id,
+                    role="owner",
+                )
+            )
         return identifier
 
     def set_profile(self, profile: EmbeddingProfile | None) -> None:
@@ -218,6 +226,7 @@ def retrieval_context() -> Iterator[RetrievalContext]:
         app.dependency_overrides[get_session] = test_session
         app.dependency_overrides[document_api.get_embedding_provider] = lambda: provider
         with TestClient(app) as client:
+            create_authenticated_user(client, scoped_engine, workspace_ids=[workspace_id])
             yield RetrievalContext(client, scoped_engine, workspace_id, knowledge_base_id, provider)
     finally:
         with engine.begin() as connection:

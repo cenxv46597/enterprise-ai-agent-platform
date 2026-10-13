@@ -15,6 +15,7 @@ from sqlalchemy.schema import CreateSchema, DropSchema
 from app.db.base import Base
 from app.db.session import get_session
 from app.main import create_app
+from auth_helpers import create_authenticated_user, isolate_request_validation
 
 # 导入模型后，所有表才会注册到 Base.metadata。
 from app.db import models  # noqa: F401
@@ -42,6 +43,7 @@ def client() -> Iterator[TestClient]:
         app = create_app()
         app.dependency_overrides[get_session] = test_session
         with TestClient(app) as test_client:
+            create_authenticated_user(test_client, scoped_engine)
             yield test_client
     finally:
         with engine.begin() as connection:
@@ -220,6 +222,7 @@ def test_list_knowledge_bases_rejects_invalid_pagination_without_database(
 ) -> None:
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as test_client:
         response = test_client.get(
             f"/api/v1/workspaces/{uuid4()}/knowledge-bases", params=params
@@ -230,6 +233,7 @@ def test_list_knowledge_bases_rejects_invalid_pagination_without_database(
 def test_list_knowledge_bases_rejects_invalid_workspace_id_without_database() -> None:
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as test_client:
         response = test_client.get("/api/v1/workspaces/not-a-uuid/knowledge-bases")
     assert response.status_code == 422
@@ -244,7 +248,7 @@ def test_list_workspaces_returns_empty_collection(client: TestClient) -> None:
 def test_list_workspaces_defaults_and_tied_timestamp_order(client: TestClient) -> None:
     workspace_ids = [UUID(int=index) for index in range(1, 22)]
     created_at = datetime(2026, 10, 13, tzinfo=timezone.utc)
-    # 根列表属于本地单用户发现接口；同时间倒序写入验证 id 的稳定排序。
+    # 为当前测试用户显式添加成员关系；同时间倒序写入验证 id 的稳定排序。
     for session in client.app.dependency_overrides[get_session]():
         session.add_all(
             models.Workspace(
@@ -253,6 +257,15 @@ def test_list_workspaces_defaults_and_tied_timestamp_order(client: TestClient) -
                 created_at=created_at,
             )
             for workspace_id in reversed(workspace_ids)
+        )
+        session.flush()
+        session.add_all(
+            models.WorkspaceMembership(
+                workspace_id=workspace_id,
+                user_id=client.app.state.test_user_id,
+                role="owner",
+            )
+            for workspace_id in workspace_ids
         )
         session.commit()
 
@@ -295,6 +308,15 @@ def test_list_workspaces_orders_by_creation_time_before_id(client: TestClient) -
             )
             for workspace_id in workspace_ids
         )
+        session.flush()
+        session.add_all(
+            models.WorkspaceMembership(
+                workspace_id=workspace_id,
+                user_id=client.app.state.test_user_id,
+                role="owner",
+            )
+            for workspace_id in workspace_ids
+        )
         session.commit()
 
     response = client.get("/api/v1/workspaces")
@@ -323,6 +345,7 @@ def test_list_workspaces_rejects_invalid_pagination_without_database(
 ) -> None:
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as test_client:
         response = test_client.get("/api/v1/workspaces", params=params)
     assert response.status_code == 422

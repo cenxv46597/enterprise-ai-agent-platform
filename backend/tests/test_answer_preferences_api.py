@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AnswerPreference, KnowledgeBase
 from app.main import create_app
+from auth_helpers import copy_auth
 from app.memory.contracts import (
     MAX_PREFERENCE_VERSION, PreferenceConflictError, PreferenceRead,
     PreferenceStateError, PreferenceUpdate,
@@ -79,6 +80,7 @@ def test_restart_reads_only_persisted_preference_from_new_application(retrieval_
     fresh = create_app()
     fresh.dependency_overrides.update(context.client.app.dependency_overrides)
     with TestClient(fresh) as client:
+        copy_auth(context.client, client)
         restored = client.get(url(context))
     assert restored.status_code == 200 and restored.json() == saved
     assert context.provider.calls == 0

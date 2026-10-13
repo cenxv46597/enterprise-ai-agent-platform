@@ -35,6 +35,7 @@ from app.knowledge.chunk_repository import (
 )
 from app.knowledge.storage import LocalDocumentStore
 from app.main import create_app
+from auth_helpers import create_authenticated_user
 
 
 @dataclass
@@ -133,6 +134,7 @@ def chunk_context(tmp_path: Path) -> Iterator[ChunkContext]:
                 KnowledgeBase(id=knowledge_base_id, workspace_id=workspace_id, name="技术文档")
             )
         with TestClient(app) as client:
+            create_authenticated_user(client, scoped_engine, workspace_ids=[workspace_id])
             yield ChunkContext(
                 client, scoped_engine, store, tmp_path, workspace_id, knowledge_base_id
             )

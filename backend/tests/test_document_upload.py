@@ -25,6 +25,7 @@ from app.db.session import get_session
 from app.knowledge.audit import audit_document_storage
 from app.knowledge.storage import LocalDocumentStore
 from app.main import create_app
+from auth_helpers import create_authenticated_user
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
@@ -89,6 +90,7 @@ def upload_context(tmp_path: Path) -> Iterator[UploadContext]:
         app.dependency_overrides[get_max_upload_bytes] = lambda: MAX_UPLOAD_BYTES
 
         with TestClient(app) as client:
+            create_authenticated_user(client, scoped_engine)
             workspace_response = client.post(
                 "/api/v1/workspaces", json={"name": "Product"}
             )
@@ -459,16 +461,16 @@ def test_list_documents_empty_and_missing_parent(upload_context: UploadContext) 
     response = upload_context.client.get(upload_context.documents_url)
     assert response.status_code == 200
     assert response.json() == []
-    for workspace_id, knowledge_base_id in (
-        (upload_context.workspace_id, uuid4()),
-        (uuid4(), upload_context.knowledge_base_id),
+    for workspace_id, knowledge_base_id, expected_detail in (
+        (upload_context.workspace_id, uuid4(), "知识库不存在"),
+        (uuid4(), upload_context.knowledge_base_id, "工作区不存在"),
     ):
         response = upload_context.client.get(
             f"/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents",
             params={"offset": 100},
         )
         assert response.status_code == 404
-        assert response.json() == {"detail": "知识库不存在"}
+        assert response.json() == {"detail": expected_detail}
 
 
 def test_list_documents_defaults_and_tied_timestamp_order(upload_context: UploadContext) -> None:

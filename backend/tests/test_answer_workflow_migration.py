@@ -74,6 +74,9 @@ def migrated_workflow_schema(retrieval_context):
     schema = f"eaap_workflow_migration_{uuid4().hex}"
     engine = context.engine.execution_options(schema_translate_map={None: schema})
     migrations = [load_migration(path) for path in sorted(VERSIONS.glob("*.py"))]
+    workflow_migration = next(
+        migration for migration in migrations if migration.revision == "20261012_0009"
+    )
     with engine.begin() as connection:
         connection.execute(CreateSchema(schema))
     try:
@@ -90,7 +93,7 @@ def migrated_workflow_schema(retrieval_context):
                                         "VALUES (:id, :workspace_id, '原有知识库')"),
                                    {"id": knowledge_base_id, "workspace_id": workspace_id})
                 yield SimpleNamespace(connection=connection, schema=schema, migration_context=migration_context,
-                                      migration=migrations[-1], workspace_id=workspace_id,
+                                      migration=workflow_migration, workspace_id=workspace_id,
                                       knowledge_base_id=knowledge_base_id)
     finally:
         with engine.begin() as connection:

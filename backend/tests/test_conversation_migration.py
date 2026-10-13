@@ -35,6 +35,7 @@ def test_empty_schema_migrations_preserve_knowledge_data_and_match_models(retrie
     billing_migration = by_revision["20261011_0007"]
     preference_migration = by_revision["20261012_0008"]
     workflow_migration = by_revision["20261012_0009"]
+    auth_migration = by_revision["20261013_0010"]
     with engine.begin() as connection:
         connection.execute(CreateSchema(schema))
     try:
@@ -60,6 +61,7 @@ def test_empty_schema_migrations_preserve_knowledge_data_and_match_models(retrie
                     {"id": old_turn, "conversation": conversation, "request": uuid4(), "digest": "a" * 64})
                 preference_migration.upgrade()
                 workflow_migration.upgrade()
+                auth_migration.upgrade()
                 assert set(inspect(connection).get_table_names(schema=schema)) == set(Base.metadata.tables)
                 assert compare_metadata(migration_context, Base.metadata) == []
                 assert connection.execute(text("SELECT name FROM knowledge_bases WHERE id = :id"), {"id": knowledge_base}).scalar() == "原知识库"
@@ -67,7 +69,10 @@ def test_empty_schema_migrations_preserve_knowledge_data_and_match_models(retrie
                                           {"id": old_turn}).one() == ("continue", "原消息", "原回复")
                 with pytest.raises(IntegrityError), connection.begin_nested():
                     connection.execute(text("UPDATE conversation_turns SET mode='unknown' WHERE id=:id"), {"id": old_turn})
-                # 新增工作流表为空时可降级，再继续保留 0005–0008 的历史保护断言。
+                # 新增身份表与工作流表为空时可降级，再继续验证历史迁移。
+                auth_migration.downgrade()
+                assert "users" not in inspect(connection).get_table_names(schema=schema)
+                assert "workspace_memberships" not in inspect(connection).get_table_names(schema=schema)
                 workflow_migration.downgrade()
                 assert "answer_workflows" not in inspect(connection).get_table_names(schema=schema)
                 assert "answer_workflow_attempts" not in inspect(connection).get_table_names(schema=schema)
@@ -119,6 +124,7 @@ def test_empty_schema_migrations_preserve_knowledge_data_and_match_models(retrie
                 billing_migration.upgrade()
                 preference_migration.upgrade()
                 workflow_migration.upgrade()
+                auth_migration.upgrade()
                 assert compare_metadata(migration_context, Base.metadata) == []
     finally:
         with engine.begin() as connection:

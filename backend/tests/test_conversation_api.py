@@ -70,12 +70,14 @@ def waiting(context):
 def test_wait_persists_and_three_resumes_using_a_new_app_and_database_session(retrieval_context):
     from fastapi.testclient import TestClient
     from app.main import create_app
+    from auth_helpers import copy_auth
     context = retrieval_context
     identifier, _, first, planner, generation, ids = waiting(context)
     # 新应用对象没有旧控制器或全局内存；沿用的只有数据库连接依赖与模型替身。
     fresh_app = create_app()
     fresh_app.dependency_overrides.update(context.client.app.dependency_overrides)
     with TestClient(fresh_app) as fresh_client:
+        copy_auth(context.client, fresh_client)
         restored = fresh_client.get(f"{root(context)}/{identifier}")
         assert restored.status_code == 200
         restored = restored.json()

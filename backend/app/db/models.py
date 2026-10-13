@@ -23,6 +23,28 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
+class User(Base):
+    """登录身份；用户名使用规范化的小写形式保存。"""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_users_username"),
+        CheckConstraint("username ~ '^[a-z][a-z0-9_]{2,31}$'", name="username_valid"),
+        CheckConstraint("char_length(password_hash) > 0", name="password_hash_nonblank"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PG_UUID(as_uuid=True), primary_key=True, default=uuid4)
+    username: Mapped[str] = mapped_column(String(32), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    memberships: Mapped[list["WorkspaceMembership"]] = relationship(
+        back_populates="user", passive_deletes=True
+    )
+
+
 class Workspace(Base):
     __tablename__ = "workspaces"
     __table_args__ = (
@@ -38,6 +60,35 @@ class Workspace(Base):
     knowledge_bases: Mapped[list["KnowledgeBase"]] = relationship(
         back_populates="workspace", passive_deletes=True
     )
+    memberships: Mapped[list["WorkspaceMembership"]] = relationship(
+        back_populates="workspace", passive_deletes=True
+    )
+
+
+class WorkspaceMembership(Base):
+    """用户在一个工作空间的成员资格和有限角色。"""
+
+    __tablename__ = "workspace_memberships"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner', 'member')", name="role_valid"),
+        Index("ix_workspace_memberships_user_id", "user_id"),
+    )
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    workspace: Mapped[Workspace] = relationship(back_populates="memberships")
+    user: Mapped[User] = relationship(back_populates="memberships")
 
 
 class KnowledgeBase(Base):

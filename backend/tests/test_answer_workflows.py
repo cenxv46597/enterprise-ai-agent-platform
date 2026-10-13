@@ -20,6 +20,7 @@ from app.api.documents import get_embedding_provider
 from app.db.models import AnswerWorkflow, AnswerWorkflowAttempt, Chunk, Document, KnowledgeBase
 from app.db.session import get_session
 from app.main import create_app
+from auth_helpers import copy_auth
 from app.providers.embeddings import EmbeddingError, EmbeddingTimeoutError
 from app.providers.generation import (
     GeneratedAnswer, GenerationConfigurationError, GenerationError, GenerationTimeoutError,
@@ -95,7 +96,9 @@ def other_app(context, generation):
     app.dependency_overrides[get_session] = session_provider
     app.dependency_overrides[get_embedding_provider] = lambda: context.provider
     app.dependency_overrides[get_generation_provider] = lambda: generation
-    return TestClient(app)
+    client = TestClient(app)
+    copy_auth(context.client, client)
+    return client
 
 
 def valid_checkpoint(**updates):

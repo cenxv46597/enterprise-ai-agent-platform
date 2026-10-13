@@ -13,6 +13,7 @@ from app.db.models import Document
 from app.db.session import get_session
 from app.knowledge.storage import LocalDocumentStore
 from app.main import create_app
+from auth_helpers import isolate_request_validation
 
 
 class MemorySession:
@@ -51,6 +52,7 @@ def test_multipart_upload_and_size_error_mapping(tmp_path: Path) -> None:
 
     app = create_app()
     app.dependency_overrides[get_session] = session_override
+    isolate_request_validation(app)
     app.dependency_overrides[get_document_store] = lambda: store
     app.dependency_overrides[get_max_upload_bytes] = lambda: 16
     url = (
@@ -96,6 +98,7 @@ def test_list_documents_rejects_invalid_pagination_without_database(
 ) -> None:
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as client:
         response = client.get(
             f"/api/v1/workspaces/{uuid4()}/knowledge-bases/{uuid4()}/documents",
@@ -110,6 +113,7 @@ def test_list_documents_rejects_invalid_status_without_database(
 ) -> None:
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as client:
         response = client.get(
             f"/api/v1/workspaces/{uuid4()}/knowledge-bases/{uuid4()}/documents",
@@ -126,6 +130,7 @@ def test_list_documents_rejects_invalid_parent_id_without_database(
     knowledge_base_id = "not-a-uuid" if invalid_parent == "knowledge_base" else str(uuid4())
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None
+    isolate_request_validation(app)
     with TestClient(app) as client:
         response = client.get(
             f"/api/v1/workspaces/{workspace_id}"
