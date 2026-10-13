@@ -363,6 +363,7 @@ def test_list_documents_includes_parsed_and_failed_metadata(upload_context: Uplo
     upload_context.client.app.dependency_overrides[get_embedding_provider] = unexpected_dependency
     response = upload_context.client.get(upload_context.documents_url)
     assert response.status_code == 200
+    assert len(response.json()) == 2
     expected = sorted(
         [parsed.json(), failed.json()],
         key=lambda document: (document["created_at"], document["id"]),
