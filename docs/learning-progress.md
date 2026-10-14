@@ -1407,3 +1407,35 @@ README、ADR 0021、架构图、路线图、阶段文档与交接资料已同步
   下一业务模块尚未确定，按交付主线设计一个可理解的小模块再推进，不自行堆 Redis/
   LangGraph。本轮起点为 `592a773`，完成验证后本地提交，最终编号读实际 Git 日志，
   不预填；GitHub 推送仍需单独授权。
+
+## 2026-10-14：固定只读 SQL 文档状态工具第 1 步查询基础
+
+- **模块与节奏：** 接续代表性业务工具主线，完整小模块目标是让 Agent 通过固定只读
+  SQL 查询文档处理状态。学习者明确要求每次少量实现、每步学懂；本轮只完成查询
+  基础，不把完整工具一次接入。
+- **设计参与：** 学习者选择 B（程序固定查询，模型只提供受限参数），并正确判断
+  只有 SELECT 也不能直接执行，但明确表示具体原因不清。导师补充：SELECT 仍可能
+  读取其他工作空间或敏感字段，只读不等于有权限。记录为选项确认与正确判断，理由
+  由导师补充，不记独立说明理由或本人代码实践。
+- **实现范围：** 导师团队新增 `backend/app/knowledge/document_status.py`，函数
+  `get_document_status(session, workspace_id, knowledge_base_id, document_id)` 返回
+  `DocumentProcessingStatus`。只投影 document_id、original_filename、status、
+  error_code；关联 KnowledgeBase，同时核对文档 ID、知识库 ID、工作空间 ID。
+  缺失或范围错配统一为 `DocumentStatusNotFoundError`，同名文档依 UUID 区分。
+- **职责与语义边界：** 调用方必须先完成 HTTP 成员授权并绑定范围，函数不是身份
+  授权入口。`no_autoflush` 防止查询时意外写入会话内未提交对象，事务由调用方管理。
+  状态查询不能诊断全部失败根因，ready 也不能证明任意问题都有相关答案；返回的是
+  元数据，不伪装成原文 `SearchHit` 或企业引用。
+- **实际验证：** 新测试文件 `backend/tests/test_document_status.py` 在独立 `eaap_test`
+  随机 schema 中仅使用 Workspace、KnowledgeBase、Document 三表，**11 项通过、
+  无跳过（6.08 秒）**，pytest_exit=0。安全证据为
+  `.pytest_tmp/document-status-20261014-cd5e224df28e/result.json`。代码及测试由导师
+  团队完成，不增加本人实践成绩；11 项不与历史专项/全量或维护请求相加。
+- **未做与下一步：** 没有新 API、ToolRegistry/Agent 接入、迁移、日常库操作或真实
+  模型调用，没有重复启动 Docker、全套收集或回归。下一轮先解释三个过滤条件，
+  确认理解并安排一个小阅读/实践，再接入工具注册表、独立元数据观察及最终回答。
+  当前 `run_agent` 主要承载 SearchHit/计算，不能只注册工具就声称状态回答已完成。
+  完整工具接入后再收拢 architecture/ADR，不为每个微小步骤扩大框架或文档范围。
+- **Git 与遗留：** 本轮起点 `37b2334`；此前已授权的 21 条提交已同步 GitHub。当前
+  新代码完成验证后提交本地，最终编号读实际 Git 日志，不预填；此前推送授权不覆盖
+  新代码。身份基础教学已收拢，其他模块历史实践/面试待办保持原状态。
