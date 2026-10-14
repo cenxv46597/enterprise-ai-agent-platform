@@ -1497,3 +1497,30 @@ README、ADR 0021、架构图、路线图、阶段文档与交接资料已同步
   成绩，未重跑整份文件。有界候选本次阅读与小实践已完成，不要求重复相同题目。
   后续小步封装固定工具、承载元数据结果，再接 Agent 的选择/状态回答；当前仍未接入
   ToolRegistry、Agent 或用户选择界面。验证后按约定提交本地，GitHub 仍需另行授权。
+
+## 2026-10-14：候选查询工具封装与独立结果
+
+- **本轮判断：** 学习者正确选择“正常查询、候选为空”，不把无匹配视为工具故障。
+  查询未完成与成功但无匹配的区别由导师解释；仅记录正确选项，未记独立理由或新实践。
+  前述本人两处测试实践保持完成，本轮工具封装与测试由导师团队完成。
+- **实现范围：** 新增 `backend/app/agents/document_candidates.py` 的
+  `DocumentCandidatesTool`，名称 `find_documents`；复用 `DocumentFilenameQuery`，
+  唯一模型参数为 filename_query。构造时绑定 session/workspace_id/knowledge_base_id，
+  执行时严格复验参数后调用既有候选查询，不接收自由 SQL、范围参数或模型指定上限。
+  SQLAlchemy 数据库故障转换为固定 `tool_service_error`；不吞掉其他程序错误，
+  事务仍由调用方管理，封装不自动完成用户授权。
+- **结果设计：** 在 `ToolOutput` 末尾追加默认 None 的 document_candidates 字段，
+  保留已有位置参数含义。候选对象独立承载 ID/文件名/上传时间/大小与 has_more，
+  hits 保持空，不伪装为正文证据。正常空对象与“该工具没有返回候选结果”的 None
+  不同；JSON 需要候选对象 `model_dump(mode="json")` 转换 UUID 与时间。
+- **实际验证：** 新增 `backend/tests/test_document_candidates_tool.py` 的 17 项纯替身
+  用例，与既有 `test_agent_engine.py` 的 26 项一起运行，**43 项通过、无跳过
+  （1.83 秒）**，pytest_exit=0。覆盖注册表 schema/受限输入、绑定范围、空结果、
+  截断标记、元数据分离/JSON、绕校验拒绝、固定故障与位置参数兼容；现有控制器
+  用例只证明已有路径兼容，不证明新工具已跑完整 Agent。证据为
+  `.pytest_tmp/document-candidates-tool-20261014-ba4a956ad497/result.json`。
+- **未做与下一步：** 无数据库访问、真实模型调用、日常库操作、迁移、新 API、Docker
+  重启或全套收集/回归；未重跑历史候选 SQL 专项。现有 ToolRegistry 可按协议注册
+  并调用新工具，但生产接口尚未注册，Agent 循环仍不读取新字段，没有歧义选择或
+  最终状态回答。下一步先理解候选元数据与正文证据的区别，再逐步承载观察与接入，
+  不把本轮封装写成完整功能。起点 `48a675c`，验证后只提交本地，推送需另行授权。

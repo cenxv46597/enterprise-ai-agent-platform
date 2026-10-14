@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from app.knowledge.answers import AnswerResult
+from app.knowledge.document_candidates import DocumentCandidateList
 from app.knowledge.retrieval import SearchHit
 from app.providers.reranking import RerankTrace
 from app.memory.contracts import PreferenceRead
@@ -112,6 +113,8 @@ class ToolOutput:
     clarification: Clarification | None = None
     billing_plan: BillingPlan | None = None
     clarifications: tuple[Clarification, ...] = ()
+    # 文件元数据单独承载，不能进入原文证据池；None 与正常空候选不同。
+    document_candidates: DocumentCandidateList | None = None
 
 
 class ToolExecutionError(RuntimeError):
