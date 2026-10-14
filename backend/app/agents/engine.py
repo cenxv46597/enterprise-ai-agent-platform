@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.contracts import (
     MAX_AGENT_CHARACTERS, MAX_AGENT_EVIDENCE, MAX_AGENT_STEPS, AgentEvidence, AgentInputError,
-    AgentRun, AgentStep, FinishAction, PlannerConfigurationError, PlannerError,
+    AgentRun, AgentRunMetrics, AgentStep, FinishAction, PlannerConfigurationError, PlannerError,
     PlannerProvider, PlannerTimeoutError, ToolAction, ToolContext, ToolExecutionError, validate_decision,
 )
 from app.agents.calculation_contracts import AgentCalculation, MAX_CALCULATIONS
@@ -87,6 +87,8 @@ def run_agent(
     response_mode: Literal["knowledge", "document_status"] = "knowledge",
 ) -> AgentRun:
     """调用方授权、绑定范围及任务类型；模型不能切换程序指定的回答模式。"""
+    run_started = monotonic()
+    decision_count = tool_execution_count = 0
     if (
         not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000
         or type(max_steps) is not int or not 1 <= max_steps <= MAX_AGENT_STEPS
@@ -146,7 +148,10 @@ def run_agent(
                                    start_char=hit.start_char, end_char=hit.end_char)
                      for index, hit in enumerate(evidence.values(), 1)]
         return AgentRun(identifier, status, reason, steps, result, summaries, calculations, pending_task,
-                        pending_document_selection=document_selection)
+                        pending_document_selection=document_selection, metrics=AgentRunMetrics(
+                            total_ms=(monotonic() - run_started) * 1000,
+                            decision_count=decision_count, tool_execution_count=tool_execution_count,
+                        ))
 
     def stopped(reason: str) -> AgentRun:
         logger.info("智能体运行停止，运行 ID：%s，原因：%s", identifier, reason)
@@ -175,6 +180,7 @@ def run_agent(
         started = monotonic()
         try:
             # definitions 也复制，避免其他适配器改动注册工具描述。
+            decision_count += 1
             decision = validate_decision(planner.decide(json.loads(json.dumps(state, ensure_ascii=False))))
             if isinstance(decision, ToolAction) and decision.native_call is not None:
                 if decision.native_call.id in call_ids:
@@ -262,6 +268,8 @@ def run_agent(
         seen.add(fingerprint)  # 包括随后超时的动作；不自动重复请求。
         started = monotonic()
         try:
+            # 校验拒绝、重复动作及步数保护已在前面处理；进入执行后故障也计数。
+            tool_execution_count += 1
             output = registry.execute(decision.tool_name, arguments,
                                       ToolContext(tuple(evidence.values()), user_inputs, tuple(calculations)))
         except ToolExecutionError as error:

@@ -142,6 +142,14 @@ class AgentEvidence(BaseModel):
     end_char: int
 
 
+class AgentRunMetrics(BaseModel):
+    """本次控制器运行的观测；决策次数包含程序决策，不等于模型请求数。"""
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    total_ms: float = Field(ge=0, allow_inf_nan=False)
+    decision_count: int = Field(ge=0, le=MAX_AGENT_STEPS)
+    tool_execution_count: int = Field(ge=0, le=MAX_AGENT_STEPS - 1)
+
+
 @dataclass(frozen=True, slots=True)
 class AgentRun:
     run_id: UUID
@@ -155,6 +163,8 @@ class AgentRun:
     # 最终生成调用路径所用偏好；不属于原文证据或数值来源。
     answer_preference: PreferenceRead | None = None
     pending_document_selection: DocumentSelectionTask | None = None
+    # 旧运行没有统计时保持None，不补造历史耗时或调用次数。
+    metrics: AgentRunMetrics | None = None
 
 
 class PlannerProvider(Protocol):

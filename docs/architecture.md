@@ -571,3 +571,13 @@ DocumentSelectionTask与旧整数PendingTask分别验证，复用Conversation.ta
 new_task显式替换任务。选择后由程序动作执行，不再调用决策模型或正文生成。
 首版只有数字选择及一页有界候选；没有前端、自然语言选择或个人私有会话隔离。
 原单次Agent入口未注册状态工具，真实规划质量仍待验收。取舍见[ADR 0027](adr/0027-scoped-document-status-selection.md)。
+
+### 运行观测首步：控制器耗时与调用统计
+
+AgentRun.metrics记录本次total_ms、decision_count和tool_execution_count，均由控制器
+运行内产生，不放入模型状态。单调时钟覆盖本次运行；计数分别位于planner.decide和
+registry.execute入口，后者排除校验拒绝/重复/步数拦截，包含进入执行后的故障。
+共同outcome为完成、失败、停止和等待生成快照；程序决策也计数，不等于模型HTTP请求。
+单次接口公开统计，会话已有JSON轮次保存/重放；旧运行缺省None，无新表或迁移。
+HTTP阶段、用户等待、跨运行聚合、Token/费用仍在后续观测范围，不能由当前计数推算。
+见[ADR 0028](adr/0028-agent-run-metrics.md)及[实际验证](learning-progress.md#2026-10-14agent运行统计与实际执行口径)。

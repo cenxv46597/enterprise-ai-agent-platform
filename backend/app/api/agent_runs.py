@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.agents.contracts import (
-    MAX_AGENT_CHARACTERS, MAX_AGENT_STEPS, AgentEvidence, AgentInputError, AgentRun, AgentStep,
+    MAX_AGENT_CHARACTERS, MAX_AGENT_STEPS, AgentEvidence, AgentInputError, AgentRun, AgentRunMetrics, AgentStep,
     FinishAction, PlannerConfigurationError, PlannerProvider, ToolAction,
 )
 from app.agents.engine import run_agent, validate_scope
@@ -84,6 +84,7 @@ class AgentRunRead(BaseModel):
     result: AnswerRead | None
     evidence: list[AgentEvidence]
     calculations: list[AgentCalculation]
+    metrics: AgentRunMetrics | None = None
 
 
 @router.post("/agent-runs", response_model=AgentRunRead)
