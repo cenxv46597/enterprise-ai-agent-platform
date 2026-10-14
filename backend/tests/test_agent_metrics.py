@@ -84,15 +84,15 @@ def test_total_time_covers_decision_tool_and_final_generation(monkeypatch):
 
     class TimedGeneration(ControlledGeneration):
         def generate_answer(self, question, sources):
-            clock[0] += 0.040
+            clock[0] += 0.100
             return super().generate_answer(question, sources)
 
     registry = ToolRegistry()
     registry.register(TimedTool([[hit()]]))
     run = run_agent(TimedPlanner([search(), FinishAction(action="finish")]), TimedGeneration(), registry, "问题")
-    assert run.metrics.total_ms == pytest.approx(165.0)
+    assert run.metrics.total_ms == pytest.approx(225.0)
     assert sum(step.planner_ms for step in run.steps) == pytest.approx(50.0)
-    assert run.steps[0].execution_ms == pytest.approx(75.0) and run.steps[1].execution_ms == pytest.approx(40.0)
+    assert run.steps[0].execution_ms == pytest.approx(75.0) and run.steps[1].execution_ms == pytest.approx(100.0)
 
 
 def test_waiting_for_document_choice_has_current_run_metrics(status_flow):
