@@ -274,7 +274,7 @@ def test_owner_can_invite_existing_user_but_member_cannot(
     assert grant.json()["username"] == "member"
     assert grant.json()["role"] == "member"
     assert auth_client.get(workspace_url, headers=_headers(member)).status_code == 200
-
+    _create_workspace(auth_client, member, "成员自己的空间")
     assert auth_client.post(
         members_url, json={"username": "third"}, headers=_headers(member)
     ).status_code == 404
