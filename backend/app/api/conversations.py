@@ -11,6 +11,7 @@ from app.agents.sourced_calculator import SourcedCalculatorTool
 from app.agents.clarification import ClarificationTool
 from app.billing.preparation import PrepareBillingTool
 from app.agents.engine import run_agent
+from app.agents.document_status_flow import SelectedDocumentPlanner, document_status_registry
 from app.agents.tools import KnowledgeSearchTool, ToolRegistry
 from app.api.agent_runs import PlannerDep
 from app.api.answers import GenerationDep
@@ -75,6 +76,11 @@ def read(workspace_id: UUID, knowledge_base_id: UUID, conversation_id: UUID,
 def message(workspace_id: UUID, knowledge_base_id: UUID, conversation_id: UUID, payload: MessageRequest,
             session: DbSession, embedding: EmbeddingDep, generation: GenerationDep, planner: PlannerDep) -> MessageRead:
     def runner(question: str, context: dict):
+        if context.get("response_mode") == "document_status":
+            registry = document_status_registry(session, workspace_id, knowledge_base_id)
+            selected = context.get("selected_document_id")
+            status_planner = SelectedDocumentPlanner(UUID(selected)) if selected is not None else planner
+            return run_agent(status_planner, generation, registry, question, response_mode="document_status")
         registry = ToolRegistry()
         registry.register(KnowledgeSearchTool(session, embedding, workspace_id, knowledge_base_id))
         registry.register(CalculatorTool())

@@ -1,4 +1,4 @@
-# 当前开发交接：文档状态观察与确定性回答
+# 当前开发交接：文档候选选择与会话状态查询
 
 快照日期：2026-10-14。原接续起点为业务提交 `2789c5d`、交接提交 `a3154ed`，分支
 `main`；这两个编号是历史起点。上轮本地提交 `246f6d8` 已保存注册 CLI 与专项验证。
@@ -13,11 +13,20 @@
 数据库/真实模型，不与历史相加。该轮Agent已观察候选、尚未观察状态；生产接口未
 注册两种工具，选择与最终状态回答当时仍待；详见
 [封装记录](learning-progress.md#2026-10-14处理阶段澄清与状态工具封装)。
-最新轮起点 `5777a51`：AgentStep及JSON/native配对消息已观察状态，后端指定
+状态观察轮起点 `5777a51`：AgentStep及JSON/native配对消息已观察状态，后端指定
 response_mode=document_status时可模板回答一份明确文档；默认知识问答不使用元数据
 代替正文。新增27项与既有114项联合专项141项通过、无跳过（4.66秒），纯模拟、
 无数据库/真实模型。工具错误、缺状态及候选歧义/错配保持失败，不自动选择或恢复；
-用户选择与跨请求恢复、生产注册仍待，见[闭环记录](learning-progress.md#2026-10-14状态观察与确定性回答)。
+当时用户选择与跨请求恢复、生产注册仍待，见[闭环记录](learning-progress.md#2026-10-14状态观察与确定性回答)。
+
+最新轮起点398f9ab：候选选择与状态查询已接入现有会话messages入口。
+开始时显式response_mode=document_status，多份/截断匹配保存独立DocumentSelectionTask；
+用户回复数字后按保存ID查最新状态，不再让模型挑选；零匹配正常结束，唯一完整匹配可继续。
+复用JSONB/版本/重放，无新表迁移，默认knowledge与旧摘要兼容；单次agent-runs仍无状态工具。
+新选择专项19项通过；联合首轮188通过、1旧摘要测试失败（279.46秒），修正历史字段构造后
+相关复测3项通过、无跳过（12.68秒），不相加，无单次最终联合全绿。独立测试库及替身，
+无日常库操作或真实模型。详见[最新学习记录](learning-progress.md#2026-10-14同名候选选择与会话接入)
+与[ADR0027](adr/0027-scoped-document-status-selection.md)。学习实践与面试收拢仍待。
 
 工具模块起点 `37b2334` 及此前已授权的 21 条提交已同步 GitHub；模块新增提交只在本地，
 编号读 `git log`，不预填。实际代码、当前 Git 和新核对结果优先。
@@ -190,6 +199,9 @@ Windows pytest 临时目录曾出现 WinError 5；它是准备阶段故障，不
   `backend/tests/test_document_candidates_observation.py`，JSON/native 都回传独立元数据。
 - 状态工具：`backend/app/agents/document_status.py`；专项为
   `backend/tests/test_document_status_tool.py`，后续观察与模板回答见 engine.py、document_status_answers.py 及 test_document_status_agent.py。
+- 文档选择：conversations/document_selection.py、service.py、api/conversations.py；
+  agents/document_status_flow.py绑定短事务与选定ID，test_document_selection_api.py验证跨请求；
+  入口开始任务用response_mode=document_status，continue回复编号，new_task可细化线索。
 - Agent/会话/计费/偏好/工作流/MCP：`backend/app/agents/`、`conversations/`、`billing/`、
   `memory/`、`workflows/`、`mcp_tools/`。
 - 评测：`backend/app/evaluation/`、`backend/scripts/`、`examples/evaluation/`。
@@ -223,8 +235,9 @@ Alembic、PostgreSQL/pgvector、pytest、pypdf、PyJWT、pwdlib/Argon2、MCP SDK
 
 身份首版本次教学目标已收拢，当前按小步推进固定文档状态工具：
 
-1. 代表性工具/工作流：已有状态/候选查询基础、两种工具封装及候选运行内观察；生产接口
-   尚未注册两种工具，单份明确文档状态已可模板回答，歧义选择/恢复仍待，不新增 API、迁移或模型调用。文档生成
+1. 代表性工具/工作流：已有状态/候选查询基础、两种工具封装及运行内观察；会话状态模式
+   已注册两种工具，支持数字选择/恢复和模板回答；单次入口未注册。
+   下一步先收拢学习实践/面试，再按节奏推进观测、真实评测与交付。文档生成
    仍未实现，Web 搜索为后期项。
 2. 统一观测和真实评测：持久执行信息、延迟/错误、可获得的 token/成本；真实 RAG 策略
    对比、回答审核和 Agent 任务基准。已有工具不等于指标验收完成。
@@ -266,7 +279,7 @@ Redis、LangGraph、查询改写、通用长期记忆和更复杂引擎按真实
 不把确认记成独立完整理由。最新要求是小步且按完整业务环节推进，不扣大量语法细节；减少重复整理和无必要测试。
 学习者正确判断查询成功但文档解析失败，曾建议工具失败码也用failed；导师解释
 两层状态及具体原因码后，学习者确认明白，不记独立完整错误设计。
-状态工具、运行内观察和单份明确文档的模板回答已验证，下一步补歧义选择与生产注册，
-不能把封装写成完整文档状态任务。状态函数调用方须先成员授权并
+状态工具、观察、数字候选选择及会话入口已验证，下一步先讲解并收拢小实践/面试，
+只有数字选择、一页有界候选；没有前端或真实模型规划质量验收。状态函数调用方须先成员授权并
 绑定范围；候选函数同样由调用方先授权，查询本身不是身份授权入口。不要一次堆
 多工具或框架，也不要求聊天提供密码；其他模块历史待办保持原状态。

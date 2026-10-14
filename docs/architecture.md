@@ -548,3 +548,26 @@ documents=5、chunks=34、conversations=0、conversation_turns=0、answer_prefer
 详见[阶段 4.6](phase4-answer-workflows.md)与 [ADR 0024](adr/0024-checkpointed-answer-workflows.md)。
 
 工作空间、知识库和文档的字段与基础接口路径已在[数据模型与接口设计](data-api-design-proposal.md)中确认。上传上限默认 5 MiB，首个向量模型、1024 维和精确余弦检索已确认；证据回答与引用校验按 ADR 0006 实施。真实模型质量、引用版本和身份认证仍待后续验收或设计。Redis、LangGraph和前端开发仍不属于首条完整业务链路的范围；后续 MCP、混合检索及重排的实际能力以对应阶段为准。
+
+### 固定文档状态任务与候选选择
+
+2026-10-14，会话消息可显式选择document_status模式，默认knowledge保持原文问答。
+状态模式只注册绑定当前workspace/KB的find_documents和get_document_status，查询用短事务，
+模型决策不持有事务。两种结果均独立于正文证据；状态由程序模板展示。
+
+```mermaid
+flowchart LR
+    A[明确状态任务] --> B[当前范围查候选]
+    B -->|唯一完整候选| C[固定查询读取最新状态]
+    B -->|多份或截断| D[保存列表及顺序，等待用户]
+    D --> E[新请求：鉴权、版本与编号校验]
+    E --> C
+    C --> F[模板回复，保存轮次并清空待办]
+```
+
+DocumentSelectionTask与旧整数PendingTask分别验证，复用Conversation.task JSONB；不迁移数据库。
+编号只映射保存的候选，不重新排序。来源在候选写回前复验，选择查询重新核对文档归属；
+文档处理失败与工具失败分开。选择后的工具故障保留待办，用户可用新请求再次选择；旧编号重放原响应，
+new_task显式替换任务。选择后由程序动作执行，不再调用决策模型或正文生成。
+首版只有数字选择及一页有界候选；没有前端、自然语言选择或个人私有会话隔离。
+原单次Agent入口未注册状态工具，真实规划质量仍待验收。取舍见[ADR 0027](adr/0027-scoped-document-status-selection.md)。

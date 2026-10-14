@@ -27,6 +27,7 @@ from app.knowledge.retrieval import RetrievalNotFoundError, SearchHit
 from app.providers.generation import GenerationConfigurationError, GenerationError, GenerationProvider, GenerationTimeoutError
 from app.conversations.contracts import EvidenceSnapshot, PendingTask
 from app.conversations.contracts import UserCount
+from app.conversations.document_selection import DocumentSelectionTask
 
 
 logger = logging.getLogger(__name__)
@@ -138,12 +139,14 @@ def run_agent(
         ])
 
     def outcome(status: Literal["completed", "stopped", "failed", "waiting_for_user"], reason: str | None,
-                result: AnswerResult | None = None, pending_task: PendingTask | None = None) -> AgentRun:
+                result: AnswerResult | None = None, pending_task: PendingTask | None = None,
+                document_selection: DocumentSelectionTask | None = None) -> AgentRun:
         summaries = [AgentEvidence(evidence_id=index, chunk_id=hit.chunk_id, document_id=hit.document_id,
                                    document_name=hit.document_name, chunk_index=hit.chunk_index,
                                    start_char=hit.start_char, end_char=hit.end_char)
                      for index, hit in enumerate(evidence.values(), 1)]
-        return AgentRun(identifier, status, reason, steps, result, summaries, calculations, pending_task)
+        return AgentRun(identifier, status, reason, steps, result, summaries, calculations, pending_task,
+                        pending_document_selection=document_selection)
 
     def stopped(reason: str) -> AgentRun:
         logger.info("智能体运行停止，运行 ID：%s，原因：%s", identifier, reason)
@@ -314,4 +317,14 @@ def run_agent(
                                document_status=output.document_status))
         observe(decision, evidence_ids=steps[-1].evidence_ids, calculation=calculation,
                 document_candidates=output.document_candidates, document_status=output.document_status)
+        if response_mode == "document_status" and output.document_candidates is not None:
+            candidates = output.document_candidates
+            if any(step.status == "error" for step in steps):
+                return failed("tool_error")
+            if not candidates.candidates:
+                return outcome("completed", None, AnswerResult("当前知识库没有匹配的文件，请提供更具体的文件名线索。", False, []))
+            if candidates.has_more or len(candidates.candidates) > 1:
+                return outcome("waiting_for_user", None, document_selection=DocumentSelectionTask(
+                    question=question, filename_query=arguments.filename_query, candidates=candidates,
+                ))
     return stopped("step_limit")

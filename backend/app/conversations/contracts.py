@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic import field_validator
 from app.billing.contracts import BillingPlan, BillingResult
 from app.memory.contracts import PreferenceRead
+from app.conversations.document_selection import DocumentSelectionTask
 
 
 MAX_TURNS = 200
@@ -160,11 +161,16 @@ class MessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000, strict=True)
     mode: Literal["continue", "new_task", "execute"] = "continue"
     confirm_billing_rule: bool = Field(default=False, strict=True)
+    response_mode: Literal["knowledge", "document_status"] = Field(
+        default="knowledge", description="仅用于开始任务；continue沿用保存的待办类型，不能由模型切换",
+    )
 
     @model_validator(mode="after")
     def confirmation_only_on_execution(self) -> Self:
         if self.confirm_billing_rule and self.mode != "execute":
             raise ValueError("收费规则确认只用于显式执行")
+        if self.mode == "execute" and self.response_mode != "knowledge":
+            raise ValueError("已保存算术任务不能切换成状态查询")
         return self
 
     @field_validator("content", mode="before")
@@ -204,7 +210,7 @@ class ConversationRead(BaseModel):
     conversation_id: UUID
     version: int
     status: Literal["idle", "waiting_for_user", "ready", "completed"]
-    task: TaskRead | None
+    task: TaskRead | DocumentSelectionTask | None
     recent_messages: list[RecentMessage]
     billing_result: BillingResult | None = None
 
@@ -216,7 +222,7 @@ class MessageRead(BaseModel):
     version: int
     status: Literal["idle", "waiting_for_user", "ready", "completed"]
     reply: str
-    task: TaskRead | None
+    task: TaskRead | DocumentSelectionTask | None
     # 保留旧值以读取阶段 4.1 已提交请求的历史响应。
     execution_deferred: Literal["user_numeric_calculation_not_supported", "explicit_execution_required"] | None = None
     # 原有公开运行响应的 JSON 快照；原文正文和内部待补状态不在其中。

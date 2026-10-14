@@ -20,10 +20,12 @@ from app.conversations.counts import parse_count
 from app.db.models import Chunk, Conversation, ConversationTurn, Document, KnowledgeBase
 from app.memory.contracts import PreferenceRead
 from app.memory.service import load_preference
+from app.conversations.document_selection import DocumentSelectionTask, selected_candidate, selection_reply
 
 
 Runner = Callable[[str, dict], AgentRun]
 RUN_ADAPTER = TypeAdapter(AgentRun)
+TASK_ADAPTER = TypeAdapter(PendingTask | DocumentSelectionTask)
 
 
 def recent_messages(turns: Sequence[tuple[str, str]]) -> list[RecentMessage]:
@@ -40,9 +42,11 @@ def recent_messages(turns: Sequence[tuple[str, str]]) -> list[RecentMessage]:
             for role, text in (("user", content), ("assistant", reply))]
 
 
-def public_task(task: PendingTask | None) -> TaskRead | None:
+def public_task(task: PendingTask | DocumentSelectionTask | None) -> TaskRead | DocumentSelectionTask | None:
     if task is None:
         return None
+    if isinstance(task, DocumentSelectionTask):
+        return task
     return TaskRead(question=task.question, clarification=task.clarification,
                     confirmed_inputs=task.confirmed_inputs,
                     evidence=[item.model_dump(exclude={"content"}) for item in task.evidence],
@@ -71,12 +75,16 @@ def _conversation(session: Session, workspace_id: UUID, knowledge_base_id: UUID,
     return conversation
 
 
-def _task(conversation: Conversation) -> PendingTask | None:
+def _task(conversation: Conversation) -> PendingTask | DocumentSelectionTask | None:
     try:
-        task = (PendingTask.model_validate_json(json.dumps(conversation.task, ensure_ascii=False))
+        task = (TASK_ADAPTER.validate_json(json.dumps(conversation.task, ensure_ascii=False))
                 if conversation.task is not None else None)
         if (conversation.status == "idle") != (task is None):
             raise ValueError
+        if isinstance(task, DocumentSelectionTask):
+            if conversation.status != "waiting_for_user":
+                raise ValueError
+            return task
         if task is not None:
             if conversation.status == "waiting_for_user" and (task.inputs_complete() or task.billing_result is not None):
                 raise ValueError
@@ -119,7 +127,7 @@ def read_conversation(session: Session, workspace_id: UUID, knowledge_base_id: U
         return ConversationRead(conversation_id=conversation.id, version=conversation.version,
                                 status=conversation.status, task=public_task(task),
                                 recent_messages=_recent(session, conversation_id),
-                                billing_result=task.billing_result if task else None)
+                                billing_result=task.billing_result if isinstance(task, PendingTask) else None)
 
 
 def _digest(payload: MessageRequest) -> str:
@@ -127,6 +135,8 @@ def _digest(payload: MessageRequest) -> str:
     # 未确认的旧请求保持阶段4.1/4.2摘要算法；显式确认则必须参与幂等校验。
     if not data["confirm_billing_rule"]:
         data.pop("confirm_billing_rule")
+    if data["response_mode"] == "knowledge":
+        data.pop("response_mode")  # 旧请求的摘要保持原算法。
     return hashlib.sha256(json.dumps(data, sort_keys=True,
                                      ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -145,8 +155,22 @@ def _replay(session: Session, conversation_id: UUID, payload: MessageRequest, di
         raise ConversationStateError("已保存的会话回复无效") from None
 
 
-def _validate_evidence(session: Session, knowledge_base_id: UUID, task: PendingTask) -> None:
+def _validate_evidence(session: Session, knowledge_base_id: UUID, task: PendingTask | DocumentSelectionTask) -> None:
     """写入待补快照前核对来源仍属于该知识库，且正文未被替换。"""
+    if isinstance(task, DocumentSelectionTask):
+        items = task.candidates.candidates
+        rows = session.scalars(select(Document).where(
+            Document.id.in_([item.document_id for item in items]),
+            Document.knowledge_base_id == knowledge_base_id,
+        ).with_for_update(read=True).execution_options(populate_existing=True)).all()
+        by_id = {item.id: item for item in rows}
+        for item in items:
+            current = by_id.get(item.document_id)
+            if current is None or (current.original_filename, current.created_at, current.byte_size) != (
+                item.original_filename, item.created_at, item.byte_size,
+            ):
+                raise ConversationConflictError("候选文档已变化，请用 new_task 重新查询")
+        return
     rows = session.execute(select(Chunk, Document).join(Document, Chunk.document_id == Document.id).where(
         Chunk.id.in_([item.chunk_id for item in task.evidence]), Document.knowledge_base_id == knowledge_base_id,
     ).with_for_update(read=True)).all()
@@ -203,8 +227,8 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
                 raise ConversationConflictError("旧算术任务不能借确认标志升级为标准计费任务")
             _validate_evidence(session, knowledge_base_id, task)
         will_run = (payload.mode == "new_task" or payload.mode == "continue" and status == "idle"
-                    or payload.mode == "execute" and task is not None and task.billing_plan is None)
-        preference = load_preference(session, knowledge_base_id) if will_run else None
+                    or payload.mode == "execute" and isinstance(task, PendingTask) and task.billing_plan is None)
+        preference = load_preference(session, knowledge_base_id) if will_run and payload.response_mode == "knowledge" else None
 
     run = None
     deferred = None
@@ -223,14 +247,33 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
             context = {"recent_messages": [item.model_dump() for item in memory],
                        "resume_task": task.model_dump(mode="json")}
             result = runner(task.question, _with_preference(context, preference))
-            if result.pending_task is not None:
+            if result.pending_task is not None or result.pending_document_selection is not None:
                 raise ConversationStateError("算术执行不能替换已有待补任务")
             used_preference = _used_preference(result, preference)
-            run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "answer_preference"}, warnings=False)
+            run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "pending_document_selection", "answer_preference"}, warnings=False)
             reply = (result.result.answer if result.result is not None else
                      f"本轮算术运行{result.status}，原因：{result.stop_reason}。已确认输入保留，可显式再次执行。")
     elif payload.mode == "continue" and status == "ready":
         raise ConversationConflictError("输入已确认；请用 execute 显式执行，或用 new_task 开始其他任务")
+    elif payload.mode == "continue" and status == "waiting_for_user" and isinstance(task, DocumentSelectionTask):
+        selected = selected_candidate(task, payload.content)
+        if selected is None:
+            reply = selection_reply(task)
+        else:
+            # 编号绑定保存的列表；查询仍按当前请求授权的workspace/KB复验归属。
+            result = runner(task.question, {"response_mode": "document_status",
+                                           "selected_document_id": str(selected.document_id)})
+            if result.pending_task is not None or result.pending_document_selection is not None:
+                raise ConversationStateError("选定文档查询不能替换待办")
+            run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "pending_document_selection", "answer_preference"}, warnings=False)
+            if result.status == "completed":
+                statuses = [step.document_status for step in result.steps if step.document_status is not None]
+                if (len(statuses) != 1 or statuses[0].document_id != selected.document_id
+                        or result.result is None or result.result.abstained):
+                    raise ConversationStateError("选定文档的查询结果无效")
+                reply, status, task = result.result.answer, "idle", None
+            else:
+                reply = f"文档状态查询未完成，原因：{result.stop_reason}。候选列表保留，可再次选择或用 new_task 重新查询。"
     elif payload.mode == "continue" and status == "waiting_for_user":
         assert task is not None
         count = parse_count(payload.content, task.clarification.unit)
@@ -264,14 +307,22 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
     else:
         # 显式新任务不携带旧任务的对话上下文，防止隐式串用条件。
         context = {"recent_messages": [item.model_dump() for item in memory] if payload.mode == "continue" else []}
+        if payload.response_mode == "document_status":
+            context["response_mode"] = "document_status"
         result = runner(payload.content, _with_preference(context, preference))  # 此处没有活动数据库事务。
         used_preference = _used_preference(result, preference)
-        run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "answer_preference"}, warnings=False)
-        task = result.pending_task
+        run = RUN_ADAPTER.dump_python(result, mode="json", exclude={"pending_task", "pending_document_selection", "answer_preference"}, warnings=False)
+        if result.pending_task is not None and result.pending_document_selection is not None:
+            raise ConversationStateError("运行不能同时等待两类输入")
+        task = result.pending_task or result.pending_document_selection
         status = "waiting_for_user" if result.status == "waiting_for_user" else "idle"
         if (status == "waiting_for_user") != (task is not None):
             raise ConversationStateError("运行待补条件无效")
-        if task is not None:
+        if isinstance(task, DocumentSelectionTask):
+            if payload.response_mode != "document_status":
+                raise ConversationStateError("知识问答不能创建文档选择任务")
+            reply = selection_reply(task)
+        elif task is not None:
             reply = (f"规则原文：“{task.clarification.rule_quote}”。为了继续处理“{task.question}”，"
                      f"请补充{task.clarification.label}（单位：{task.clarification.unit}，"
                      f"{task.clarification.min_value} 到 {task.clarification.max_value} 的整数）。")
@@ -280,7 +331,7 @@ def send_message(session: Session, workspace_id: UUID, knowledge_base_id: UUID, 
 
     response = MessageRead(conversation_id=conversation_id, request_id=payload.request_id, version=version + 1,
                            status=status, reply=reply, task=public_task(task), execution_deferred=deferred, run=run,
-                           billing_result=task.billing_result if task else None, answer_preference=used_preference)
+                           billing_result=task.billing_result if isinstance(task, PendingTask) else None, answer_preference=used_preference)
     with session.begin():
         _conversation(session, workspace_id, knowledge_base_id, conversation_id)
         replay = _replay(session, conversation_id, payload, digest)

@@ -135,13 +135,18 @@ def test_finish_without_status_does_not_claim_task_completion(status_flow, with_
 
 
 @pytest.mark.parametrize("count,has_more", [(0, False), (2, False), (5, True), (1, True)])
-def test_unresolved_candidates_cannot_be_finished_using_a_guessed_id(status_flow, count, has_more) -> None:
+def test_empty_or_ambiguous_candidates_stop_before_a_guessed_id_is_queried(status_flow, count, has_more) -> None:
     status_flow.candidates = candidate_result(count, has_more=has_more)
     planner = ControlledPlanner([
         find_documents(), status_action(status_flow.result.document_id), FinishAction(action="finish"),
     ])
     run = run_agent(planner, ControlledGeneration(), status_flow.registry, "处理状态", response_mode="document_status")
-    assert run.status == "failed" and run.stop_reason == "document_selection_required" and run.result is None
+    assert status_flow.calls == [] and len(planner.states) == 1
+    if count == 0:
+        assert run.status == "completed" and "没有匹配" in run.result.answer
+    else:
+        assert run.status == "waiting_for_user" and run.result is None
+        assert run.pending_document_selection.candidates == status_flow.candidates
 
 
 def test_single_candidate_must_match_queried_document(status_flow) -> None:
@@ -251,3 +256,22 @@ def test_json_provider_receives_status_observation_and_task_mode(status_flow) ->
     with client:
         run = run_agent(planner, ControlledGeneration(), status_flow.registry, "处理状态", response_mode="document_status")
     assert len(calls) == 2 and run.status == "completed" and "ready" in run.result.answer
+
+
+def test_native_ambiguous_candidates_wait_without_another_model_or_status_call(status_flow) -> None:
+    status_flow.candidates = candidate_result(2)
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        assert len(requests) == 1
+        return httpx.Response(200, json=call_payload(name="find_documents", raw='{"filename_query":"资料"}', identifier="find_1"))
+
+    planner, client = provider(handler)
+    generation = ControlledGeneration()
+    with client:
+        run = run_agent(planner, generation, status_flow.registry, "文件状态", response_mode="document_status")
+    assert run.status == "waiting_for_user" and run.result is None
+    assert run.pending_document_selection.candidates == status_flow.candidates
+    assert run.steps[0].tool_call_id == "find_1" and len(requests) == 1
+    assert status_flow.calls == generation.calls == []

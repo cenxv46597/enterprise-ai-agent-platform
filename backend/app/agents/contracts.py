@@ -17,6 +17,7 @@ from app.agents.calculation_contracts import AgentCalculation, CalculationResult
 from app.agents.sourced_contracts import SourcedAgentCalculation, SourcedCalculation
 from app.conversations.contracts import Clarification, PendingTask
 from app.conversations.contracts import UserCount
+from app.conversations.document_selection import DocumentSelectionTask
 from app.billing.contracts import BillingPlan
 
 
@@ -153,6 +154,7 @@ class AgentRun:
     pending_task: PendingTask | None = None
     # 最终生成调用路径所用偏好；不属于原文证据或数值来源。
     answer_preference: PreferenceRead | None = None
+    pending_document_selection: DocumentSelectionTask | None = None
 
 
 class PlannerProvider(Protocol):

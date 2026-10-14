@@ -324,8 +324,10 @@ def test_persisted_task_survives_recent_memory_window_without_new_search(retriev
 def test_default_false_confirmation_keeps_preexisting_request_digest_compatible(retrieval_context):
     context = retrieval_context
     identifier, request, before, planner, generation, _ = billing_wait(context)
-    # 模拟字段加入前的规范摘要；缺省 false 与显式 false 必须都可重放。
-    legacy = MessageRequest.model_validate(request).model_dump(mode="json", exclude={"confirm_billing_rule"})
+    # 历史请求只有这四个字段；不能把当前模型新增的默认字段纳入历史摘要。
+    legacy = MessageRequest.model_validate(request).model_dump(mode="json", include={
+        "request_id", "expected_version", "content", "mode",
+    })
     digest = hashlib.sha256(json.dumps(legacy, ensure_ascii=False, sort_keys=True,
                                       separators=(",", ":")).encode("utf-8")).hexdigest()
     with Session(context.engine) as session, session.begin():
@@ -333,6 +335,7 @@ def test_default_false_confirmation_keeps_preexisting_request_digest_compatible(
                         .values(request_digest=digest))
     assert post(context, identifier, request).json() == before
     assert post(context, identifier, {**request, "confirm_billing_rule": False}).json() == before
+    assert post(context, identifier, {**request, "response_mode": "knowledge"}).json() == before
     assert len(planner.states) == 2 and not generation.calls and context.provider.calls == 1
 
 
