@@ -54,7 +54,7 @@ def test_fresh_app_selects_saved_second_document_and_reads_its_latest_state(retr
     inserted = context.document([], name="请假规定.txt")[0]
     with Session(context.engine) as session, session.begin():
         session.execute(update(Document).where(Document.id == inserted).values(created_at=datetime(2026, 1, 1, tzinfo=timezone.utc)))
-        session.execute(update(Document).where(Document.id == ids[1]).values(status="failed", error_code="PDF_NO_TEXT"))
+        session.execute(update(Document).where(Document.id == ids[1]).values(status="ready", error_code=None))
     fresh_app = create_app()
     fresh_app.dependency_overrides.update(context.client.app.dependency_overrides)
     with TestClient(fresh_app) as client:
@@ -65,7 +65,7 @@ def test_fresh_app_selects_saved_second_document_and_reads_its_latest_state(retr
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "idle" and body["task"] is None and body["version"] == 2
-    assert body["run"]["status"] == "completed" and "解析失败" in body["reply"]
+    assert body["run"]["status"] == "completed" and "可检索" in body["reply"]
     assert body["run"]["steps"][0]["document_status"]["document_id"] == str(ids[1])
     assert body["run"]["steps"][0]["status"] == "success" and body["run"]["result"]["citations"] == []
     assert len(planner.states) == 1 and generation.calls == [] and context.provider.calls == 0
