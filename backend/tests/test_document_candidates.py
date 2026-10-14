@@ -99,7 +99,7 @@ def test_no_matching_document_returns_an_empty_candidate_list(status_db: SimpleN
     assert result.has_more is False
 
 
-@pytest.mark.parametrize("count", [5, 6])
+@pytest.mark.parametrize("count", [4, 5, 6])
 def test_limit_and_timestamp_ties_are_stable(status_db: SimpleNamespace, count: int) -> None:
     identifiers = add_candidates(status_db, [f"候选上限{index}.txt" for index in range(count)], same_time=True)
     with Session(status_db.engine) as session:
@@ -107,7 +107,7 @@ def test_limit_and_timestamp_ties_are_stable(status_db: SimpleNamespace, count: 
         second = find_document_candidates(session, status_db.workspace_a, status_db.kb_a, "候选上限")
     assert MAX_DOCUMENT_CANDIDATES == 5
     assert [item.document_id for item in first.candidates] == sorted(identifiers)[:5]
-    assert len(first.candidates) == 5
+    assert len(first.candidates) == min(count, MAX_DOCUMENT_CANDIDATES)
     assert first.has_more is (count > 5)
     assert first == second
 
