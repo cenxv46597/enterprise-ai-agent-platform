@@ -97,6 +97,7 @@ class AgentStep(BaseModel):
     execution_ms: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     reranking: RerankTrace | None = None
     document_candidates: DocumentCandidateList | None = None
+    document_status: DocumentProcessingStatus | None = None
 
 
 @dataclass(frozen=True, slots=True)

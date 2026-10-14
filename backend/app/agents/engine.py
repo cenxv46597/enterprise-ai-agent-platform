@@ -17,10 +17,12 @@ from app.agents.contracts import (
 from app.agents.calculation_contracts import AgentCalculation, MAX_CALCULATIONS
 from app.agents.sourced_contracts import SourcedAgentCalculation, SourcedCalculation
 from app.agents.calculation_answers import answer_from_calculations
+from app.agents.document_status_answers import answer_from_document_status
 from app.agents.tools import ToolRegistry
 from app.db.models import KnowledgeBase
 from app.knowledge.answers import AnswerResult, answer_from_hits
 from app.knowledge.document_candidates import DocumentCandidateList
+from app.knowledge.document_status import DocumentProcessingStatus
 from app.knowledge.retrieval import RetrievalNotFoundError, SearchHit
 from app.providers.generation import GenerationConfigurationError, GenerationError, GenerationProvider, GenerationTimeoutError
 from app.conversations.contracts import EvidenceSnapshot, PendingTask
@@ -49,8 +51,30 @@ def _planner_observation(step: AgentStep) -> dict:
     excluded = {"planner_ms", "execution_ms", "reranking"}
     if step.document_candidates is None:
         excluded.add("document_candidates")
+    if step.document_status is None:
+        excluded.add("document_status")
     # 候选含 UUID 和时间；下一轮状态必须是可 JSON 编码的副本。
     return step.model_dump(mode="json", exclude=excluded)
+
+
+def _document_status_answer(steps: list[AgentStep]) -> AnswerResult:
+    """首版只完成一份已明确文档的状态任务；不选择同名候选或掩盖工具故障。"""
+    if any(step.action == "tool" and step.status == "error" for step in steps):
+        raise ToolExecutionError("tool_error")
+    results = [step.document_status for step in steps if step.document_status is not None]
+    if not results:
+        raise ToolExecutionError("document_status_required")
+    if len(results) != 1:
+        raise ToolExecutionError("document_selection_required")
+    result = results[0]
+    candidates = next((step.document_candidates for step in reversed(steps)
+                       if step.document_candidates is not None), None)
+    if candidates is not None and (
+        candidates.has_more or len(candidates.candidates) != 1
+        or candidates.candidates[0].document_id != result.document_id
+    ):
+        raise ToolExecutionError("document_selection_required")
+    return answer_from_document_status(result)
 
 
 def run_agent(
@@ -59,12 +83,15 @@ def run_agent(
     conversation_context: dict | None = None,
     initial_evidence: tuple[SearchHit, ...] = (), user_inputs: tuple[UserCount, ...] = (),
     require_calculation: bool = False,
+    response_mode: Literal["knowledge", "document_status"] = "knowledge",
 ) -> AgentRun:
-    """只保存本次内存状态；调用方已校验范围，工具实例绑定获准的知识库。"""
+    """调用方授权、绑定范围及任务类型；模型不能切换程序指定的回答模式。"""
     if (
         not isinstance(question, str) or not 1 <= len(question.strip()) <= 2000
         or type(max_steps) is not int or not 1 <= max_steps <= MAX_AGENT_STEPS
         or type(max_evidence_characters) is not int or not 1 <= max_evidence_characters <= MAX_AGENT_CHARACTERS
+        or response_mode not in ("knowledge", "document_status")
+        or (response_mode == "document_status" and require_calculation)
     ):
         raise AgentInputError("智能体问题、步数或证据预算无效")
     question = question.strip()
@@ -87,7 +114,8 @@ def run_agent(
 
     def observe(decision: ToolAction, *, error_code: str | None = None, evidence_ids: list[int] | None = None,
                 calculation: AgentCalculation | SourcedAgentCalculation | None = None,
-                document_candidates: DocumentCandidateList | None = None) -> None:
+                document_candidates: DocumentCandidateList | None = None,
+                document_status: DocumentProcessingStatus | None = None) -> None:
         """回传原生调用的同一编号；只写本次运行，不写文件或共享服务对象。"""
         if decision.native_call is None:
             return
@@ -100,6 +128,8 @@ def run_agent(
             result["calculation"] = calculation.model_dump(mode="json")
         if document_candidates is not None:
             result["document_candidates"] = document_candidates.model_dump(mode="json")
+        if document_status is not None:
+            result["document_status"] = document_status.model_dump(mode="json")
         tool_messages.extend([
             {"role": "assistant", "content": call.content, "tool_calls": [
                 {"id": call.id, "type": "function", "function": {
@@ -135,6 +165,8 @@ def run_agent(
         }
         if conversation_context is not None:
             state["conversation_context"] = conversation_context
+        if response_mode == "document_status":
+            state["response_mode"] = response_mode
         if user_inputs:
             state["confirmed_inputs"] = [item.model_dump(mode="json") for item in user_inputs]
         started = monotonic()
@@ -154,6 +186,17 @@ def run_agent(
             return failed(code)
         planner_ms = (monotonic() - started) * 1000
         if isinstance(decision, FinishAction):
+            if response_mode == "document_status":
+                started = monotonic()
+                try:
+                    answer = _document_status_answer(steps)
+                except ToolExecutionError as error:
+                    steps.append(AgentStep(step=number, action="finish", status="error", error_code=error.code,
+                                           planner_ms=planner_ms, execution_ms=(monotonic() - started) * 1000))
+                    return failed(error.code)
+                steps.append(AgentStep(step=number, action="finish", status="success", planner_ms=planner_ms,
+                                       execution_ms=(monotonic() - started) * 1000))
+                return outcome("completed", None, answer)
             last_billing = next((step for step in reversed(steps) if step.tool_name == "prepare_billing"), None)
             if last_billing is not None and last_billing.status != "success":
                 steps.append(AgentStep(step=number, action="finish", status="error", error_code="billing_rule_error",
@@ -172,8 +215,8 @@ def run_agent(
                 return failed("calculation_required")
             if (not evidence and any(step.action == "tool" and step.status == "error" for step in steps)
                     and not any(step.action == "tool" and step.status == "success"
-                                and step.document_candidates is None for step in steps)):
-                # 候选元数据成功不代表取得正文，不能掩盖正文工具失败。
+                                and step.document_candidates is None and step.document_status is None for step in steps)):
+                # 元数据成功不代表取得正文，不能掩盖正文工具失败。
                 steps.append(AgentStep(step=number, action="finish", status="error", error_code="tool_error",
                                        planner_ms=planner_ms))
                 return failed("tool_error")
@@ -267,7 +310,8 @@ def run_agent(
                                tool_call_id=call_id, status="success", evidence_ids=[ids[hit.chunk_id] for hit in output.hits],
                                calculation_id=calculation.calculation_id if calculation else None,
                                planner_ms=planner_ms, execution_ms=(monotonic() - started) * 1000,
-                               reranking=output.reranking, document_candidates=output.document_candidates))
+                               reranking=output.reranking, document_candidates=output.document_candidates,
+                               document_status=output.document_status))
         observe(decision, evidence_ids=steps[-1].evidence_ids, calculation=calculation,
-                document_candidates=output.document_candidates)
+                document_candidates=output.document_candidates, document_status=output.document_status)
     return stopped("step_limit")
