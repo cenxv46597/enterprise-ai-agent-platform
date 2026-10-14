@@ -20,6 +20,7 @@ from app.agents.calculation_answers import answer_from_calculations
 from app.agents.tools import ToolRegistry
 from app.db.models import KnowledgeBase
 from app.knowledge.answers import AnswerResult, answer_from_hits
+from app.knowledge.document_candidates import DocumentCandidateList
 from app.knowledge.retrieval import RetrievalNotFoundError, SearchHit
 from app.providers.generation import GenerationConfigurationError, GenerationError, GenerationProvider, GenerationTimeoutError
 from app.conversations.contracts import EvidenceSnapshot, PendingTask
@@ -42,6 +43,14 @@ def validate_scope(session: Session, workspace_id: UUID, knowledge_base_id: UUID
 def _snapshot(hit: SearchHit) -> tuple:
     # 不比较距离或融合分数，它们可随不同搜索问题变化。
     return (hit.document_id, hit.document_name, hit.chunk_index, hit.content, hit.start_char, hit.end_char)
+
+
+def _planner_observation(step: AgentStep) -> dict:
+    excluded = {"planner_ms", "execution_ms", "reranking"}
+    if step.document_candidates is None:
+        excluded.add("document_candidates")
+    # 候选含 UUID 和时间；下一轮状态必须是可 JSON 编码的副本。
+    return step.model_dump(mode="json", exclude=excluded)
 
 
 def run_agent(
@@ -77,7 +86,8 @@ def run_agent(
     definitions = registry.definitions()
 
     def observe(decision: ToolAction, *, error_code: str | None = None, evidence_ids: list[int] | None = None,
-                calculation: AgentCalculation | SourcedAgentCalculation | None = None) -> None:
+                calculation: AgentCalculation | SourcedAgentCalculation | None = None,
+                document_candidates: DocumentCandidateList | None = None) -> None:
         """回传原生调用的同一编号；只写本次运行，不写文件或共享服务对象。"""
         if decision.native_call is None:
             return
@@ -88,6 +98,8 @@ def run_agent(
                                                         for index in evidence_ids or []]})
         if calculation is not None:
             result["calculation"] = calculation.model_dump(mode="json")
+        if document_candidates is not None:
+            result["document_candidates"] = document_candidates.model_dump(mode="json")
         tool_messages.extend([
             {"role": "assistant", "content": call.content, "tool_calls": [
                 {"id": call.id, "type": "function", "function": {
@@ -116,7 +128,7 @@ def run_agent(
         state = {
             "question": question, "remaining_steps": max_steps - number + 1,
             "tools": definitions,
-            "observations": [step.model_dump(exclude={"planner_ms", "execution_ms", "reranking"}) for step in steps],
+            "observations": [_planner_observation(step) for step in steps],
             "evidence": [{"evidence_id": index, "content": hit.content} for index, hit in enumerate(evidence.values(), 1)],
             "tool_messages": tool_messages,
             "calculations": [calculation.model_dump(mode="json") for calculation in calculations],
@@ -159,8 +171,9 @@ def run_agent(
                                        planner_ms=planner_ms))
                 return failed("calculation_required")
             if (not evidence and any(step.action == "tool" and step.status == "error" for step in steps)
-                    and not any(step.action == "tool" and step.status == "success" for step in steps)):
-                # 全部工具尝试失败，不能把没有取得资料解释成正常的证据不足。
+                    and not any(step.action == "tool" and step.status == "success"
+                                and step.document_candidates is None for step in steps)):
+                # 候选元数据成功不代表取得正文，不能掩盖正文工具失败。
                 steps.append(AgentStep(step=number, action="finish", status="error", error_code="tool_error",
                                        planner_ms=planner_ms))
                 return failed("tool_error")
@@ -189,7 +202,7 @@ def run_agent(
             observe(decision, error_code=error.code)
             continue
         normalized = arguments.model_dump()
-        query = normalized.get("query")
+        query = normalized.get("query", normalized.get("filename_query"))
         fingerprint = json.dumps([decision.tool_name, normalized], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         if fingerprint in seen:
             steps.append(AgentStep(step=number, action="tool", tool_name=decision.tool_name, query=query,
@@ -254,6 +267,7 @@ def run_agent(
                                tool_call_id=call_id, status="success", evidence_ids=[ids[hit.chunk_id] for hit in output.hits],
                                calculation_id=calculation.calculation_id if calculation else None,
                                planner_ms=planner_ms, execution_ms=(monotonic() - started) * 1000,
-                               reranking=output.reranking))
-        observe(decision, evidence_ids=steps[-1].evidence_ids, calculation=calculation)
+                               reranking=output.reranking, document_candidates=output.document_candidates))
+        observe(decision, evidence_ids=steps[-1].evidence_ids, calculation=calculation,
+                document_candidates=output.document_candidates)
     return stopped("step_limit")
