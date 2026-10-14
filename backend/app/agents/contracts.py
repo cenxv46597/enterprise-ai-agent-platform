@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from app.knowledge.answers import AnswerResult
 from app.knowledge.document_candidates import DocumentCandidateList
+from app.knowledge.document_status import DocumentProcessingStatus
 from app.knowledge.retrieval import SearchHit
 from app.providers.reranking import RerankTrace
 from app.memory.contracts import PreferenceRead
@@ -116,6 +117,8 @@ class ToolOutput:
     clarifications: tuple[Clarification, ...] = ()
     # 文件元数据单独承载，不能进入原文证据池；None 与正常空候选不同。
     document_candidates: DocumentCandidateList | None = None
+    # 文档处理状态是查询结果，不是工具调用的成功/失败状态。
+    document_status: DocumentProcessingStatus | None = None
 
 
 class ToolExecutionError(RuntimeError):
