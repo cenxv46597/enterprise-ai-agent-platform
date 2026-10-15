@@ -470,3 +470,15 @@ def test_chunk_or_latest_document_with_wrong_parent_cannot_claim_full_success(br
         assert len(browse.requests) == 7 and "切块请求成功" in output
         assert "切块响应已校验，但最新文档状态未确认" in output
         assert "已解析，尚未可检索" not in output
+
+def test_chunk_rejects_mismatched_character_range(browse, capsys):
+    # 只增加结束位置，正文内容不变，制造长度不一致。
+    browse.payloads[CHUNKS][0]["end_char"] += 1
+
+    exit_code = browse.module.main(["--username", "demo_a", "--chunk"])
+    output = safe_output(capsys)
+
+    # 请在这里补充下面三个断言。
+    assert exit_code == 1
+    assert "切块结果未确认" in output
+    assert "切块请求成功" not in output
