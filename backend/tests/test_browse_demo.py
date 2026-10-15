@@ -33,6 +33,7 @@ DOCUMENT = f"{DOCUMENTS}/{SELECTED_DOCUMENT}"
 CHUNKS = f"{DOCUMENT}/chunks"
 EMBEDDINGS = f"{DOCUMENT}/embeddings"
 SEARCH = f"{BASES}/{KB_TWO}/search"
+ANSWERS = f"{BASES}/{KB_TWO}/answers"
 
 
 @pytest.fixture
@@ -46,6 +47,7 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         module=module, requests=[], client_options=[], choices=iter(["2", "2", "3"]),
         password_calls=0, input_calls=0, failure=None, upload_failure=None, chunk_failure=None,
         embedding_failure=None, search_failure=None, query="如何查看导出记录？",
+        answer_failure=None, question="导出清单中的一个条目包含哪些信息？",
         upload_payload={
             "id": str(UUID(int=500)), "knowledge_base_id": KB_TWO,
             "original_filename": "upload-note.md", "media_type": "text/markdown",
@@ -91,6 +93,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                     for index, content in enumerate(["导出记录可在控制台查看。", "任务详情包含导出状态。"])
                 ],
             },
+            ANSWERS: {
+                "answer": "清单条目包含文件展示名称、内容负责人、来源任务和简短说明。",
+                "abstained": False,
+                "citations": [{
+                    "chunk_id": str(UUID(int=700)), "document_id": SELECTED_DOCUMENT,
+                    "document_name": "资料2.txt", "chunk_index": 1,
+                    "quote": "一个清单条目包含文件展示名称、内容负责人、来源任务和简短说明。",
+                    "start_char": 436, "end_char": 467,
+                }],
+            },
         },
     )
     monkeypatch.setattr(module, "sys", SimpleNamespace(
@@ -105,6 +117,8 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.input_calls += 1
         if prompt.startswith("请输入检索问题"):
             return state.query
+        if prompt.startswith("请输入问答问题"):
+            return state.question
         return next(state.choices)
 
     monkeypatch.setattr(module, "getpass", hidden_input)
@@ -114,6 +128,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.requests.append(request)
         if request.url.path not in state.payloads:
             pytest.fail("请求了未经选择的范围或额外接口")
+        if request.method == "POST" and request.url.path == ANSWERS:
+            if state.answer_failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.answer_failure == "network":
+                raise httpx.WriteError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.answer_failure == "cancel":
+                raise KeyboardInterrupt(f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.answer_failure in {"server", "conflict"}:
+                return httpx.Response(409 if state.answer_failure == "conflict" else 504,
+                                      text=f"{PRIVATE} {PASSWORD} {TOKEN}")
         if request.method == "POST" and request.url.path == SEARCH:
             if state.search_failure == "timeout":
                 raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
