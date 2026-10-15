@@ -1,4 +1,4 @@
-"""通过本机 HTTP 后端浏览资料，可显式上传文件；不自动读取配置或调用模型。"""
+"""通过本机 HTTP 后端浏览、显式上传或切块；不自动读取配置或调用模型。"""
 
 import argparse
 from dataclasses import dataclass
@@ -19,6 +19,9 @@ PAGE_SIZE = 20
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown", ".pdf": "application/pdf"}
 UPLOAD_UNCONFIRMED = "上传结果未确认；未自动重试。请先核对知识库中的文档记录，再决定是否再次上传。"
+CHUNK_PARAMETERS = {"chunk_size": 500, "overlap": 50}
+CHUNK_UNCONFIRMED = "切块结果未确认；未自动重试。请核对同一文档的已有文本块，同参数显式重试可复用结果。"
+CHUNK_STATUS_UNCONFIRMED = "切块响应已校验，但最新文档状态未确认；未自动重试。请浏览同一文档核对状态。"
 STATUS_LABELS = {
     "uploaded": "已上传", "processing": "处理中", "parsed": "已解析",
     "ready": "可检索", "failed": "处理失败",
@@ -82,36 +85,41 @@ def local_origin(value: str) -> str:
 
 
 def request(client: httpx.Client, method: str, path: str, stage: str, *,
-            expected_status: int = 200, may_create_document: bool = False, **kwargs):
+            expected_status: int = 200, may_create_document: bool = False,
+            may_create_chunks: bool = False, **kwargs):
+    uncertain_result = (CHUNK_UNCONFIRMED if may_create_chunks else
+                        UPLOAD_UNCONFIRMED if may_create_document else None)
     try:
         response = client.request(method, path, **kwargs)
     except httpx.TimeoutException:
-        if may_create_document:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        if uncertain_result:
+            raise BrowseFailure(uncertain_result) from None
         raise BrowseFailure(
             f"{stage}等待后端响应超时；请检查 Docker 数据库是否已启动，并查看后端日志。"
         ) from None
     except httpx.ConnectError:
-        if may_create_document:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        if uncertain_result:
+            raise BrowseFailure(uncertain_result) from None
         raise BrowseFailure(f"{stage}无法连接后端；请核对后端地址、端口和启动状态。") from None
     except httpx.RequestError:
-        if may_create_document:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        if uncertain_result:
+            raise BrowseFailure(uncertain_result) from None
         raise BrowseFailure(f"{stage}网络请求失败；请检查本机连接和后端日志。") from None
     except KeyboardInterrupt:
-        if may_create_document:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        if uncertain_result:
+            raise BrowseFailure(uncertain_result) from None
         raise
     if response.status_code != expected_status:
-        if may_create_document and not 400 <= response.status_code < 500:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED)
+        if may_create_chunks and response.status_code == 409:
+            raise BrowseFailure("切块请求被拒绝（HTTP 409）：文档尚未解析或已有配置不兼容；请核对文档和原切块配置。")
+        if uncertain_result and not 400 <= response.status_code < 500:
+            raise BrowseFailure(uncertain_result)
         raise BrowseFailure(f"{stage}未完成（HTTP {response.status_code}）；请核对账号和后端状态。")
     try:
         return response.json()
     except ValueError:
-        if may_create_document:
-            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        if uncertain_result:
+            raise BrowseFailure(uncertain_result) from None
         raise BrowseFailure(f"{stage}返回了无效数据。") from None
 
 
@@ -193,11 +201,58 @@ def upload_document(client: httpx.Client, url: str, knowledge_base_id: UUID,
     return True
 
 
+def chunk_document(client: httpx.Client, document_url: str, knowledge_base_id: UUID,
+                   document: Entry, secrets: tuple[str, ...]) -> bool:
+    if document.status not in {"parsed", "ready"}:
+        raise BrowseFailure("文档尚未成功解析，本次未切块。")
+    payload = request(client, "POST", document_url + "/chunks", "文档切块",
+                      json=CHUNK_PARAMETERS, may_create_chunks=True)
+    try:
+        if not isinstance(payload, list) or not 1 <= len(payload) <= 10_000:
+            raise ValueError("invalid chunk list")
+        identifiers = set()
+        spans = []
+        total_characters = 0
+        for number, item in enumerate(payload, 1):
+            identifier = UUID(item["id"])
+            start, end, content = item["start_char"], item["end_char"], item["content"]
+            if (identifier in identifiers or UUID(item["document_id"]) != document.id
+                    or type(item["chunk_index"]) is not int or item["chunk_index"] != number
+                    or type(start) is not int or type(end) is not int
+                    or not 0 <= start < end or not isinstance(content, str) or len(content) != end - start):
+                raise ValueError("invalid chunk identity or span")
+            total_characters += len(content)
+            if total_characters > 10 * 1024 * 1024:
+                raise ValueError("chunk response exceeds budget")
+            identifiers.add(identifier)
+            spans.append((number, start, end))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise BrowseFailure(CHUNK_UNCONFIRMED) from None
+    print(f"切块请求成功：{display(document.label, secrets)}，共 {len(spans)} 个文本块。")
+    for number, start, end in spans[:3]:
+        print(f"第 {number} 块：[{start}, {end})")
+    if len(spans) > 3:
+        print("仅展示前 3 块的字符范围。")
+    try:
+        latest_payload = request(client, "GET", document_url, "读取文档最新状态")
+        latest = entries([latest_payload], label_key="original_filename",
+                         parent_key="knowledge_base_id", parent_id=knowledge_base_id)[0]
+        if latest.id != document.id or latest.label != document.label:
+            raise ValueError("unexpected document identity")
+    except (BrowseFailure, KeyError, TypeError, ValueError, AttributeError, KeyboardInterrupt, EOFError):
+        raise BrowseFailure(CHUNK_STATUS_UNCONFIRMED) from None
+    state = "已解析，尚未可检索" if latest.status == "parsed" else STATUS_LABELS[latest.status]
+    print(f"文档当前状态：{state}。")
+    return latest.status in {"parsed", "ready"}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description="登录本机后端并浏览自己的企业资料", allow_abbrev=False)
     parser.add_argument("--username", required=True, help="已注册用户名")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="本机后端地址")
-    parser.add_argument("--upload", metavar="FILE", help="显式上传一份本机文件到选中的知识库，最多 5 MiB")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--upload", metavar="FILE", help="显式上传一份本机文件到选中的知识库，最多 5 MiB")
+    actions.add_argument("--chunk", action="store_true", help="选择一份已有文档，以 500 字符、50 字符重叠保存切块")
     args = parser.parse_args(argv)
     username = args.username.strip().lower()
     try:
@@ -254,6 +309,9 @@ def main(argv: list[str] | None = None) -> int:
                 if upload is not None:
                     print("没有可选工作空间，本次未上传文件。")
                     return 1
+                if args.chunk:
+                    print("没有可选工作空间，本次未切块。")
+                    return 1
                 return 0
             base_path = f"/api/v1/workspaces/{workspace.id}/knowledge-bases"
             knowledge_base = choose("知识库", entries(request(
@@ -262,6 +320,9 @@ def main(argv: list[str] | None = None) -> int:
             if knowledge_base is None:
                 if upload is not None:
                     print("没有可选知识库，本次未上传文件。")
+                    return 1
+                if args.chunk:
+                    print("没有可选知识库，本次未切块。")
                     return 1
                 return 0
             document_url = f"{base_path}/{knowledge_base.id}/documents"
@@ -272,6 +333,13 @@ def main(argv: list[str] | None = None) -> int:
             documents = entries(request(
                 client, "GET", document_url, "读取文档", params=page),
                 label_key="original_filename", parent_key="knowledge_base_id", parent_id=knowledge_base.id)
+            if args.chunk:
+                selected = choose("选择要切块的文档", documents, secrets)
+                if selected is None:
+                    print("没有可选文档，本次未切块。")
+                    return 1
+                selected_url = f"{document_url}/{selected.id}"
+                return 0 if chunk_document(client, selected_url, knowledge_base.id, selected, secrets) else 1
             show("文档与处理状态", documents, secrets)
             print("浏览完成。" if documents else "列表为空，本次浏览结束。")
             return 0

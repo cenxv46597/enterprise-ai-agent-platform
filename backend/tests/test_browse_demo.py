@@ -28,6 +28,9 @@ ME = "/api/v1/auth/me"
 WORKSPACES = "/api/v1/workspaces"
 BASES = f"{WORKSPACES}/{WORKSPACE_B}/knowledge-bases"
 DOCUMENTS = f"{BASES}/{KB_TWO}/documents"
+SELECTED_DOCUMENT = str(UUID(int=102))
+DOCUMENT = f"{DOCUMENTS}/{SELECTED_DOCUMENT}"
+CHUNKS = f"{DOCUMENT}/chunks"
 
 
 @pytest.fixture
@@ -38,8 +41,8 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
     state = SimpleNamespace(
-        module=module, requests=[], client_options=[], choices=iter(["2", "2"]),
-        password_calls=0, input_calls=0, failure=None, upload_failure=None,
+        module=module, requests=[], client_options=[], choices=iter(["2", "2", "3"]),
+        password_calls=0, input_calls=0, failure=None, upload_failure=None, chunk_failure=None,
         upload_payload={
             "id": str(UUID(int=500)), "knowledge_base_id": KB_TWO,
             "original_filename": "upload-note.md", "media_type": "text/markdown",
@@ -59,6 +62,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                 {"id": str(UUID(int=100 + index)), "knowledge_base_id": KB_TWO,
                  "original_filename": f"资料{index}.txt", "status": status}
                 for index, status in enumerate(["uploaded", "processing", "parsed", "ready", "failed"])
+            ],
+            DOCUMENT: {
+                "id": SELECTED_DOCUMENT, "knowledge_base_id": KB_TWO,
+                "original_filename": "资料2.txt", "status": "parsed",
+            },
+            CHUNKS: [
+                {"id": str(UUID(int=600 + index)), "document_id": SELECTED_DOCUMENT,
+                 "chunk_index": index + 1, "content": content,
+                 "start_char": index * 10, "end_char": index * 10 + len(content)}
+                for index, content in enumerate([f"{PRIVATE} {PASSWORD}", f"{TOKEN} {PRIVATE}"])
             ],
         },
     )
@@ -81,6 +94,15 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.requests.append(request)
         if request.url.path not in state.payloads:
             pytest.fail("请求了未经选择的范围或额外接口")
+        if request.method == "POST" and request.url.path == CHUNKS:
+            if state.chunk_failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.chunk_failure == "cancel":
+                raise KeyboardInterrupt(f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.chunk_failure == "server":
+                return httpx.Response(500, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.chunk_failure == "conflict":
+                return httpx.Response(409, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
         if request.method == "POST" and request.url.path == DOCUMENTS:
             if state.upload_failure == "timeout":
                 raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
@@ -343,3 +365,108 @@ def test_201_upload_response_with_wrong_parent_is_unconfirmed_and_not_retried(br
     assert len(sent_uploads(browse)) == 1 and len(browse.requests) == 5
     output = safe_output(capsys)
     assert "上传结果未确认" in output and "未自动重试" in output
+
+
+def sent_chunk_requests(browse) -> list[httpx.Request]:
+    return [request for request in browse.requests if request.method == "POST" and request.url.path == CHUNKS]
+
+
+@pytest.mark.parametrize("listed_status,latest_status", [("parsed", "ready"), ("ready", "parsed")])
+def test_chunk_selected_document_and_show_latest_status_without_claiming_new_blocks(
+    browse, capsys, listed_status, latest_status,
+) -> None:
+    browse.payloads[DOCUMENTS][2]["status"] = listed_status
+    browse.payloads[DOCUMENT]["status"] = latest_status
+    expected_paths = [
+        ("POST", LOGIN), ("GET", ME), ("GET", WORKSPACES), ("GET", BASES),
+        ("GET", DOCUMENTS), ("POST", CHUNKS), ("GET", DOCUMENT),
+    ]
+    # 两次都返回同一组块 ID，只检查客户端措辞，不声称验证了数据库幂等性。
+    for _ in range(2):
+        browse.requests.clear()
+        browse.choices = iter(["2", "2", "3"])
+        assert browse.module.main(["--username", "demo_a", "--chunk"]) == 0
+        assert [(request.method, request.url.path) for request in browse.requests] == expected_paths
+        chunk_request, = sent_chunk_requests(browse)
+        assert json.loads(chunk_request.content) == {"chunk_size": 500, "overlap": 50}
+        assert chunk_request.url.query == b"" and browse.requests[-1].url.query == b""
+        assert all(request.headers["Authorization"] == f"Bearer {TOKEN}" for request in browse.requests[1:])
+        assert all(dict(request.url.params) == {"limit": "20", "offset": "0"} for request in browse.requests[2:5])
+        assert sent_uploads(browse) == []
+        output = safe_output(capsys)
+        assert "切块请求成功" in output and "共 2 个文本块" in output
+        ranges = [line.strip() for line in output.splitlines() if line.strip().startswith("第 ")]
+        assert ranges == [
+            f"第 {chunk['chunk_index']} 块：[{chunk['start_char']}, {chunk['end_char']})"
+            for chunk in browse.payloads[CHUNKS]
+        ]
+        latest_output = output.rsplit("第 2 块：", 1)[-1]
+        assert ("已解析，尚未可检索" if latest_status == "parsed" else "可检索") in latest_output
+        if latest_status == "ready":
+            assert "尚未可检索" not in latest_output
+        assert not any(claim in output for claim in ("首次新建", "已新建", "已复用"))
+
+
+@pytest.mark.parametrize("problem", ["processing", "invalid_number"])
+def test_chunk_refuses_unparsed_document_or_invalid_document_choice(browse, capsys, problem) -> None:
+    if problem == "processing":
+        browse.payloads[DOCUMENTS][2]["status"] = "processing"
+    else:
+        browse.choices = iter(["2", "2", "0"])
+    assert browse.module.main(["--username", "demo_a", "--chunk"]) == 1
+    assert len(browse.requests) == 5 and sent_chunk_requests(browse) == [] and sent_uploads(browse) == []
+    assert "切块请求成功" not in safe_output(capsys)
+
+
+@pytest.mark.parametrize("scope,request_count", [(WORKSPACES, 3), (BASES, 4), (DOCUMENTS, 5)])
+def test_chunk_does_not_write_when_no_scope_or_document_can_be_selected(
+    browse, capsys, scope, request_count,
+) -> None:
+    browse.payloads[scope] = []
+    assert browse.module.main(["--username", "demo_a", "--chunk"]) == 1
+    assert len(browse.requests) == request_count
+    assert sent_chunk_requests(browse) == [] and sent_uploads(browse) == []
+    output = safe_output(capsys)
+    assert "列表为空" in output and "本次未切块" in output
+
+
+def test_chunk_and_upload_are_mutually_exclusive_before_password_or_network(browse, tmp_path, capsys) -> None:
+    path = local_upload(tmp_path)
+    with pytest.raises(SystemExit) as error:
+        browse.module.main(["--username", "demo_a", "--chunk", "--upload", str(path)])
+    assert error.value.code == 2
+    assert browse.password_calls == 0 and browse.client_options == [] and browse.requests == []
+    assert str(path) not in safe_output(capsys)
+
+
+@pytest.mark.parametrize("failure", ["conflict", "timeout", "server", "cancel"])
+def test_failed_or_uncertain_chunk_request_is_not_retried(browse, capsys, failure) -> None:
+    browse.chunk_failure = failure
+    assert browse.module.main(["--username", "demo_a", "--chunk"]) == 1
+    assert len(sent_chunk_requests(browse)) == 1 and len(browse.requests) == 6
+    assert sent_uploads(browse) == []
+    output = safe_output(capsys)
+    assert "切块请求成功" not in output
+    if failure == "conflict":
+        assert "未解析或已有配置不兼容" in output
+    else:
+        assert "切块结果未确认" in output and "未自动重试" in output
+
+
+@pytest.mark.parametrize("wrong_parent", ["chunk", "latest_document"])
+def test_chunk_or_latest_document_with_wrong_parent_cannot_claim_full_success(browse, capsys, wrong_parent) -> None:
+    if wrong_parent == "chunk":
+        browse.payloads[CHUNKS][0]["document_id"] = str(UUID(int=101))
+    else:
+        browse.payloads[DOCUMENT]["knowledge_base_id"] = KB_ONE
+    assert browse.module.main(["--username", "demo_a", "--chunk"]) == 1
+    assert len(sent_chunk_requests(browse)) == 1 and sent_uploads(browse) == []
+    output = safe_output(capsys)
+    assert "未自动重试" in output
+    if wrong_parent == "chunk":
+        assert len(browse.requests) == 6 and "切块结果未确认" in output
+        assert "切块请求成功" not in output
+    else:
+        assert len(browse.requests) == 7 and "切块请求成功" in output
+        assert "切块响应已校验，但最新文档状态未确认" in output
+        assert "已解析，尚未可检索" not in output
