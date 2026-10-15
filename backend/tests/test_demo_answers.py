@@ -103,6 +103,7 @@ def test_invalid_answer_or_citation_protocol_is_not_displayed(answer_demo, capsy
         payload["abstained"] = 1
     elif problem == "answer-without-citations":
         payload["citations"] = []
+        payload["answer"] = "导出记录会永久保存。"
     elif problem == "abstention-with-citations":
         payload["abstained"] = True
     elif problem == "wrong-range":
