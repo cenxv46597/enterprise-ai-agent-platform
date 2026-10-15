@@ -2,6 +2,10 @@
 
 这是一个面向学习与求职展示的企业知识和工作流智能体平台，强调可测试、可解释的工程实现。
 
+新增[网页第一步：登录与本人工作空间](docs/frontend-login.md)，使用 React + TypeScript + Vite
+连接已有后端；令牌仅保留在页面内存，刷新后重新登录。构建和 21 项前端模拟测试通过，
+空登录页已在浏览器检查；真实账号网页登录待本机确认。后续再接知识库与文档页面。
+
 继续开发或切换对话时，先读[当前交接](docs/handoff-current.md)；[新对话提示词](docs/new-chat-prompt.md)保留学习、验证与 Git 约定。
 
 首版演示开始收拢：新增[HTTP 登录与资料浏览客户端](docs/demo-browse.md)，从终端登录已有
@@ -41,7 +45,7 @@
 - **检查点问答：** [阶段 4.6](docs/phase4-answer-workflows.md)独立固定两步工作流程序验收完成：创建任务、显式领取执行权、保存检索检查点、生成并校验引用、保存不可变回执；合法检查点在新请求中复验来源后继续生成，过期中断执行需显式接管。不是任意 Agent 恢复，也不能保证外部模型费用恰好一次；个人实践与真实语义质量待验收。
 - **身份与成员：** 注册、登录和当前用户查询已接入；签名访问令牌标识用户，数据库成员关系决定其可访问的工作空间。创建者为所有者，仅所有者能添加已注册成员；成员可使用当前工作空间内的业务接口。设计见 [ADR 0026](docs/adr/0026-user-workspace-access.md)。1709 项以分段方式覆盖并通过，未取得单次连续完整回归全绿；基础问答与跟随提示一行实践已收拢，真实部署验收仍待。
 - **运行观测首步：** 已返回本次控制器耗时、决策次数和工具实际执行次数，单次接口公开、会话保存和重放；决策数包含程序决策，不能推算模型请求数或费用。旧运行统计缺省为空，见[ADR0028](docs/adr/0028-agent-run-metrics.md)。
-- **后续主线：** 工作空间、知识库、文档三级列表、可选文档状态筛选和可提取文字 PDF 入库已接入。当前推进固定只读 SQL 文档状态工具，已有状态/候选查询基础、两种工具封装及运行内观察；状态任务已接入会话入口，支持候选展示、数字选择与模板回答；后续收拢学习实践并推进观测、真实评测与交付，随后仍需部署和前端，以及真实检索与智能体任务验收。阶段 4.6 个人实践等未完成事项保持原状态。长期记忆与工作流按明确需求扩展；当前没有用户界面，单文件默认上限 5 MiB。
+- **后续主线：** 工作空间、知识库、文档三级列表、可选文档状态筛选和可提取文字 PDF 入库已接入后端。固定只读 SQL 文档状态任务已接入会话入口，支持候选展示、数字选择与模板回答，已有运行统计。当前网页已实现登录与本人工作空间第一页；下一步逐步接入知识库、文档和问答，继续推进观测、真实评测、部署与交付。阶段 4.6 个人实践等未完成事项保持原状态。长期记忆与工作流按明确需求扩展；单文件默认上限 5 MiB。
 
 查询基础阶段：状态查询只读取已绑定范围内一份文档的 ID、文件名、状态与错误码，历史专项 **11 项通过、无跳过（6.08 秒）**。候选查询按文件名的字面子串匹配，忽略大小写；返回内部 ID、文件名、上传时间与大小，最多五份并标记是否还有匹配，不自动选中同名文档。候选初版专项 **20 项通过、无跳过（13.80 秒）**，当时尚未接入 Agent、选择界面，也未新增 API 或迁移，后续封装与观察见下文；初版证据见[学习记录](docs/learning-progress.md#2026-10-14按文件名获取候选文档)。
 
@@ -95,22 +99,23 @@ knowledge_bases=2、documents=5、chunks=34、conversations=0、conversation_tur
 
 模块完成证据与设计取舍集中在[路线图](docs/roadmap.md)、[架构设计](docs/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/learning-progress.md)。公开演示文档描述的管理页、备份和具体令牌规则是虚构产品内容；本项目首版 JWT 的实际能力以代码和 ADR 0026 为准。演示资料中提及 PDF 也不构成本项目 PDF 解析质量的验收证据。
 
-## 本地启动（PowerShell）
+## 本地启动（CMD）
 
 需要 Python 3.11 或更高版本，以及可用的 Docker Compose。当前开发环境使用 Python 3.13。在仓库根目录依次执行：
 
-```powershell
+```cmd
+cd /d D:\workproject\enterprise_AI_agent_platform
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".\backend[dev]"
-if (-not (Test-Path .env)) {
-    Copy-Item .env.example .env
+call .venv\Scripts\activate.bat
+python -m pip install -e "backend[dev]"
+if not exist .env (
+    copy .env.example .env >nul
     python -c "import secrets; from dotenv import set_key; set_key('.env', 'EAAP_POSTGRES_PASSWORD', secrets.token_urlsafe(32))"
     python -c "import secrets; from dotenv import set_key; set_key('.env', 'EAAP_JWT_SECRET_KEY', secrets.token_urlsafe(48))"
-}
+)
 docker compose -f compose.yaml up -d --wait db
 python -m alembic -c backend/alembic.ini upgrade head
-python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
 打开 `http://127.0.0.1:8000/health` 查看进程健康状态，打开 `http://127.0.0.1:8000/docs` 查看自动生成的接口文档。

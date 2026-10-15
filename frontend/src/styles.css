@@ -1,0 +1,60 @@
+:root {
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  color: #172b3d;
+  background: #f4f6f7;
+  font-synthesis: none;
+  line-height: 1.6;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+button:focus-visible, input:focus-visible { outline: 3px solid #73b7b0; outline-offset: 3px; }
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 22px 5vw; background: #fff; border-bottom: 1px solid #dce3e7; }
+.brand { display: flex; align-items: center; gap: 12px; font-weight: 650; letter-spacing: .02em; }
+.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; background: #175f59; color: #fff; font-size: 13px; letter-spacing: .03em; }
+.account { display: flex; align-items: center; gap: 18px; font-size: 14px; }
+h1, h2, p { margin-top: 0; }
+h1 { font-size: 28px; font-weight: 650; line-height: 1.3; margin-bottom: 12px; letter-spacing: -.02em; }
+.eyebrow { color: #246e65; font-size: 13px; font-weight: 650; margin-bottom: 12px; }
+.intro { color: #5c6d7b; font-size: 14px; }
+.login-page { flex: 1; display: grid; place-items: center; padding: 48px 20px; }
+.login-card { width: min(100%, 440px); padding: 36px; border: 1px solid #dce3e7; border-radius: 14px; background: #fff; box-shadow: 0 8px 30px #172b3d06; }
+form { display: flex; flex-direction: column; gap: 10px; margin-top: 26px; }
+label { font-size: 14px; font-weight: 600; }
+input { width: 100%; min-height: 44px; border: 1px solid #bccad2; border-radius: 6px; padding: 9px 12px; background: #fff; color: #172b3d; margin-bottom: 10px; }
+input:disabled { background: #f4f6f7; }
+.button { border: 1px solid transparent; border-radius: 6px; padding: 9px 17px; font-size: 14px; font-weight: 600; min-height: 42px; }
+.primary { background: #175f59; color: #fff; margin-top: 6px; }
+.primary:hover:not(:disabled) { background: #104c47; }
+.secondary { background: #fff; color: #334c5b; border-color: #cbd6dc; }
+.secondary:hover:not(:disabled) { background: #f4f6f7; }
+.session-note { font-size: 12px; color: #617381; margin: 22px 0 0; }
+.message { padding: 15px 18px; border-radius: 7px; border: 1px solid #dce3e7; background: #fff; color: #5c6d7b; font-size: 14px; }
+.error { background: #fff5f3; border-color: #efc9c3; color: #9d352a; overflow-wrap: anywhere; }
+.workspace-page { flex: 1; width: min(100%, 1100px); margin: 0 auto; padding: 48px 28px; }
+.page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 28px; }
+.page-heading .intro { margin-bottom: 0; }
+.page-caption { color: #617381; font-size: 13px; margin-bottom: 14px; }
+.workspace-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; list-style: none; margin: 0; padding: 0; }
+.workspace-card { display: flex; align-items: flex-start; gap: 16px; padding: 24px; border: 1px solid #dce3e7; border-radius: 10px; background: #fff; }
+.workspace-symbol { display: grid; place-items: center; flex: 0 0 38px; height: 38px; background: #e9f3f0; color: #246e65; border-radius: 8px; font-size: 14px; }
+.workspace-card h2 { font-size: 17px; line-height: 1.5; font-weight: 600; margin-bottom: 5px; overflow-wrap: anywhere; }
+.workspace-card p { margin: 0; color: #617381; font-size: 12px; }
+.empty-state { border: 1px dashed #bdcdd3; border-radius: 10px; text-align: center; padding: 52px 20px; background: #fff; }
+.empty-state h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+.empty-state p { color: #617381; font-size: 14px; margin: 0; }
+footer { text-align: center; font-size: 12px; color: #72818c; padding: 20px; }
+@media (max-width: 640px) {
+  .topbar { padding: 16px 20px; align-items: flex-start; flex-direction: column; gap: 14px; }
+  .brand { font-size: 14px; }
+  .account { width: 100%; justify-content: space-between; }
+  .login-page { padding: 28px 16px; }
+  .login-card { padding: 28px 24px; }
+  .workspace-page { padding: 30px 20px; }
+  .page-heading { align-items: flex-start; }
+  .workspace-list { grid-template-columns: 1fr; }
+  h1 { font-size: 24px; }
+}
