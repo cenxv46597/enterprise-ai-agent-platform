@@ -1,4 +1,4 @@
-"""通过本机 HTTP 后端浏览、显式上传或切块；不自动读取配置或调用模型。"""
+"""通过本机 HTTP 后端浏览、上传、切块，或按显式块数上限向量化。"""
 
 import argparse
 from dataclasses import dataclass
@@ -22,6 +22,9 @@ UPLOAD_UNCONFIRMED = "上传结果未确认；未自动重试。请先核对知�
 CHUNK_PARAMETERS = {"chunk_size": 500, "overlap": 50}
 CHUNK_UNCONFIRMED = "切块结果未确认；未自动重试。请核对同一文档的已有文本块，同参数显式重试可复用结果。"
 CHUNK_STATUS_UNCONFIRMED = "切块响应已校验，但最新文档状态未确认；未自动重试。请浏览同一文档核对状态。"
+EMBEDDING_UNCONFIRMED = "向量化结果未确认；可能已调用模型或保存结果，未自动重试。请先浏览同一文档核对状态，不要立即重复提交。"
+EMBEDDING_STATUS_UNCONFIRMED = "向量化成功响应已校验，但最新文档状态未确认；未自动重试。请浏览同一文档核对状态。"
+EMBEDDING_TIMEOUT = httpx.Timeout(330, connect=10, write=10, pool=10)
 STATUS_LABELS = {
     "uploaded": "已上传", "processing": "处理中", "parsed": "已解析",
     "ready": "可检索", "failed": "处理失败",
@@ -86,8 +89,9 @@ def local_origin(value: str) -> str:
 
 def request(client: httpx.Client, method: str, path: str, stage: str, *,
             expected_status: int = 200, may_create_document: bool = False,
-            may_create_chunks: bool = False, **kwargs):
-    uncertain_result = (CHUNK_UNCONFIRMED if may_create_chunks else
+            may_create_chunks: bool = False, may_create_embeddings: bool = False, **kwargs):
+    uncertain_result = (EMBEDDING_UNCONFIRMED if may_create_embeddings else
+                        CHUNK_UNCONFIRMED if may_create_chunks else
                         UPLOAD_UNCONFIRMED if may_create_document else None)
     try:
         response = client.request(method, path, **kwargs)
@@ -110,6 +114,10 @@ def request(client: httpx.Client, method: str, path: str, stage: str, *,
             raise BrowseFailure(uncertain_result) from None
         raise
     if response.status_code != expected_status:
+        if may_create_embeddings and response.status_code in {409, 422}:
+            raise BrowseFailure(
+                f"向量化请求被拒绝（HTTP {response.status_code}）：请核对已有文本块、向量配置及本次块数上限；未自动重试。"
+            )
         if may_create_chunks and response.status_code == 409:
             raise BrowseFailure("切块请求被拒绝（HTTP 409）：文档尚未解析或已有配置不兼容；请核对文档和原切块配置。")
         if uncertain_result and not 400 <= response.status_code < 500:
@@ -246,6 +254,39 @@ def chunk_document(client: httpx.Client, document_url: str, knowledge_base_id: U
     return latest.status in {"parsed", "ready"}
 
 
+def embed_document(client: httpx.Client, document_url: str, knowledge_base_id: UUID,
+                   document: Entry, max_chunks: int, secrets: tuple[str, ...]) -> bool:
+    if document.status not in {"parsed", "ready"}:
+        raise BrowseFailure("文档尚未成功解析，本次未提交向量化。")
+    print(f"向量化 {display(document.label, secrets)}：本次新生成最多 {max_chunks} 个块，不自动重试。")
+    payload = request(client, "POST", document_url + "/embeddings", "文档向量化",
+                      json={"max_chunks": max_chunks}, timeout=EMBEDDING_TIMEOUT,
+                      may_create_embeddings=True)
+    try:
+        count, reused = payload["chunk_count"], payload["reused"]
+        model = payload["model"]
+        if (UUID(payload["document_id"]) != document.id or payload["status"] != "ready"
+                or type(payload["dimensions"]) is not int or payload["dimensions"] != 1024
+                or type(count) is not int or not 1 <= count <= 10_000
+                or type(reused) is not bool or (not reused and count > max_chunks)
+                or not isinstance(model, str) or not 1 <= len(model.strip()) <= 300):
+            raise ValueError("unexpected embedding result")
+    except (KeyError, TypeError, ValueError, AttributeError):
+        raise BrowseFailure(EMBEDDING_UNCONFIRMED) from None
+    result = "复用已保存的结果" if reused else "结果已保存"
+    print(f"向量化请求成功：{count} 个块，1024 维，{result}。")
+    try:
+        latest_payload = request(client, "GET", document_url, "读取文档最新状态")
+        latest = entries([latest_payload], label_key="original_filename",
+                         parent_key="knowledge_base_id", parent_id=knowledge_base_id)[0]
+        if latest.id != document.id or latest.label != document.label:
+            raise ValueError("unexpected document identity")
+    except (BrowseFailure, KeyError, TypeError, ValueError, AttributeError, KeyboardInterrupt, EOFError):
+        raise BrowseFailure(EMBEDDING_STATUS_UNCONFIRMED) from None
+    print(f"文档当前状态：{STATUS_LABELS[latest.status]}。")
+    return latest.status == "ready"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description="登录本机后端并浏览自己的企业资料", allow_abbrev=False)
     parser.add_argument("--username", required=True, help="已注册用户名")
@@ -253,7 +294,12 @@ def main(argv: list[str] | None = None) -> int:
     actions = parser.add_mutually_exclusive_group()
     actions.add_argument("--upload", metavar="FILE", help="显式上传一份本机文件到选中的知识库，最多 5 MiB")
     actions.add_argument("--chunk", action="store_true", help="选择一份已有文档，以 500 字符、50 字符重叠保存切块")
+    actions.add_argument("--embed", action="store_true", help="向量化一份已有文档；可能调用付费模型，必须同时指定 --max-chunks")
+    parser.add_argument("--max-chunks", type=int, help="本次新生成向量的文本块上限（1..1000），仅用于 --embed")
     args = parser.parse_args(argv)
+    if (args.embed != (args.max_chunks is not None)
+            or (args.max_chunks is not None and not 1 <= args.max_chunks <= 1000)):
+        parser.error("embedding requires an explicit valid chunk limit")
     username = args.username.strip().lower()
     try:
         base_url = local_origin(args.base_url)
@@ -312,6 +358,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.chunk:
                     print("没有可选工作空间，本次未切块。")
                     return 1
+                if args.embed:
+                    print("没有可选工作空间，本次未提交向量化。")
+                    return 1
                 return 0
             base_path = f"/api/v1/workspaces/{workspace.id}/knowledge-bases"
             knowledge_base = choose("知识库", entries(request(
@@ -324,6 +373,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.chunk:
                     print("没有可选知识库，本次未切块。")
                     return 1
+                if args.embed:
+                    print("没有可选知识库，本次未提交向量化。")
+                    return 1
                 return 0
             document_url = f"{base_path}/{knowledge_base.id}/documents"
             if upload is not None:
@@ -333,12 +385,15 @@ def main(argv: list[str] | None = None) -> int:
             documents = entries(request(
                 client, "GET", document_url, "读取文档", params=page),
                 label_key="original_filename", parent_key="knowledge_base_id", parent_id=knowledge_base.id)
-            if args.chunk:
-                selected = choose("选择要切块的文档", documents, secrets)
+            if args.chunk or args.embed:
+                selected = choose("选择要向量化的文档" if args.embed else "选择要切块的文档", documents, secrets)
                 if selected is None:
-                    print("没有可选文档，本次未切块。")
+                    print("没有可选文档，本次未提交向量化。" if args.embed else "没有可选文档，本次未切块。")
                     return 1
                 selected_url = f"{document_url}/{selected.id}"
+                if args.embed:
+                    return 0 if embed_document(client, selected_url, knowledge_base.id,
+                                               selected, args.max_chunks, secrets) else 1
                 return 0 if chunk_document(client, selected_url, knowledge_base.id, selected, secrets) else 1
             show("文档与处理状态", documents, secrets)
             print("浏览完成。" if documents else "列表为空，本次浏览结束。")

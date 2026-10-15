@@ -31,6 +31,7 @@ DOCUMENTS = f"{BASES}/{KB_TWO}/documents"
 SELECTED_DOCUMENT = str(UUID(int=102))
 DOCUMENT = f"{DOCUMENTS}/{SELECTED_DOCUMENT}"
 CHUNKS = f"{DOCUMENT}/chunks"
+EMBEDDINGS = f"{DOCUMENT}/embeddings"
 
 
 @pytest.fixture
@@ -43,6 +44,7 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     state = SimpleNamespace(
         module=module, requests=[], client_options=[], choices=iter(["2", "2", "3"]),
         password_calls=0, input_calls=0, failure=None, upload_failure=None, chunk_failure=None,
+        embedding_failure=None,
         upload_payload={
             "id": str(UUID(int=500)), "knowledge_base_id": KB_TWO,
             "original_filename": "upload-note.md", "media_type": "text/markdown",
@@ -73,6 +75,10 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                  "start_char": index * 10, "end_char": index * 10 + len(content)}
                 for index, content in enumerate([f"{PRIVATE} {PASSWORD}", f"{TOKEN} {PRIVATE}"])
             ],
+            EMBEDDINGS: {
+                "document_id": SELECTED_DOCUMENT, "status": "ready", "model": "test-model",
+                "dimensions": 1024, "chunk_count": 2, "reused": False,
+            },
         },
     )
     monkeypatch.setattr(module, "sys", SimpleNamespace(
@@ -94,6 +100,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.requests.append(request)
         if request.url.path not in state.payloads:
             pytest.fail("请求了未经选择的范围或额外接口")
+        if request.method == "POST" and request.url.path == EMBEDDINGS:
+            if state.embedding_failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.embedding_failure == "network":
+                raise httpx.WriteError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.embedding_failure == "cancel":
+                raise KeyboardInterrupt(f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.embedding_failure in {"server", "conflict", "limit"}:
+                status = {"server": 504, "conflict": 409, "limit": 422}[state.embedding_failure]
+                return httpx.Response(status, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
         if request.method == "POST" and request.url.path == CHUNKS:
             if state.chunk_failure == "timeout":
                 raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
@@ -482,3 +498,93 @@ def test_chunk_rejects_mismatched_character_range(browse, capsys):
     assert exit_code == 1
     assert "切块结果未确认" in output
     assert "切块请求成功" not in output
+
+
+@pytest.mark.parametrize("reused", [False, True])
+def test_embedding_scopes_budget_wait_and_latest_status(browse, capsys, reused):
+    browse.payloads[EMBEDDINGS]["reused"] = reused
+    browse.payloads[DOCUMENTS][2]["status"] = "ready" if reused else "parsed"
+    browse.payloads[DOCUMENT]["status"] = "ready"
+    limit = 1 if reused else 2  # 已保存结果可复用，限制的是新生成。
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", str(limit)]) == 0
+    calls = [r for r in browse.requests if r.url.path == EMBEDDINGS]
+    assert len(calls) == 1 and calls[0].method == "POST"
+    assert json.loads(calls[0].content) == {"max_chunks": limit}
+    assert calls[0].headers["Authorization"] == f"Bearer {TOKEN}"
+    assert calls[0].extensions["timeout"] == {"connect": 10, "read": 330, "write": 10, "pool": 10}
+    assert all(r.extensions["timeout"]["read"] == 10 for r in browse.requests if r not in calls)
+    assert [r.url.path for r in browse.requests[-2:]] == [EMBEDDINGS, DOCUMENT]
+    assert not any(r.method == "POST" and r.url.path in {DOCUMENTS, CHUNKS} for r in browse.requests)
+    output = safe_output(capsys)
+    assert "向量化请求成功：2 个块，1024 维" in output and "文档当前状态：可检索" in output
+    assert ("复用已保存的结果" in output) == reused
+
+
+@pytest.mark.parametrize("options", [
+    ["--embed"], ["--max-chunks", "8"], ["--embed", "--max-chunks", "0"],
+    ["--embed", "--max-chunks", "1001"], ["--embed", "--chunk", "--max-chunks", "8"],
+    ["--embed", "--upload", "missing.md", "--max-chunks", "8"],
+])
+def test_embedding_requires_exclusive_action_and_explicit_budget_before_login(browse, capsys, options):
+    with pytest.raises(SystemExit) as error:
+        browse.module.main(["--username", "demo_a", *options])
+    assert error.value.code == 2
+    assert not browse.requests and browse.password_calls == 0
+    safe_output(capsys)
+
+
+@pytest.mark.parametrize("status", ["uploaded", "processing", "failed"])
+def test_embedding_rejects_unparsed_document_without_post(browse, capsys, status):
+    browse.payloads[DOCUMENTS][2]["status"] = status
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    assert not any(r.url.path == EMBEDDINGS for r in browse.requests)
+    assert "本次未提交向量化" in safe_output(capsys)
+
+
+@pytest.mark.parametrize("path", [WORKSPACES, BASES, DOCUMENTS])
+def test_embedding_empty_scope_does_not_submit(browse, capsys, path):
+    browse.payloads[path] = []
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    assert not any(r.url.path == EMBEDDINGS for r in browse.requests)
+    assert "本次未提交向量化" in safe_output(capsys)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "network", "cancel", "server", "conflict", "limit"])
+def test_embedding_failure_never_repeats_post_or_reads_as_success(browse, capsys, failure):
+    browse.embedding_failure = failure
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    assert len([r for r in browse.requests if r.url.path == EMBEDDINGS]) == 1
+    assert not any(r.url.path == DOCUMENT for r in browse.requests)
+    output = safe_output(capsys)
+    assert "未自动重试" in output and "向量化请求成功" not in output
+    assert ("向量化请求被拒绝" if failure in {"conflict", "limit"} else "向量化结果未确认") in output
+
+
+@pytest.mark.parametrize("field,value", [
+    ("document_id", str(UUID(int=999))), ("status", "parsed"), ("dimensions", True),
+    ("chunk_count", True), ("chunk_count", 9), ("reused", "false"), ("model", ""),
+])
+def test_embedding_rejects_inconsistent_success_response(browse, capsys, field, value):
+    browse.payloads[EMBEDDINGS][field] = value
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    output = safe_output(capsys)
+    assert "向量化结果未确认" in output and "向量化请求成功" not in output
+    assert len([r for r in browse.requests if r.url.path == EMBEDDINGS]) == 1
+    assert not any(r.url.path == DOCUMENT for r in browse.requests)
+
+
+def test_embedding_separates_confirmed_response_from_bad_latest_status(browse, capsys):
+    browse.payloads[DOCUMENT]["knowledge_base_id"] = KB_ONE
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    output = safe_output(capsys)
+    assert "向量化请求成功" in output and "最新文档状态未确认" in output
+    assert "向量化结果未确认" not in output
+    assert len([r for r in browse.requests if r.url.path == EMBEDDINGS]) == 1
+
+
+def test_embedding_reports_latest_state_instead_of_copying_post_ready(browse, capsys):
+    assert browse.payloads[DOCUMENT]["status"] == "parsed"
+    assert browse.module.main(["--username", "demo_a", "--embed", "--max-chunks", "8"]) == 1
+    output = safe_output(capsys)
+    assert "向量化请求成功" in output and "文档当前状态：已解析" in output
+    assert "文档当前状态：可检索" not in output

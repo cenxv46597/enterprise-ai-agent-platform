@@ -127,6 +127,12 @@ class ChunkRead(BaseModel):
     end_char: int
 
 
+class EmbeddingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_chunks: int = Field(gt=0, le=1000, strict=True)
+
+
 class EmbeddingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -304,12 +310,16 @@ def create_document_embeddings(
     document_id: UUID,
     session: DbSession,
     provider: EmbeddingDep,
+    budget: EmbeddingRequest | None = None,
 ) -> EmbeddingResult:
     _find_document_in_scope(session, workspace_id, knowledge_base_id, document_id)
     session.rollback()
     try:
+        max_chunks = Settings().embedding_max_chunks
+        if budget is not None:
+            max_chunks = min(max_chunks, budget.max_chunks)
         return embed_document_chunks(
-            session, provider, document_id, max_chunks=Settings().embedding_max_chunks
+            session, provider, document_id, max_chunks=max_chunks
         )
     except EmbeddingNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文档不存在") from exc
