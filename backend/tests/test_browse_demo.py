@@ -32,6 +32,7 @@ SELECTED_DOCUMENT = str(UUID(int=102))
 DOCUMENT = f"{DOCUMENTS}/{SELECTED_DOCUMENT}"
 CHUNKS = f"{DOCUMENT}/chunks"
 EMBEDDINGS = f"{DOCUMENT}/embeddings"
+SEARCH = f"{BASES}/{KB_TWO}/search"
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     state = SimpleNamespace(
         module=module, requests=[], client_options=[], choices=iter(["2", "2", "3"]),
         password_calls=0, input_calls=0, failure=None, upload_failure=None, chunk_failure=None,
-        embedding_failure=None,
+        embedding_failure=None, search_failure=None, query="如何查看导出记录？",
         upload_payload={
             "id": str(UUID(int=500)), "knowledge_base_id": KB_TWO,
             "original_filename": "upload-note.md", "media_type": "text/markdown",
@@ -79,6 +80,17 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                 "document_id": SELECTED_DOCUMENT, "status": "ready", "model": "test-model",
                 "dimensions": 1024, "chunk_count": 2, "reused": False,
             },
+            SEARCH: {
+                "metric": "cosine_distance", "strategy": "vector", "model": "test-model",
+                "dimensions": 1024, "reranking": None,
+                "results": [
+                    {"chunk_id": str(UUID(int=700 + index)), "document_id": SELECTED_DOCUMENT,
+                     "document_name": "资料2.txt", "chunk_index": index + 1, "content": content,
+                     "start_char": index * 10, "end_char": index * 10 + len(content),
+                     "distance": 0.1 + index * 0.1}
+                    for index, content in enumerate(["导出记录可在控制台查看。", "任务详情包含导出状态。"])
+                ],
+            },
         },
     )
     monkeypatch.setattr(module, "sys", SimpleNamespace(
@@ -91,6 +103,8 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
     def choice_input(prompt):
         state.input_calls += 1
+        if prompt.startswith("请输入检索问题"):
+            return state.query
         return next(state.choices)
 
     monkeypatch.setattr(module, "getpass", hidden_input)
@@ -100,6 +114,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.requests.append(request)
         if request.url.path not in state.payloads:
             pytest.fail("请求了未经选择的范围或额外接口")
+        if request.method == "POST" and request.url.path == SEARCH:
+            if state.search_failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.search_failure == "network":
+                raise httpx.WriteError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.search_failure == "cancel":
+                raise KeyboardInterrupt(f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.search_failure in {"server", "conflict"}:
+                return httpx.Response(409 if state.search_failure == "conflict" else 504,
+                                      text=f"{PRIVATE} {PASSWORD} {TOKEN}")
         if request.method == "POST" and request.url.path == EMBEDDINGS:
             if state.embedding_failure == "timeout":
                 raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)

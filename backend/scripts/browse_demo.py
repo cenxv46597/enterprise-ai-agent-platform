@@ -1,10 +1,11 @@
-"""通过本机 HTTP 后端浏览、上传、切块，或按显式块数上限向量化。"""
+"""通过本机 HTTP 后端浏览、入库或显式检索知识库。"""
 
 import argparse
 from dataclasses import dataclass
 from getpass import GetPassWarning, getpass
 from hashlib import sha256
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -25,6 +26,8 @@ CHUNK_STATUS_UNCONFIRMED = "切块响应已校验，但最新文档状态未确�
 EMBEDDING_UNCONFIRMED = "向量化结果未确认；可能已调用模型或保存结果，未自动重试。请先浏览同一文档核对状态，不要立即重复提交。"
 EMBEDDING_STATUS_UNCONFIRMED = "向量化成功响应已校验，但最新文档状态未确认；未自动重试。请浏览同一文档核对状态。"
 EMBEDDING_TIMEOUT = httpx.Timeout(330, connect=10, write=10, pool=10)
+SEARCH_TOP_K = 3
+SEARCH_UNCONFIRMED = "检索结果未确认；本次查询可能已调用向量服务，未自动重试。请先核对后端日志，再决定是否重新查询。"
 STATUS_LABELS = {
     "uploaded": "已上传", "processing": "处理中", "parsed": "已解析",
     "ready": "可检索", "failed": "处理失败",
@@ -89,8 +92,10 @@ def local_origin(value: str) -> str:
 
 def request(client: httpx.Client, method: str, path: str, stage: str, *,
             expected_status: int = 200, may_create_document: bool = False,
-            may_create_chunks: bool = False, may_create_embeddings: bool = False, **kwargs):
-    uncertain_result = (EMBEDDING_UNCONFIRMED if may_create_embeddings else
+            may_create_chunks: bool = False, may_create_embeddings: bool = False,
+            may_embed_query: bool = False, **kwargs):
+    uncertain_result = (SEARCH_UNCONFIRMED if may_embed_query else
+                        EMBEDDING_UNCONFIRMED if may_create_embeddings else
                         CHUNK_UNCONFIRMED if may_create_chunks else
                         UPLOAD_UNCONFIRMED if may_create_document else None)
     try:
@@ -114,6 +119,8 @@ def request(client: httpx.Client, method: str, path: str, stage: str, *,
             raise BrowseFailure(uncertain_result) from None
         raise
     if response.status_code != expected_status:
+        if may_embed_query and response.status_code == 409:
+            raise BrowseFailure("检索请求被拒绝（HTTP 409）：查询模型与知识库向量配置不一致；未自动重试。")
         if may_create_embeddings and response.status_code in {409, 422}:
             raise BrowseFailure(
                 f"向量化请求被拒绝（HTTP {response.status_code}）：请核对已有文本块、向量配置及本次块数上限；未自动重试。"
@@ -155,9 +162,12 @@ def entries(payload, *, label_key: str = "name", parent_key: str | None = None,
     return rows
 
 
-def display(label: str, secrets: tuple[str, ...]) -> str:
+def display(label: str, secrets: tuple[str, ...], *, max_characters: int | None = None) -> str:
     for secret in secrets:
         label = label.replace(secret, "[已隐藏]")
+    # 必须先隐藏完整凭据再截取摘要，避免只显示跨截断边界的部分凭据。
+    if max_characters is not None and len(label) > max_characters:
+        label = label[:max_characters] + "…"
     # 转义换行及终端控制字符，文件名不会伪装成另一行提示。
     return json.dumps(label, ensure_ascii=False)
 
@@ -287,6 +297,66 @@ def embed_document(client: httpx.Client, document_url: str, knowledge_base_id: U
     return latest.status == "ready"
 
 
+def search_knowledge_base(client: httpx.Client, base_url: str, knowledge_base_id: UUID,
+                          secrets: tuple[str, ...]) -> bool:
+    query = input("请输入检索问题（1..2000 字符）：").strip()
+    if not 1 <= len(query) <= 2000:
+        raise BrowseFailure("检索问题为空或超过 2000 字符，本次未提交检索。")
+    payload = request(client, "POST", base_url + "/search", "知识库检索",
+                      json={"query": query, "top_k": SEARCH_TOP_K, "strategy": "vector", "rerank": False},
+                      timeout=EMBEDDING_TIMEOUT, may_embed_query=True)
+    try:
+        hits = payload["results"]
+        if (payload["metric"] != "cosine_distance" or payload["strategy"] != "vector"
+                or payload.get("reranking") is not None
+                or not isinstance(hits, list) or len(hits) > SEARCH_TOP_K):
+            raise ValueError("unexpected search mode or count")
+        model, dimensions = payload["model"], payload["dimensions"]
+        if not (not hits and model is None and dimensions is None):
+            if (not isinstance(model, str) or not 1 <= len(model.strip()) <= 300
+                    or type(dimensions) is not int or dimensions != 1024):
+                raise ValueError("unexpected query embedding profile")
+        seen, documents = set(), {}
+        total_characters, previous_distance = 0, -1.0
+        for hit in hits:
+            identifier, document_id = UUID(hit["chunk_id"]), UUID(hit["document_id"])
+            name, content = hit["document_name"], hit["content"]
+            start, end, distance = hit["start_char"], hit["end_char"], hit["distance"]
+            if (identifier in seen or not isinstance(name, str) or not 1 <= len(name) <= 300
+                    or type(hit["chunk_index"]) is not int or hit["chunk_index"] < 1
+                    or type(start) is not int or type(end) is not int or not 0 <= start < end
+                    or not isinstance(content, str) or len(content) != end - start
+                    or type(distance) not in {int, float} or not math.isfinite(distance)
+                    or not 0 <= distance <= 2 or distance < previous_distance
+                    or (document_id in documents and documents[document_id] != name)):
+                raise ValueError("unexpected hit identity, content or distance")
+            seen.add(identifier)
+            documents[document_id] = name
+            total_characters += len(content)
+            if total_characters > 100_000:
+                raise ValueError("search response exceeds display budget")
+            previous_distance = distance
+        # 先核对全部命中文档的父级，再展示正文；同一文档仅读取一次。
+        for document_id, name in documents.items():
+            detail = request(client, "GET", f"{base_url}/documents/{document_id}", "核对检索来源")
+            document = entries([detail], label_key="original_filename",
+                               parent_key="knowledge_base_id", parent_id=knowledge_base_id)[0]
+            if document.id != document_id or document.label != name or document.status != "ready":
+                raise ValueError("unexpected source document")
+    except (BrowseFailure, KeyError, TypeError, ValueError, AttributeError, KeyboardInterrupt, EOFError):
+        raise BrowseFailure(SEARCH_UNCONFIRMED) from None
+    print(f"检索完成：返回 {len(hits)} 个候选段落。")
+    if not hits:
+        print("候选为空，本次没有返回可用段落。")
+        return True
+    print("以下为候选原文，每段最多展示 300 字符；余弦距离越小越接近，不是答案正确率。")
+    for number, hit in enumerate(hits, 1):
+        print(f"{number}. {display(hit['document_name'], secrets)} — 第 {hit['chunk_index']} 块，"
+              f"[{hit['start_char']}, {hit['end_char']})，余弦距离 {hit['distance']:.4f}")
+        print(f"原文摘录：{display(hit['content'], secrets, max_characters=300)}")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description="登录本机后端并浏览自己的企业资料", allow_abbrev=False)
     parser.add_argument("--username", required=True, help="已注册用户名")
@@ -295,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
     actions.add_argument("--upload", metavar="FILE", help="显式上传一份本机文件到选中的知识库，最多 5 MiB")
     actions.add_argument("--chunk", action="store_true", help="选择一份已有文档，以 500 字符、50 字符重叠保存切块")
     actions.add_argument("--embed", action="store_true", help="向量化一份已有文档；可能调用付费模型，必须同时指定 --max-chunks")
+    actions.add_argument("--search", action="store_true", help="输入一个问题，检索选定知识库的最多 3 个候选段落；可能调用向量模型")
     parser.add_argument("--max-chunks", type=int, help="本次新生成向量的文本块上限（1..1000），仅用于 --embed")
     args = parser.parse_args(argv)
     if (args.embed != (args.max_chunks is not None)
@@ -361,6 +432,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.embed:
                     print("没有可选工作空间，本次未提交向量化。")
                     return 1
+                if args.search:
+                    print("没有可选工作空间，本次未提交检索。")
+                    return 1
                 return 0
             base_path = f"/api/v1/workspaces/{workspace.id}/knowledge-bases"
             knowledge_base = choose("知识库", entries(request(
@@ -376,7 +450,13 @@ def main(argv: list[str] | None = None) -> int:
                 if args.embed:
                     print("没有可选知识库，本次未提交向量化。")
                     return 1
+                if args.search:
+                    print("没有可选知识库，本次未提交检索。")
+                    return 1
                 return 0
+            if args.search:
+                selected_base_url = f"{base_path}/{knowledge_base.id}"
+                return 0 if search_knowledge_base(client, selected_base_url, knowledge_base.id, secrets) else 1
             document_url = f"{base_path}/{knowledge_base.id}/documents"
             if upload is not None:
                 print(f"向知识库 {display(knowledge_base.label, secrets)} 上传 {display(upload.name, secrets)}。")
