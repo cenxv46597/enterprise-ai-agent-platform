@@ -53,7 +53,16 @@ def local_origin(value: str) -> str:
 
 
 def request(client: httpx.Client, method: str, path: str, stage: str, **kwargs):
-    response = client.request(method, path, **kwargs)
+    try:
+        response = client.request(method, path, **kwargs)
+    except httpx.TimeoutException:
+        raise BrowseFailure(
+            f"{stage}等待后端响应超时；请检查 Docker 数据库是否已启动，并查看后端日志。"
+        ) from None
+    except httpx.ConnectError:
+        raise BrowseFailure(f"{stage}无法连接后端；请核对后端地址、端口和启动状态。") from None
+    except httpx.RequestError:
+        raise BrowseFailure(f"{stage}网络请求失败；请检查本机连接和后端日志。") from None
     if response.status_code != 200:
         raise BrowseFailure(f"{stage}未完成（HTTP {response.status_code}）；请核对账号和后端状态。")
     try:

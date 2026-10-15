@@ -77,6 +77,10 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
                 return httpx.Response(307, headers={"Location": "http://remote.example/unsafe"}, text=PRIVATE)
             if state.failure == "network":
                 raise httpx.ReadError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.failure == "connect":
+                raise httpx.ConnectError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
             if state.failure == "bad_json":
                 return httpx.Response(200, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
             if state.failure == "bad_structure":
@@ -142,12 +146,16 @@ def test_full_first_page_is_not_claimed_as_total_and_is_not_followed(browse, cap
     assert "第一页" in output and "可能还有更多" in output
 
 
-@pytest.mark.parametrize("failure", ["401", "redirect", "network", "bad_json", "bad_structure"])
+@pytest.mark.parametrize("failure", ["401", "redirect", "network", "timeout", "connect", "bad_json", "bad_structure"])
 def test_http_and_response_failures_stop_without_private_output(browse, capsys, failure) -> None:
     browse.failure = failure
     assert browse.module.main(["--username", "demo_a"]) == 1
     assert len(browse.requests) == 1 and browse.input_calls == 0
-    safe_output(capsys)
+    output = safe_output(capsys)
+    if failure == "timeout":
+        assert output.strip() == "登录等待后端响应超时；请检查 Docker 数据库是否已启动，并查看后端日志。"
+    elif failure == "connect":
+        assert output.strip() == "登录无法连接后端；请核对后端地址、端口和启动状态。"
 
 
 @pytest.mark.parametrize("problem,request_count", [("identity", 2), ("knowledge_parent", 4), ("document_parent", 5)])
