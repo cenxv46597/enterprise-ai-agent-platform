@@ -1,5 +1,6 @@
 """密码哈希与有界签名访问令牌。"""
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -17,6 +18,12 @@ _DUMMY_PASSWORD_HASH = _PASSWORD_HASH.hash("not-a-real-user-password")
 
 class InvalidAccessToken(ValueError):
     """令牌签名、身份或有效期无效。"""
+
+
+@dataclass(frozen=True, slots=True)
+class AccessTokenClaims:
+    user_id: UUID
+    expires_at: int
 
 
 def hash_password(password: str) -> str:
@@ -58,7 +65,7 @@ def issue_access_token(user_id: UUID, secret: str, *, now: datetime | None = Non
     )
 
 
-def decode_access_token(token: str, secret: str, *, now: datetime | None = None) -> UUID:
+def decode_access_token_claims(token: str, secret: str, *, now: datetime | None = None) -> AccessTokenClaims:
     """固定算法、签发者与期限；测试可注入时间检查过期边界。"""
     _check_secret(secret)
     try:
@@ -89,6 +96,11 @@ def decode_access_token(token: str, secret: str, *, now: datetime | None = None)
         user_id = UUID(subject)
         if str(user_id) != subject:
             raise InvalidAccessToken("访问令牌用户身份无效")
-        return user_id
+        return AccessTokenClaims(user_id, expires_at)
     except (jwt.PyJWTError, ValueError, KeyError, TypeError) as exc:
         raise InvalidAccessToken("访问令牌无效或已过期") from exc
+
+
+def decode_access_token(token: str, secret: str, *, now: datetime | None = None) -> UUID:
+    """保留既有 Bearer 调用方只读取用户 ID 的接口。"""
+    return decode_access_token_claims(token, secret, now=now).user_id

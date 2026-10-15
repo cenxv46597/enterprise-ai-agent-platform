@@ -35,6 +35,7 @@ def test_local_blank_jwt_secret_uses_ephemeral_key_and_production_rejects_it(
     assert len(first.state.jwt_secret_key) >= 32
     assert first.state.jwt_secret_key != second.state.jwt_secret_key
 
+    monkeypatch.setenv("EAAP_WEB_ORIGIN", "https://web.example.test")
     monkeypatch.setenv("EAAP_APP_ENV", "production")
     with pytest.raises(RuntimeError, match="生产环境必须配置"):
         create_app()
@@ -356,3 +357,48 @@ def test_legacy_workspace_requires_explicit_owner_assignment(
         memberships = session.query(WorkspaceMembership).filter_by(workspace_id=legacy_id).all()
         assert len(memberships) == 1
         assert memberships[0].user_id == UUID(alice_account["id"])
+
+
+def test_web_cookie_restores_fixed_expiry_and_preserves_real_membership_boundaries(
+    auth_client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.auth import security
+
+    origin = "http://127.0.0.1:5173"
+    auth_client.app.state.web_origin = origin
+    web_headers = {"Origin": origin, "X-EAAP-Web": "1"}
+    alice = _register(auth_client, "alice")
+    _register(auth_client, "bob")
+    signed_in = auth_client.post(
+        "/api/v1/auth/web/login",
+        json={"username": "alice", "password": TEST_PASSWORD}, headers=web_headers,
+    )
+    assert signed_in.status_code == 200
+    receipt = signed_in.json()
+    assert receipt["user"]["id"] == alice["id"]
+    assert "access_token" not in receipt
+    expires_at = receipt["expires_at"]
+
+    own = auth_client.post("/api/v1/workspaces", json={"name": "网页空间"}, headers=web_headers)
+    assert own.status_code == 201
+    assert auth_client.post("/api/v1/workspaces", json={"name": "无来源写入"}).status_code == 403
+    # Cookie 存在也不能掩盖显式错误认证头；CLI 则仍可单独使用 Bob 的 Bearer。
+    assert auth_client.get("/api/v1/auth/me", headers={"Authorization": "Basic bad"}).status_code == 401
+    bob_token = _login(auth_client, "bob")
+    bob_space = _create_workspace(auth_client, bob_token, "Bob 的空间")
+    assert auth_client.get(f"/api/v1/workspaces/{bob_space}").status_code == 404
+    assert auth_client.get(f"/api/v1/workspaces/{own.json()['id']}", headers=_headers(bob_token)).status_code == 404
+    listed = auth_client.get("/api/v1/workspaces").json()
+    assert [row["id"] for row in listed] == [own.json()["id"]]
+
+    monkeypatch.setattr(security, "_timestamp", lambda now=None: expires_at - 600)
+    restored = auth_client.get("/api/v1/auth/web/session")
+    assert restored.status_code == 200
+    assert restored.json()["expires_at"] == expires_at
+    assert restored.json()["user"]["id"] == alice["id"]
+    assert "set-cookie" not in restored.headers
+    monkeypatch.setattr(security, "_timestamp", lambda now=None: expires_at)
+    assert auth_client.get("/api/v1/auth/web/session").status_code == 401
+    assert auth_client.get("/api/v1/workspaces").status_code == 401
+    assert auth_client.post("/api/v1/auth/web/logout", headers=web_headers).status_code == 204
+    assert auth_client.get("/api/v1/auth/web/session").status_code == 401

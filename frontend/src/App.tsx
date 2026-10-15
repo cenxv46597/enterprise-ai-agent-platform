@@ -1,32 +1,38 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listWorkspaces, login, type Session, type Workspace } from './api';
+import { ApiError, listWorkspaces, login, logout, restoreSession, type Session, type Workspace } from './api';
 
-type Busy = 'login' | 'workspaces' | null;
+type Busy = 'restore' | 'login' | 'workspaces' | 'logout' | null;
+type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [session, setSession] = useState<Session | null>(null);
+  const [phase, setPhase] = useState<Phase>('restoring');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [busy, setBusy] = useState<Busy>(null);
+  const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
   const pending = useRef<AbortController | null>(null);
 
-  const reset = useCallback((message = '') => {
+  const reset = useCallback((message = '', next: Phase = 'login') => {
     generation.current += 1;
     pending.current?.abort();
     pending.current = null;
     setSession(null);
+    setPhase(next);
     setWorkspaces([]);
     setPassword('');
     setBusy(null);
     setError(message);
   }, []);
 
-  useEffect(() => () => {
-    generation.current += 1;
-    pending.current?.abort();
+  useEffect(() => {
+    void restore();
+    return () => {
+      generation.current += 1;
+      pending.current?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -49,26 +55,59 @@ export default function App() {
     return id === generation.current && !controller.signal.aborted;
   }
 
-  async function refresh(current: Session) {
+  async function refresh() {
     const { id, controller } = beginRequest();
     setBusy('workspaces');
     setError('');
     setWorkspaces([]);
     try {
-      const rows = await listWorkspaces(current.token, controller.signal);
+      const rows = await listWorkspaces(controller.signal);
       if (isCurrent(id, controller)) setWorkspaces(rows);
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
-      if (failure instanceof ApiError && failure.status === 401) {
-        reset(failure.message);
-      } else {
-        setError(failure instanceof ApiError ? failure.message : '无法读取工作空间，请稍后重试。');
-      }
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setError(failure instanceof ApiError ? failure.message : '无法读取工作空间，请稍后重试。');
     } finally {
-      if (isCurrent(id, controller)) {
-        setBusy(null);
-        pending.current = null;
-      }
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  async function restore() {
+    const { id, controller } = beginRequest();
+    setPhase('restoring');
+    setBusy('restore');
+    setError('');
+    setSession(null);
+    setWorkspaces([]);
+    try {
+      const restored = await restoreSession(controller.signal);
+      if (!isCurrent(id, controller)) return;
+      if (!restored) { reset(); return; }
+      setSession(restored);
+      setPhase('workspace');
+      await refresh();
+    } catch (failure) {
+      if (isCurrent(id, controller)) reset(
+        failure instanceof ApiError ? failure.message : '无法确认登录状态，请稍后重试。', 'restore-error',
+      );
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  async function exit() {
+    const { id, controller } = beginRequest();
+    setBusy('logout');
+    setError('');
+    try {
+      await logout(controller.signal);
+      if (isCurrent(id, controller)) reset();
+    } catch (failure) {
+      if (isCurrent(id, controller)) setError('退出尚未确认。' + (
+        failure instanceof ApiError ? failure.message : '请重试退出。'
+      ));
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
   }
 
@@ -84,16 +123,14 @@ export default function App() {
       const authenticated = await login(username, submittedPassword, controller.signal);
       if (!isCurrent(id, controller)) return;
       setSession(authenticated);
-      await refresh(authenticated);
+      setPhase('workspace');
+      await refresh();
     } catch (failure) {
-      if (isCurrent(id, controller)) {
-        reset(failure instanceof ApiError ? failure.message : '无法完成登录，请稍后重试。');
-      }
+      if (isCurrent(id, controller)) reset(
+        failure instanceof ApiError ? failure.message : '无法完成登录，请稍后重试。',
+      );
     } finally {
-      if (isCurrent(id, controller)) {
-        setBusy(null);
-        pending.current = null;
-      }
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
   }
 
@@ -106,12 +143,27 @@ export default function App() {
         </div>
         {session && <div className="account">
           <span>当前账号：{session.user.username}</span>
-          <button className="button secondary" onClick={() => reset()}>退出登录</button>
+          <button className="button secondary" disabled={busy === 'logout'} onClick={() => void exit()}>
+            {busy === 'logout' ? '正在退出…' : '退出登录'}
+          </button>
         </div>}
       </header>
 
       <main className={session ? 'workspace-page' : 'login-page'}>
-        {!session ? <section className="login-card" aria-labelledby="login-title">
+        {phase === 'restoring' ? <section className="login-card" aria-labelledby="restore-title">
+          <h1 id="restore-title">正在恢复登录</h1>
+          <p className="intro" role="status">正在向后端核实当前登录状态…</p>
+        </section> : phase === 'restore-error' ? <section className="login-card" aria-labelledby="restore-error-title">
+          <h1 id="restore-error-title">暂时无法恢复登录</h1>
+          <p className="message error" role="alert">{error}</p>
+          <p className="intro">请检查后端连接后重试，或清除本浏览器登录后返回登录页。</p>
+          <div className="recovery-actions">
+            <button className="button primary" disabled={busy === 'logout'} onClick={() => void restore()}>重试恢复</button>
+            <button className="button secondary" disabled={busy === 'logout'} onClick={() => void exit()}>
+              {busy === 'logout' ? '正在退出…' : '返回登录'}
+            </button>
+          </div>
+        </section> : !session ? <section className="login-card" aria-labelledby="login-title">
           <p className="eyebrow">欢迎回来</p>
           <h1 id="login-title">登录工作空间</h1>
           <p className="intro">使用已有账号，查看你可以访问的企业工作空间。</p>
@@ -128,15 +180,16 @@ export default function App() {
               {busy === 'login' ? '正在登录…' : '登录'}
             </button>
             {busy === 'login' && <button className="button secondary" type="button"
-              onClick={() => reset('登录已取消。')}>取消登录</button>}
+              onClick={() => reset('已停止等待登录结果。登录可能已在后端生效，可尝试恢复登录。')}>取消登录</button>}
           </form>
-          <p className="session-note">刷新页面后需要重新登录。请保留好你的账号信息。</p>
+          {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
+          <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
         </section> : <section aria-labelledby="workspace-title">
           <div className="page-heading">
             <div><p className="eyebrow">工作空间</p><h1 id="workspace-title">你的工作空间</h1>
               <p className="intro">这里列出你可以访问的工作空间。</p></div>
-            <button className="button secondary" disabled={busy === 'workspaces'}
-              onClick={() => void refresh(session)}>刷新列表</button>
+            <button className="button secondary" disabled={busy === 'workspaces' || busy === 'logout'}
+              onClick={() => void refresh()}>刷新列表</button>
           </div>
           {error && <p className="message error" role="alert">{error}</p>}
           {busy === 'workspaces' ? <p className="message" role="status">正在读取工作空间…</p>

@@ -3,6 +3,7 @@
 import secrets
 
 from fastapi import Depends, FastAPI
+from fastapi.exceptions import RequestValidationError
 
 from app.api.answers import router as answers_router
 from app.api.agent_runs import router as agent_runs_router
@@ -17,6 +18,7 @@ from app.api.search import router as search_router
 from app.api.workspaces import router as workspaces_router
 from app.api.workspace_members import router as workspace_members_router
 from app.auth.workspace_access import require_workspace_member
+from app.auth.web_session import private_api_responses, safe_web_validation
 from app.core.config import Settings
 
 
@@ -33,6 +35,12 @@ def create_app() -> FastAPI:
         raise ValueError("JWT 签名密钥至少需要 32 字符")
     application = FastAPI(title=settings.app_name)
     application.state.jwt_secret_key = configured_secret
+    application.state.web_origin = settings.web_origin
+    application.state.web_cookie_secure = settings.app_env == "production"
+
+    application.middleware("http")(private_api_responses)
+    application.add_exception_handler(RequestValidationError, safe_web_validation)
+
     application.include_router(health_router)
     application.include_router(auth_router)
     application.include_router(workspaces_router)

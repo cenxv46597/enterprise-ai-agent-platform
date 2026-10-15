@@ -2,8 +2,9 @@
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -14,6 +15,7 @@ class Settings(BaseSettings):
     app_env: Literal["local", "test", "production"] = "local"
     database_url: str | None = None
     jwt_secret_key: SecretStr | None = None
+    web_origin: str = "http://127.0.0.1:5173"
     upload_root: Path = REPOSITORY_ROOT / "uploads"
     max_upload_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
     embedding_base_url: str | None = None
@@ -46,9 +48,30 @@ class Settings(BaseSettings):
     review_total_timeout_seconds: float = Field(default=60, gt=0, le=300)
     review_max_tokens: int = Field(default=3000, ge=1, le=8192)
 
+    @model_validator(mode="after")
+    def validate_web_origin(self) -> "Settings":
+        try:
+            origin = urlsplit(self.web_origin)
+            port = origin.port
+            if (origin.scheme not in {"http", "https"} or not origin.hostname
+                    or origin.username is not None or origin.password is not None
+                    or origin.path or origin.query or origin.fragment
+                    or self.web_origin != f"{origin.scheme}://{origin.netloc}"
+                    or (port is not None and not 1 <= port <= 65535)
+                    or any(char.isspace() or ord(char) < 32 for char in self.web_origin)):
+                raise ValueError("invalid origin")
+        except ValueError:
+            raise ValueError("网页来源必须是没有路径、凭据或查询的完整 HTTP(S) origin") from None
+        if self.app_env == "production" and (
+            "web_origin" not in self.model_fields_set or origin.scheme != "https"
+        ):
+            raise ValueError("生产环境必须显式配置 HTTPS 网页来源 EAAP_WEB_ORIGIN")
+        return self
+
     model_config = SettingsConfigDict(
         env_prefix="EAAP_",
         env_file=REPOSITORY_ROOT / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        hide_input_in_errors=True,
     )
