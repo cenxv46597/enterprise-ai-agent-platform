@@ -1,9 +1,11 @@
-"""通过本机 HTTP 后端登录并浏览资料；不读取配置、写入资料或调用模型。"""
+"""通过本机 HTTP 后端浏览资料，可显式上传文件；不自动读取配置或调用模型。"""
 
 import argparse
 from dataclasses import dataclass
 from getpass import GetPassWarning, getpass
+from hashlib import sha256
 import json
+from pathlib import Path
 import re
 import sys
 from urllib.parse import urlsplit
@@ -14,6 +16,9 @@ import httpx
 
 
 PAGE_SIZE = 20
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MEDIA_TYPES = {".txt": "text/plain", ".md": "text/markdown", ".pdf": "application/pdf"}
+UPLOAD_UNCONFIRMED = "上传结果未确认；未自动重试。请先核对知识库中的文档记录，再决定是否再次上传。"
 STATUS_LABELS = {
     "uploaded": "已上传", "processing": "处理中", "parsed": "已解析",
     "ready": "可检索", "failed": "处理失败",
@@ -37,6 +42,30 @@ class Entry:
     status: str | None = None
 
 
+@dataclass(frozen=True)
+class Upload:
+    name: str
+    content: bytes
+    media_type: str
+
+
+def load_upload(value: str) -> Upload:
+    try:
+        path = Path(value).expanduser()
+        name = path.name
+        if (not path.is_file() or path.suffix.lower() not in MEDIA_TYPES
+                or len(name) > 255 or name != name.strip()
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+            raise ValueError("invalid file")
+        with path.open("rb") as source:
+            content = source.read(MAX_UPLOAD_BYTES + 1)
+        if not 1 <= len(content) <= MAX_UPLOAD_BYTES:
+            raise ValueError("invalid size")
+        return Upload(name, content, MEDIA_TYPES[path.suffix.lower()])
+    except (OSError, ValueError, RuntimeError):
+        raise BrowseFailure("上传文件无效；请选择非空、可读取且不超过 5 MiB 的 TXT、Markdown 或 PDF 常规文件。") from None
+
+
 def local_origin(value: str) -> str:
     origin = urlsplit(value)
     port = origin.port if origin.port is not None else 80
@@ -52,22 +81,37 @@ def local_origin(value: str) -> str:
     return value.rstrip("/")
 
 
-def request(client: httpx.Client, method: str, path: str, stage: str, **kwargs):
+def request(client: httpx.Client, method: str, path: str, stage: str, *,
+            expected_status: int = 200, may_create_document: bool = False, **kwargs):
     try:
         response = client.request(method, path, **kwargs)
     except httpx.TimeoutException:
+        if may_create_document:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
         raise BrowseFailure(
             f"{stage}等待后端响应超时；请检查 Docker 数据库是否已启动，并查看后端日志。"
         ) from None
     except httpx.ConnectError:
+        if may_create_document:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
         raise BrowseFailure(f"{stage}无法连接后端；请核对后端地址、端口和启动状态。") from None
     except httpx.RequestError:
+        if may_create_document:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
         raise BrowseFailure(f"{stage}网络请求失败；请检查本机连接和后端日志。") from None
-    if response.status_code != 200:
+    except KeyboardInterrupt:
+        if may_create_document:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+        raise
+    if response.status_code != expected_status:
+        if may_create_document and not 400 <= response.status_code < 500:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED)
         raise BrowseFailure(f"{stage}未完成（HTTP {response.status_code}）；请核对账号和后端状态。")
     try:
         return response.json()
     except ValueError:
+        if may_create_document:
+            raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
         raise BrowseFailure(f"{stage}返回了无效数据。") from None
 
 
@@ -122,10 +166,38 @@ def choose(title: str, rows: list[Entry], secrets: tuple[str, ...]) -> Entry | N
     return rows[int(number) - 1]
 
 
+def upload_document(client: httpx.Client, url: str, knowledge_base_id: UUID,
+                    upload: Upload, secrets: tuple[str, ...]) -> bool:
+    payload = request(client, "POST", url, "上传文件", expected_status=201, may_create_document=True,
+                      files={"file": (upload.name, upload.content, upload.media_type)})
+    try:
+        document = entries([payload], label_key="original_filename",
+                           parent_key="knowledge_base_id", parent_id=knowledge_base_id)[0]
+        if (document.label != upload.name or type(payload["byte_size"]) is not int
+                or payload["byte_size"] != len(upload.content)
+                or payload["sha256"] != sha256(upload.content).hexdigest()
+                or document.status not in {"parsed", "failed"}):
+            raise ValueError("unexpected uploaded document")
+        error_code = payload["error_code"]
+        if ((document.status == "parsed" and error_code is not None)
+                or (document.status == "failed" and (not isinstance(error_code, str) or not error_code))):
+            raise ValueError("unexpected parse result")
+    except (BrowseFailure, KeyError, TypeError, ValueError, AttributeError):
+        raise BrowseFailure(UPLOAD_UNCONFIRMED) from None
+    if document.status == "failed":
+        reason = {"EMPTY_TEXT": "未提取到文字", "INVALID_UTF8": "文本不是 UTF-8 编码",
+                  "STORAGE_READ_FAILED": "原文件读取失败"}.get(error_code, "未知解析错误")
+        print(f"文件记录已创建：{display(document.label, secrets)} — 处理失败（{reason}）。")
+        return False
+    print(f"文件记录已创建：{display(document.label, secrets)} — 已解析，尚未可检索。")
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = SafeParser(description="登录本机后端并浏览自己的企业资料", allow_abbrev=False)
     parser.add_argument("--username", required=True, help="已注册用户名")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="本机后端地址")
+    parser.add_argument("--upload", metavar="FILE", help="显式上传一份本机文件到选中的知识库，最多 5 MiB")
     args = parser.parse_args(argv)
     username = args.username.strip().lower()
     try:
@@ -134,6 +206,11 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("invalid username")
     except ValueError:
         print("用户名或本机后端地址格式无效；请查看 --help。")
+        return 2
+    try:
+        upload = load_upload(args.upload) if args.upload is not None else None
+    except BrowseFailure as error:
+        print(str(error))
         return 2
     if not sys.stdin.isatty() or not sys.stderr.isatty():
         print("请在本机交互终端运行，以便隐藏输入密码和选择资料。")
@@ -174,15 +251,26 @@ def main(argv: list[str] | None = None) -> int:
             workspace = choose("工作空间", entries(request(
                 client, "GET", "/api/v1/workspaces", "读取工作空间", params=page)), secrets)
             if workspace is None:
+                if upload is not None:
+                    print("没有可选工作空间，本次未上传文件。")
+                    return 1
                 return 0
             base_path = f"/api/v1/workspaces/{workspace.id}/knowledge-bases"
             knowledge_base = choose("知识库", entries(request(
                 client, "GET", base_path, "读取知识库", params=page),
                 parent_key="workspace_id", parent_id=workspace.id), secrets)
             if knowledge_base is None:
+                if upload is not None:
+                    print("没有可选知识库，本次未上传文件。")
+                    return 1
                 return 0
+            document_url = f"{base_path}/{knowledge_base.id}/documents"
+            if upload is not None:
+                print(f"向知识库 {display(knowledge_base.label, secrets)} 上传 {display(upload.name, secrets)}。")
+                if not upload_document(client, document_url, knowledge_base.id, upload, secrets):
+                    return 1
             documents = entries(request(
-                client, "GET", f"{base_path}/{knowledge_base.id}/documents", "读取文档", params=page),
+                client, "GET", document_url, "读取文档", params=page),
                 label_key="original_filename", parent_key="knowledge_base_id", parent_id=knowledge_base.id)
             show("文档与处理状态", documents, secrets)
             print("浏览完成。" if documents else "列表为空，本次浏览结束。")

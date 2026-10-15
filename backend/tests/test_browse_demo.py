@@ -1,5 +1,8 @@
 """本机浏览 CLI 的认证、资源范围和安全输出；HTTP 全部由 MockTransport 拦截。"""
 
+from email.parser import BytesParser
+from email.policy import default as email_policy
+import hashlib
 import importlib.util
 import json
 from getpass import GetPassWarning
@@ -16,6 +19,7 @@ import pytest
 PASSWORD = "private-cli-test-password"
 TOKEN = "private.cli-test-token_123"
 PRIVATE = "PRIVATE-RAW-RESPONSE"
+UPLOAD_CONTENT = b"PRIVATE-RAW-RESPONSE sample upload bytes\n"
 USER_ID = str(UUID(int=1))
 WORKSPACE_A, WORKSPACE_B = str(UUID(int=11)), str(UUID(int=12))
 KB_ONE, KB_TWO = str(UUID(int=21)), str(UUID(int=22))
@@ -35,7 +39,14 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     spec.loader.exec_module(module)
     state = SimpleNamespace(
         module=module, requests=[], client_options=[], choices=iter(["2", "2"]),
-        password_calls=0, input_calls=0, failure=None,
+        password_calls=0, input_calls=0, failure=None, upload_failure=None,
+        upload_payload={
+            "id": str(UUID(int=500)), "knowledge_base_id": KB_TWO,
+            "original_filename": "upload-note.md", "media_type": "text/markdown",
+            "byte_size": len(UPLOAD_CONTENT), "sha256": hashlib.sha256(UPLOAD_CONTENT).hexdigest(),
+            "status": "parsed", "error_code": None,
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+        },
         payloads={
             LOGIN: {"access_token": TOKEN, "token_type": "bearer", "expires_in": 1800},
             ME: {"id": USER_ID, "username": "demo_a"},
@@ -70,6 +81,16 @@ def browse(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         state.requests.append(request)
         if request.url.path not in state.payloads:
             pytest.fail("请求了未经选择的范围或额外接口")
+        if request.method == "POST" and request.url.path == DOCUMENTS:
+            if state.upload_failure == "timeout":
+                raise httpx.ReadTimeout(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.upload_failure == "network":
+                raise httpx.WriteError(f"{PRIVATE} {PASSWORD} {TOKEN}", request=request)
+            if state.upload_failure == "cancel":
+                raise KeyboardInterrupt(f"{PRIVATE} {PASSWORD} {TOKEN}")
+            if state.upload_failure == "server":
+                return httpx.Response(500, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
+            return httpx.Response(201, json=state.upload_payload)
         if request.url.path == LOGIN:
             if state.failure == "401":
                 return httpx.Response(401, text=f"{PRIVATE} {PASSWORD} {TOKEN}")
@@ -223,3 +244,102 @@ def test_invalid_selection_stops_before_child_request(browse, capsys) -> None:
     assert browse.module.main(["--username", "demo_a"]) == 1
     assert len(browse.requests) == 3
     safe_output(capsys)
+
+
+def local_upload(tmp_path: Path, *, name: str = "upload-note.md", content: bytes = UPLOAD_CONTENT) -> Path:
+    folder = tmp_path / PRIVATE
+    folder.mkdir(exist_ok=True)
+    path = folder / name
+    path.write_bytes(content)
+    return path
+
+
+def sent_uploads(browse) -> list[httpx.Request]:
+    return [request for request in browse.requests if request.method == "POST" and request.url.path == DOCUMENTS]
+
+
+def test_explicit_upload_sends_selected_scope_basename_and_binary_snapshot(browse, tmp_path, monkeypatch, capsys) -> None:
+    path = local_upload(tmp_path)
+    original_getpass = browse.module.getpass
+
+    def change_file_after_preflight(prompt):
+        path.write_bytes(b"changed after the prepared upload snapshot")
+        return original_getpass(prompt)
+
+    monkeypatch.setattr(browse.module, "getpass", change_file_after_preflight)
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 0
+    assert [(request.method, request.url.path) for request in browse.requests] == [
+        ("POST", LOGIN), ("GET", ME), ("GET", WORKSPACES), ("GET", BASES),
+        ("POST", DOCUMENTS), ("GET", DOCUMENTS),
+    ]
+    upload, = sent_uploads(browse)
+    assert upload.headers["Authorization"] == f"Bearer {TOKEN}"
+    assert upload.url.query == b""
+    message = BytesParser(policy=email_policy).parsebytes(
+        b"Content-Type: " + upload.headers["Content-Type"].encode("ascii") + b"\r\n\r\n" + upload.content,
+    )
+    part, = list(message.iter_parts())
+    assert part.get_param("name", header="content-disposition") == "file"
+    assert part.get_filename() == path.name
+    assert part.get_content_type() == "text/markdown"
+    assert part.get_payload(decode=True) == UPLOAD_CONTENT
+    assert str(path).encode() not in upload.content
+    output = safe_output(capsys)
+    assert "已解析，尚未可检索" in output
+    assert str(path) not in output and UPLOAD_CONTENT.decode() not in output
+
+
+def test_failed_upload_is_not_reported_as_parsed_and_hides_unknown_error_code(browse, tmp_path, capsys) -> None:
+    path = local_upload(tmp_path)
+    browse.upload_payload.update(status="failed", error_code=f"{PRIVATE} {PASSWORD} {TOKEN}")
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 1
+    assert len(sent_uploads(browse)) == 1 and len(browse.requests) == 5
+    output = safe_output(capsys)
+    assert "处理失败" in output and "未知解析错误" in output
+    assert "已解析，尚未可检索" not in output
+
+
+@pytest.mark.parametrize("scope,request_count", [(WORKSPACES, 3), (BASES, 4)])
+def test_upload_does_not_write_when_no_scope_can_be_selected(browse, tmp_path, capsys, scope, request_count) -> None:
+    path = local_upload(tmp_path)
+    browse.payloads[scope] = []
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 1
+    assert len(browse.requests) == request_count and sent_uploads(browse) == []
+    output = safe_output(capsys)
+    assert "列表为空" in output and "本次未上传文件" in output
+
+
+@pytest.mark.parametrize("problem", ["directory", "empty", "too_large", "unsupported_suffix"])
+def test_upload_preflight_rejects_invalid_files_before_password_or_network(browse, tmp_path, capsys, problem) -> None:
+    if problem == "directory":
+        path = tmp_path / PRIVATE / "folder.md"
+        path.mkdir(parents=True)
+    elif problem == "empty":
+        path = local_upload(tmp_path, content=b"")
+    elif problem == "too_large":
+        path = local_upload(tmp_path, content=b"x" * (5 * 1024 * 1024 + 1))
+    else:
+        path = local_upload(tmp_path, name="upload-note.exe")
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 2
+    assert browse.password_calls == 0 and browse.client_options == [] and browse.requests == []
+    assert str(path) not in safe_output(capsys)
+
+
+@pytest.mark.parametrize("failure", ["timeout", "network", "server", "cancel"])
+def test_uncertain_upload_is_not_retried_or_followed_by_browsing(browse, tmp_path, capsys, failure) -> None:
+    path = local_upload(tmp_path)
+    browse.upload_failure = failure
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 1
+    assert len(sent_uploads(browse)) == 1 and len(browse.requests) == 5
+    output = safe_output(capsys)
+    assert "上传结果未确认" in output and "未自动重试" in output
+    assert str(path) not in output
+
+
+def test_201_upload_response_with_wrong_parent_is_unconfirmed_and_not_retried(browse, tmp_path, capsys) -> None:
+    path = local_upload(tmp_path)
+    browse.upload_payload["knowledge_base_id"] = KB_ONE
+    assert browse.module.main(["--username", "demo_a", "--upload", str(path)]) == 1
+    assert len(sent_uploads(browse)) == 1 and len(browse.requests) == 5
+    output = safe_output(capsys)
+    assert "上传结果未确认" in output and "未自动重试" in output
