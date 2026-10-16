@@ -367,7 +367,10 @@ describe('Cookie登录恢复与本人工作空间', () => {
     const second = render(<App />);
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByText('甲空间')).toBeTruthy();
-    await act(async () => { await vi.advanceTimersByTimeAsync(1001); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(999); });
+    expect(screen.getByText('甲空间')).toBeTruthy();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
     expect(screen.getByRole('heading', { name: '登录工作空间' })).toBeTruthy();
     expect(screen.queryByText('甲空间')).toBeNull();
     second.unmount();
