@@ -44,6 +44,9 @@ input:disabled { background: #f4f6f7; }
 .workspace-symbol { display: grid; place-items: center; flex: 0 0 38px; height: 38px; background: #e9f3f0; color: #246e65; border-radius: 8px; font-size: 14px; }
 .workspace-card h2 { font-size: 17px; line-height: 1.5; font-weight: 600; margin-bottom: 5px; overflow-wrap: anywhere; }
 .workspace-card p { margin: 0; color: #617381; font-size: 12px; }
+.card-entry { margin-top: 14px; }
+.back-button { margin-bottom: 24px; }
+.list-error { margin-bottom: 20px; }
 .empty-state { border: 1px dashed #bdcdd3; border-radius: 10px; text-align: center; padding: 52px 20px; background: #fff; }
 .empty-state h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
 .empty-state p { color: #617381; font-size: 14px; margin: 0; }

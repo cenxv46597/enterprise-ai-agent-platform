@@ -1,5 +1,6 @@
 export type User = { id: string; username: string };
 export type Workspace = { id: string; name: string };
+export type KnowledgeBase = { id: string; workspaceId: string; name: string };
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -25,6 +26,12 @@ function uuid(value: unknown): string {
     throw new ApiError(INVALID_RESPONSE);
   }
   return value.toLowerCase();
+}
+
+function strictUuid(value: unknown): string {
+  const normalized = uuid(value);
+  if (normalized.length !== 36) throw new ApiError(INVALID_RESPONSE);
+  return normalized;
 }
 
 async function request(
@@ -143,5 +150,25 @@ export async function listWorkspaces(signal: AbortSignal): Promise<Workspace[]> 
     if (seen.has(id)) throw new ApiError(INVALID_RESPONSE);
     seen.add(id);
     return { id, name: item.name };
+  });
+}
+
+export async function listKnowledgeBases(workspaceId: string, signal: AbortSignal): Promise<KnowledgeBase[]> {
+  const normalizedWorkspaceId = strictUuid(workspaceId);
+  const payload = await request(`/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases?limit=20&offset=0`, {
+    method: "GET",
+  }, signal);
+  if (!Array.isArray(payload) || payload.length > 20) throw new ApiError(INVALID_RESPONSE);
+  const seen = new Set<string>();
+  return payload.map((item: unknown) => {
+    if (!isObject(item) || typeof item.name !== "string"
+        || Array.from(item.name).length < 1 || Array.from(item.name).length > 200) {
+      throw new ApiError(INVALID_RESPONSE);
+    }
+    const id = strictUuid(item.id);
+    const itemWorkspaceId = strictUuid(item.workspace_id);
+    if (itemWorkspaceId !== normalizedWorkspaceId || seen.has(id)) throw new ApiError(INVALID_RESPONSE);
+    seen.add(id);
+    return { id, workspaceId: itemWorkspaceId, name: item.name };
   });
 }
