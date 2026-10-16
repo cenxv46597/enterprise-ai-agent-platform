@@ -160,7 +160,8 @@ describe('显式预算的文档向量化', () => {
       await click(screen.getByRole('button', { name: '生成向量' }));
       expect(posts(requests)).toHaveLength(0);
     }
-    expect(document.body.textContent).toContain('5');
+    expect(screen.getByRole('alert').textContent)
+      .toContain('当前文档共有 5 个文本块，超过本次上限 3 块');
     expectNoPrivateOutput();
   });
 
