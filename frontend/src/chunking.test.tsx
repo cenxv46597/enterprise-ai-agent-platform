@@ -208,7 +208,11 @@ describe('独立文档处理页与显式切块', () => {
     render(<App />);
     await openProcessing();
     await click(screen.getByRole('button', { name: '切块' }));
-    await click(screen.getByRole('button', { name: '切块' }));
+    const runningButton = screen.getByRole('button', {
+      name: '正在切块…',
+    }) as HTMLButtonElement;
+    expect(runningButton.disabled).toBe(true);
+    await click(runningButton);
     expect(posts(requests)).toHaveLength(1);
     const [post] = posts(requests);
     expect(await post.clone().json()).toEqual({ chunk_size: 500, overlap: 50 });
@@ -217,6 +221,7 @@ describe('独立文档处理页与显式切块', () => {
     expect(post.headers.get('Content-Type')).toBe('application/json');
     expect(post.headers.has('Authorization')).toBe(false);
     await act(async () => { pending.resolve(json(chunkRows(['成功返回正文']))); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('button', { name: '切块' })).toBeTruthy();
     expect(screen.getByText('切块请求成功，返回 1 个文本块。')).toBeTruthy();
     expect(screen.getByText('成功返回正文')).toBeTruthy();
     expect(screen.getByRole('alert')).toBeTruthy();

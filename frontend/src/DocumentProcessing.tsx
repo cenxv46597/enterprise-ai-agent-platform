@@ -74,7 +74,9 @@ export default function DocumentProcessing({ workspaceName, knowledgeBaseName, d
         <p>每块最多 500 字符，重叠 50 字符</p>
         <p className="session-note">同一配置会复用已有文本块；不同配置不会覆盖已有切块。</p>
         <div className="processing-actions">
-          <button className="button primary" disabled={!canChunk} onClick={onChunk}>切块</button>
+          <button className="button primary" disabled={!canChunk} onClick={onChunk}>
+            {activity === 'chunking' ? '正在切块…' : '切块'}
+          </button>
           {activity === 'chunking' && <button className="button secondary"
             onClick={onCancel}>停止等待切块结果</button>}
         </div>
