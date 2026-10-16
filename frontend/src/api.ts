@@ -8,6 +8,10 @@ export type KnowledgeDocument = {
   originalFilename: string;
   status: DocumentStatus;
 };
+export type UploadedDocument = KnowledgeDocument & {
+  status: "parsed" | "failed";
+  parseError: string | null;
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -17,6 +21,15 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
     this.status = status;
+  }
+}
+
+export const UPLOAD_UNCONFIRMED_MESSAGE = "上传结果未确认；未自动重试。请先核对知识库中的文档记录，再决定是否再次上传。";
+
+export class UploadUnconfirmedError extends ApiError {
+  constructor(status: number | null = null) {
+    super(UPLOAD_UNCONFIRMED_MESSAGE, status);
+    this.name = "UploadUnconfirmedError";
   }
 }
 
@@ -46,6 +59,18 @@ function isDocumentStatus(value: unknown): value is DocumentStatus {
     || value === "ready" || value === "failed";
 }
 
+function webRequestOptions(options: RequestInit, signal: AbortSignal): RequestInit {
+  return {
+    ...options,
+    mode: "same-origin",
+    credentials: "same-origin",
+    headers: { ...options.headers, "X-EAAP-Web": "1" },
+    redirect: "error",
+    cache: "no-store",
+    signal,
+  };
+}
+
 async function request(
   path: string,
   options: RequestInit,
@@ -67,15 +92,7 @@ async function request(
   try {
     let response: Response;
     try {
-      response = await fetch(path, {
-        ...options,
-        mode: "same-origin",
-        credentials: "same-origin",
-        headers: { ...options.headers, "X-EAAP-Web": "1" },
-        redirect: "error",
-        cache: "no-store",
-        signal: controller.signal,
-      });
+      response = await fetch(path, webRequestOptions(options, controller.signal));
     } catch {
       if (controller.signal.aborted) throw interrupted();
       throw new ApiError("无法连接后端，请检查服务后重试。");
@@ -212,4 +229,120 @@ export async function listDocuments(
       id, knowledgeBaseId: itemKnowledgeBaseId, originalFilename: item.original_filename, status: item.status,
     };
   });
+}
+
+export function validateUploadFile(file: File): string | null {
+  const name = file.name.trim();
+  if (!name || Array.from(name).length > 255 || /[/\\\u0000-\u001f\u007f]/.test(name)) {
+    return "文件名无效，请选择名称不含路径或控制字符且不超过 255 字的文件。";
+  }
+  if (!/\.(txt|md|pdf)$/i.test(name)) return "仅支持 TXT、Markdown 和 PDF 文件。";
+  if (!Number.isSafeInteger(file.size) || file.size < 1) return "文件不能为空。";
+  if (file.size > 5 * 1024 * 1024) return "文件不能超过 5 MiB。";
+  return null;
+}
+
+function parseUploadedDocument(
+  payload: unknown,
+  knowledgeBaseId: string,
+  filename: string,
+  byteSize: number,
+  digest: string,
+): UploadedDocument {
+  if (!isObject(payload) || payload.original_filename !== filename
+      || payload.byte_size !== byteSize || payload.sha256 !== digest
+      || (payload.status !== "parsed" && payload.status !== "failed")
+      || (payload.status === "parsed" && payload.error_code !== null)
+      || (payload.status === "failed" && (typeof payload.error_code !== "string" || !payload.error_code))) {
+    throw new UploadUnconfirmedError();
+  }
+  let id: string;
+  let returnedKnowledgeBaseId: string;
+  try {
+    id = strictUuid(payload.id);
+    returnedKnowledgeBaseId = strictUuid(payload.knowledge_base_id);
+  } catch {
+    throw new UploadUnconfirmedError();
+  }
+  if (returnedKnowledgeBaseId !== knowledgeBaseId) throw new UploadUnconfirmedError();
+  const parseErrors: Record<string, string> = {
+    EMPTY_TEXT: "文件中没有可解析的文字。",
+    INVALID_UTF8: "文本文件不是有效的 UTF-8 编码。",
+    STORAGE_READ_FAILED: "读取已保存文件失败。",
+    PDF_PASSWORD_REQUIRED: "PDF 需要密码，暂不支持解析。",
+    PDF_TOO_MANY_PAGES: "PDF 超过 100 页的解析上限。",
+    PDF_TEXT_TOO_LONG: "PDF 提取文字超过解析上限。",
+    PDF_INVALID: "PDF 格式无效或无法解析。",
+    PDF_NO_TEXT: "PDF 中没有可提取文字，当前不支持 OCR。",
+  };
+  return {
+    id, knowledgeBaseId: returnedKnowledgeBaseId, originalFilename: filename, status: payload.status,
+    parseError: payload.status === "failed"
+      ? (Object.hasOwn(parseErrors, payload.error_code as string)
+        ? parseErrors[payload.error_code as string] : "文件解析失败，请检查文件内容。")
+      : null,
+  };
+}
+
+export async function uploadDocument(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  file: File,
+  signal: AbortSignal,
+): Promise<UploadedDocument> {
+  const normalizedWorkspaceId = strictUuid(workspaceId);
+  const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  const validationError = validateUploadFile(file);
+  if (validationError) throw new ApiError(validationError);
+  const checkBeforeSending = () => {
+    if (signal.aborted) throw new ApiError("请求已取消。");
+  };
+  checkBeforeSending();
+  let digest: string;
+  try {
+    const bytes = await file.arrayBuffer();
+    checkBeforeSending();
+    if (bytes.byteLength !== file.size) throw new Error();
+    const hash = await crypto.subtle.digest("SHA-256", bytes);
+    checkBeforeSending();
+    digest = Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  } catch {
+    checkBeforeSending();
+    throw new ApiError("无法读取所选文件，请重新选择后重试。");
+  }
+  checkBeforeSending();
+  const body = new FormData();
+  body.append("file", file, file.name);
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 10_000);
+  try {
+    const response = await fetch(
+      `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/documents`,
+      webRequestOptions({ method: "POST", body }, controller.signal),
+    );
+    if (controller.signal.aborted) throw new UploadUnconfirmedError();
+    const rejectionMessages: Record<number, string> = {
+      401: SESSION_EXPIRED,
+      403: "上传请求被拒绝，请检查登录与浏览器来源后重试。",
+      404: "该知识库不存在或你已无权访问，请返回知识库列表。",
+      413: "文件超过后端大小上限，请选择更小的文件。",
+      415: "后端仅支持 TXT、Markdown 和 PDF 文件。",
+      422: "文件未被接受，请检查文件名、文件内容和大小后重试。",
+    };
+    if (Object.hasOwn(rejectionMessages, response.status)) {
+      throw new ApiError(rejectionMessages[response.status], response.status);
+    }
+    if (response.status !== 201) throw new UploadUnconfirmedError(response.status);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted) throw new UploadUnconfirmedError();
+    return parseUploadedDocument(payload, normalizedKnowledgeBaseId, file.name.trim(), file.size, digest);
+  } catch (failure) {
+    if (failure instanceof ApiError) throw failure;
+    throw new UploadUnconfirmedError();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
 }

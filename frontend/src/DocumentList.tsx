@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { DocumentStatus, KnowledgeDocument } from './api';
 
 const STATUS_TEXT: Record<DocumentStatus, { label: string; description: string }> = {
@@ -12,14 +13,15 @@ type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
   documents: KnowledgeDocument[];
-  activity: 'idle' | 'loading' | 'logout';
+  activity: 'idle' | 'loading' | 'uploading' | 'logout';
   error: string;
   onBack: () => void;
   onRefresh: () => void;
+  children?: ReactNode;
 };
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
-  activity, error, onBack, onRefresh }: Props) {
+  activity, error, onBack, onRefresh, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
   return <section aria-labelledby="document-title">
@@ -31,6 +33,7 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
         <p className="intro">知识库：<strong>{knowledgeBaseName}</strong></p></div>
       <button className="button secondary" disabled={busy} onClick={onRefresh}>刷新列表</button>
     </div>
+    {activity !== 'logout' && children}
     {error && <div className="list-error">
       <p className="message error" role="alert">{error}</p>
       <button className="button secondary" disabled={busy} onClick={onRefresh}>重试加载</button>

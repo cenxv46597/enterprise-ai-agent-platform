@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
+  uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
+import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 
-type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'logout' | null;
+type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -16,6 +18,7 @@ export default function App() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [uploadOutcome, setUploadOutcome] = useState<UploadOutcome | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -32,6 +35,7 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setUploadOutcome(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -93,6 +97,7 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setUploadOutcome(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -115,6 +120,7 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setUploadOutcome(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -136,6 +142,7 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setUploadOutcome(null);
     void refresh();
   }
 
@@ -164,7 +171,45 @@ export default function App() {
     if (selectedWorkspace) void openWorkspace(selectedWorkspace);
   }
 
+  async function upload(file: File) {
+    if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const workspace = selectedWorkspace;
+    const knowledgeBase = selectedKnowledgeBase;
+    const { id, controller } = beginRequest();
+    setBusy('upload');
+    setUploadOutcome(null);
+    try {
+      const document = await uploadDocument(workspace.id, knowledgeBase.id, file, controller.signal);
+      if (!isCurrent(id, controller)) return;
+      setUploadOutcome({ kind: 'confirmed', document });
+      // 列表只代表第一页；刷新失败也不能抹去已确认的本次上传结果。
+      await openKnowledgeBase(knowledgeBase);
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else if (failure instanceof UploadUnconfirmedError) {
+        setUploadOutcome({ kind: 'unconfirmed', message: failure.message });
+      } else if (failure instanceof ApiError) {
+        setUploadOutcome({ kind: 'rejected', message: failure.message });
+      } else setUploadOutcome({ kind: 'unconfirmed', message: UPLOAD_UNCONFIRMED_MESSAGE });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForUpload() {
+    if (busy !== 'upload') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setUploadOutcome({ kind: 'unconfirmed', message: UPLOAD_UNCONFIRMED_MESSAGE });
+  }
+
   async function exit() {
+    if (busy === 'upload') {
+      setUploadOutcome({ kind: 'unconfirmed', message: UPLOAD_UNCONFIRMED_MESSAGE });
+    }
     const { id, controller } = beginRequest();
     setBusy('logout');
     setError('');
@@ -256,9 +301,15 @@ export default function App() {
         </section> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           documents={documents} error={error}
-          activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout' : 'idle'}
+          activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout'
+            : busy === 'upload' ? 'uploading' : 'idle'}
           onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
-        /> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
+        >
+          <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
+            workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+            activity={busy === 'upload' ? 'uploading' : busy !== null || !!error ? 'blocked' : 'idle'}
+            outcome={uploadOutcome} onUpload={file => void upload(file)} onCancel={stopWaitingForUpload} />
+        </DocumentList> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
           <button className="button secondary back-button" disabled={busy === 'logout'}
             onClick={backToWorkspaces}>返回工作空间</button>
           <div className="page-heading">
