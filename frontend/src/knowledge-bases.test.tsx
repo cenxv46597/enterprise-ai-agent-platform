@@ -218,7 +218,7 @@ describe('工作空间内的知识库列表', () => {
     expectNoPrivateOutput();
   });
 
-  it('返回重新读取工作空间，切换空间后忽略前一空间的迟到响应', async () => {
+  it.each([200, 404])('返回重新读取工作空间，切换空间后忽略前一空间的迟到响应（%i）', async (lateStatus) => {
     const oldKnowledge = deferred<Response>();
     let spaceReads = 0;
     const requests = installApi((request) => {
@@ -240,7 +240,9 @@ describe('工作空间内的知识库列表', () => {
     await screen.findByText('乙空间知识库');
 
     await act(async () => {
-      oldKnowledge.resolve(json([knowledgeBase(KB_A, '甲空间迟到知识库')]));
+      oldKnowledge.resolve(lateStatus === 200
+        ? json([knowledgeBase(KB_A, '甲空间迟到知识库')])
+        : json({ detail: PRIVATE_RESPONSE }, lateStatus));
     });
     expect(screen.getByText('乙空间知识库')).toBeTruthy();
     expect(document.body.textContent).toContain('乙空间（已更新）');
