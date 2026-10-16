@@ -61,6 +61,12 @@ export default function DocumentUpload({ workspaceName, knowledgeBaseName, activ
         {' '}（{fileSize(selectedFile.size)}）</p>}
       {validationError && <p className="message error" role="alert">{validationError}</p>}
       <div className="upload-actions">
+        {selectedFile && <button className="button secondary" type="button"
+          disabled={busy} onClick={() => {
+            setSelectedFile(null);
+            setValidationError(null);
+            if (inputRef.current) inputRef.current.value = '';
+          }}>取消选择</button>}
         <button className="button primary" type="submit" disabled={busy || !selectedFile}>上传</button>
         {activity === 'uploading' && <button className="button secondary" type="button"
           onClick={onCancel}>停止等待上传结果</button>}
