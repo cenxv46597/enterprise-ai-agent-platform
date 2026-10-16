@@ -28,6 +28,21 @@ export type DocumentEmbedding = {
   chunkCount: number;
   reused: boolean;
 };
+export type SearchHit = {
+  chunkId: string;
+  documentId: string;
+  documentName: string;
+  chunkIndex: number;
+  content: string;
+  startChar: number;
+  endChar: number;
+  distance: number;
+};
+export type KnowledgeSearchResult = {
+  model: string | null;
+  dimensions: 1024 | null;
+  hits: SearchHit[];
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -64,6 +79,15 @@ export class EmbeddingUnconfirmedError extends ApiError {
   constructor(status: number | null = null) {
     super(EMBEDDING_UNCONFIRMED_MESSAGE, status);
     this.name = "EmbeddingUnconfirmedError";
+  }
+}
+
+export const SEARCH_UNCONFIRMED_MESSAGE = "检索结果未确认；可能已调用向量服务，未自动重试。";
+
+export class SearchUnconfirmedError extends ApiError {
+  constructor(status: number | null = null) {
+    super(SEARCH_UNCONFIRMED_MESSAGE, status);
+    this.name = "SearchUnconfirmedError";
   }
 }
 
@@ -448,6 +472,136 @@ export async function createDocumentEmbeddings(
   } finally {
     clearTimeout(timer);
     signal.removeEventListener("abort", cancel);
+  }
+}
+
+function parseKnowledgeSearch(payload: unknown): KnowledgeSearchResult {
+  if (!isObject(payload) || payload.metric !== "cosine_distance" || payload.strategy !== "vector"
+      || (payload.reranking !== undefined && payload.reranking !== null)
+      || !Array.isArray(payload.results) || payload.results.length > 3) {
+    throw new SearchUnconfirmedError();
+  }
+  const emptyProfile = payload.results.length === 0 && payload.model === null && payload.dimensions === null;
+  if (!emptyProfile && (typeof payload.model !== "string" || !payload.model.trim()
+      || Array.from(payload.model).length > 200 || payload.dimensions !== 1024)) {
+    throw new SearchUnconfirmedError();
+  }
+  const seen = new Set<string>();
+  const documents = new Map<string, string>();
+  let totalCharacters = 0;
+  let previousDistance = -1;
+  const hits = payload.results.map((item: unknown): SearchHit => {
+    if (!isObject(item) || typeof item.document_name !== "string"
+        || Array.from(item.document_name).length < 1 || Array.from(item.document_name).length > 255
+        || !Number.isSafeInteger(item.chunk_index) || (item.chunk_index as number) < 1
+        || typeof item.content !== "string" || item.content.length === 0
+        || !Number.isSafeInteger(item.start_char) || !Number.isSafeInteger(item.end_char)
+        || typeof item.distance !== "number" || !Number.isFinite(item.distance)
+        || item.distance < 0 || item.distance > 2 || item.distance < previousDistance) {
+      throw new SearchUnconfirmedError();
+    }
+    const startChar = item.start_char as number;
+    const endChar = item.end_char as number;
+    if (startChar < 0 || endChar <= startChar) throw new SearchUnconfirmedError();
+    const chunkId = strictUuid(item.chunk_id);
+    const documentId = strictUuid(item.document_id);
+    if (seen.has(chunkId) || (documents.has(documentId) && documents.get(documentId) !== item.document_name)) {
+      throw new SearchUnconfirmedError();
+    }
+    let characterCount = 0;
+    for (const _character of item.content) {
+      characterCount += 1;
+      if (totalCharacters + characterCount > 100_000) throw new SearchUnconfirmedError();
+    }
+    if (characterCount !== endChar - startChar) throw new SearchUnconfirmedError();
+    totalCharacters += characterCount;
+    seen.add(chunkId);
+    documents.set(documentId, item.document_name);
+    previousDistance = item.distance;
+    return {
+      chunkId, documentId, documentName: item.document_name, chunkIndex: item.chunk_index as number,
+      content: item.content, startChar, endChar, distance: item.distance,
+    };
+  });
+  return {
+    model: emptyProfile ? null : payload.model as string,
+    dimensions: emptyProfile ? null : 1024,
+    hits,
+  };
+}
+
+export async function searchKnowledgeBase(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  query: string,
+  signal: AbortSignal,
+): Promise<KnowledgeSearchResult> {
+  const normalizedWorkspaceId = strictUuid(workspaceId);
+  const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  const normalizedQuery = query.trim();
+  let queryLength = 0;
+  for (const _character of normalizedQuery) {
+    queryLength += 1;
+    if (queryLength > 2000) break;
+  }
+  if (queryLength < 1 || queryLength > 2000) throw new ApiError("请输入 1 到 2000 字符的检索问题。");
+  if (signal.aborted) throw new SearchUnconfirmedError();
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 330_000);
+  let result: KnowledgeSearchResult;
+  try {
+    const response = await fetch(
+      `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/search`,
+      webRequestOptions({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: normalizedQuery, top_k: 3, strategy: "vector", rerank: false }),
+      }, controller.signal),
+    );
+    if (controller.signal.aborted) throw new SearchUnconfirmedError();
+    const rejectionMessages: Record<number, string> = {
+      401: SESSION_EXPIRED,
+      403: "检索请求被拒绝，请检查登录与浏览器来源。",
+      404: "该知识库不存在或你已无权访问，请返回知识库列表。",
+      409: "当前知识库向量模型配置不一致，无法完成本次检索；本响应不能确认是否已产生费用。",
+      422: "请核对检索问题与请求参数；本响应不能确认是否已产生费用。",
+    };
+    if (Object.hasOwn(rejectionMessages, response.status)) {
+      throw new ApiError(rejectionMessages[response.status], response.status);
+    }
+    if (response.status !== 200) throw new SearchUnconfirmedError(response.status);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted) throw new SearchUnconfirmedError();
+    try {
+      result = parseKnowledgeSearch(payload);
+    } catch {
+      throw new SearchUnconfirmedError();
+    }
+  } catch (failure) {
+    if (failure instanceof ApiError) throw failure;
+    throw new SearchUnconfirmedError();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
+  try {
+    const documents = new Map(result.hits.map((hit) => [hit.documentId, hit.documentName]));
+    for (const [documentId, documentName] of documents) {
+      if (signal.aborted) throw new SearchUnconfirmedError();
+      const document = await getDocument(normalizedWorkspaceId, normalizedKnowledgeBaseId, documentId, signal);
+      if (signal.aborted) throw new SearchUnconfirmedError();
+      if (document.originalFilename !== documentName || document.status !== "ready") {
+        throw new SearchUnconfirmedError();
+      }
+    }
+    if (signal.aborted) throw new SearchUnconfirmedError();
+    return result;
+  } catch (failure) {
+    if (signal.aborted) throw new SearchUnconfirmedError();
+    if (failure instanceof ApiError && failure.status === 401) throw failure;
+    throw new SearchUnconfirmedError(failure instanceof ApiError ? failure.status : null);
   }
 }
 

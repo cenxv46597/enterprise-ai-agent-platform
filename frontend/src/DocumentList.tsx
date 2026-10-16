@@ -17,12 +17,13 @@ type Props = {
   error: string;
   onBack: () => void;
   onRefresh: () => void;
+  onSearch?: () => void;
   onOpenDocument: (document: KnowledgeDocument) => void;
   children?: ReactNode;
 };
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
-  activity, error, onBack, onRefresh, onOpenDocument, children }: Props) {
+  activity, error, onBack, onRefresh, onSearch, onOpenDocument, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
   return <section aria-labelledby="document-title">
@@ -32,7 +33,11 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
       <div><p className="eyebrow">工作空间：<strong>{workspaceName}</strong></p>
         <h1 id="document-title">文档</h1>
         <p className="intro">知识库：<strong>{knowledgeBaseName}</strong></p></div>
-      <button className="button secondary" disabled={busy} onClick={onRefresh}>刷新列表</button>
+      <div className="page-actions">
+        {onSearch && <button className="button secondary" disabled={busy || !!error}
+          onClick={onSearch}>检索知识库</button>}
+        <button className="button secondary" disabled={busy} onClick={onRefresh}>刷新列表</button>
+      </div>
     </div>
     {activity !== 'logout' && children}
     {error && <div className="list-error">

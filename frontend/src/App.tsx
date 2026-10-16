@@ -3,14 +3,16 @@ import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, log
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
   createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
+  searchKnowledgeBase, SearchUnconfirmedError, SEARCH_UNCONFIRMED_MESSAGE,
   type DocumentChunk, type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
 import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
+import KnowledgeSearch, { type SearchOutcome } from './KnowledgeSearch';
 
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
-  | 'document-detail' | 'chunking' | 'embedding' | 'logout' | null;
+  | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -29,6 +31,8 @@ export default function App() {
   const [chunks, setChunks] = useState<DocumentChunk[] | null>(null);
   const [chunkOutcome, setChunkOutcome] = useState<ChunkOutcome | null>(null);
   const [embeddingOutcome, setEmbeddingOutcome] = useState<EmbeddingOutcome | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -51,6 +55,8 @@ export default function App() {
     setChunks(null);
     setChunkOutcome(null);
     setEmbeddingOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -118,6 +124,8 @@ export default function App() {
     setChunks(null);
     setChunkOutcome(null);
     setEmbeddingOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -146,6 +154,8 @@ export default function App() {
     setChunks(null);
     setChunkOutcome(null);
     setEmbeddingOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -173,6 +183,8 @@ export default function App() {
     setChunks(null);
     setChunkOutcome(null);
     setEmbeddingOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
     void refresh();
   }
 
@@ -186,6 +198,8 @@ export default function App() {
     setChunks(null);
     setChunkOutcome(null);
     setEmbeddingOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
     setBusy('documents');
     setError('');
     try {
@@ -247,6 +261,46 @@ export default function App() {
 
   function backToDocuments() {
     if (selectedKnowledgeBase) void openKnowledgeBase(selectedKnowledgeBase);
+  }
+
+  function openSearch() {
+    if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
+    setSearchOpen(true);
+    setSearchOutcome(null);
+    setUploadOutcome(null);
+    setError('');
+  }
+
+  async function search(query: string) {
+    if (!searchOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const workspaceId = selectedWorkspace.id;
+    const knowledgeBaseId = selectedKnowledgeBase.id;
+    const submittedQuery = query.trim();
+    const { id, controller } = beginRequest();
+    setBusy('search');
+    setError('');
+    setSearchOutcome(null);
+    try {
+      const result = await searchKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuery, controller.signal);
+      if (isCurrent(id, controller)) setSearchOutcome({ kind: 'confirmed', query: submittedQuery, result });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setSearchOutcome(failure instanceof SearchUnconfirmedError || !(failure instanceof ApiError)
+        ? { kind: 'unconfirmed', message: SEARCH_UNCONFIRMED_MESSAGE }
+        : { kind: 'rejected', message: failure.message });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForSearch() {
+    if (busy !== 'search') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setSearchOutcome({ kind: 'unconfirmed', message: SEARCH_UNCONFIRMED_MESSAGE });
   }
 
   async function chunkDocument() {
@@ -399,6 +453,9 @@ export default function App() {
   }
 
   async function exit() {
+    if (busy === 'search') {
+      setSearchOutcome({ kind: 'unconfirmed', message: SEARCH_UNCONFIRMED_MESSAGE });
+    }
     if (busy === 'upload') {
       setUploadOutcome({ kind: 'unconfirmed', message: UPLOAD_UNCONFIRMED_MESSAGE });
     }
@@ -500,7 +557,13 @@ export default function App() {
           </form>
           {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
           <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
-        </section> : selectedWorkspace && selectedKnowledgeBase && selectedDocument ? <DocumentProcessing
+        </section> : selectedWorkspace && selectedKnowledgeBase && searchOpen ? <KnowledgeSearch
+          key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
+          workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+          activity={busy === 'search' ? 'searching' : busy === 'logout' ? 'logout' : 'idle'}
+          outcome={searchOutcome} error={error} onSearch={query => void search(query)}
+          onCancel={stopWaitingForSearch} onBack={backToDocuments}
+        /> : selectedWorkspace && selectedKnowledgeBase && selectedDocument ? <DocumentProcessing
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           documentName={selectedDocument.originalFilename} document={documentDetail} chunks={chunks}
           error={error} outcome={chunkOutcome}
@@ -519,6 +582,7 @@ export default function App() {
           activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout'
             : busy === 'upload' ? 'uploading' : 'idle'}
           onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
+          onSearch={openSearch}
           onOpenDocument={openDocument}
         >
           <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
