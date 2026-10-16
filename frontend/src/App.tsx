@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
-  type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
+  getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
+  type DocumentChunk, type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
+import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
 
-type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload' | 'logout' | null;
+type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
+  | 'document-detail' | 'chunking' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -19,6 +22,10 @@ export default function App() {
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [uploadOutcome, setUploadOutcome] = useState<UploadOutcome | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
+  const [documentDetail, setDocumentDetail] = useState<KnowledgeDocument | null>(null);
+  const [chunks, setChunks] = useState<DocumentChunk[] | null>(null);
+  const [chunkOutcome, setChunkOutcome] = useState<ChunkOutcome | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -36,6 +43,10 @@ export default function App() {
     setSelectedKnowledgeBase(null);
     setDocuments([]);
     setUploadOutcome(null);
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -98,6 +109,10 @@ export default function App() {
     setSelectedKnowledgeBase(null);
     setDocuments([]);
     setUploadOutcome(null);
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -121,6 +136,10 @@ export default function App() {
     setSelectedKnowledgeBase(null);
     setDocuments([]);
     setUploadOutcome(null);
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -143,6 +162,10 @@ export default function App() {
     setSelectedKnowledgeBase(null);
     setDocuments([]);
     setUploadOutcome(null);
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
     void refresh();
   }
 
@@ -151,6 +174,10 @@ export default function App() {
     const { id, controller } = beginRequest();
     setSelectedKnowledgeBase(knowledgeBase);
     setDocuments([]);
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
     setBusy('documents');
     setError('');
     try {
@@ -169,6 +196,101 @@ export default function App() {
 
   function backToKnowledgeBases() {
     if (selectedWorkspace) void openWorkspace(selectedWorkspace);
+  }
+
+  async function readDocument(documentId: string, preserveOutcome = true) {
+    if (!selectedWorkspace || !selectedKnowledgeBase) return;
+    const { id, controller } = beginRequest();
+    setDocumentDetail(null);
+    setChunks(null);
+    if (!preserveOutcome) setChunkOutcome(null);
+    setBusy('document-detail');
+    setError('');
+    try {
+      const detail = await getDocument(selectedWorkspace.id, selectedKnowledgeBase.id, documentId, controller.signal);
+      if (!isCurrent(id, controller)) return;
+      setDocumentDetail(detail);
+      const rows = await listDocumentChunks(selectedWorkspace.id, selectedKnowledgeBase.id, documentId, controller.signal);
+      if (isCurrent(id, controller)) {
+        setChunks(rows);
+        setChunkOutcome(current => current?.kind === 'confirmed' ? current : null);
+      }
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else if (failure instanceof ApiError && failure.status === 404) {
+        setDocumentDetail(null);
+        setError('该文档不存在或你已无权访问，请返回文档列表。');
+      } else setError(failure instanceof ApiError ? failure.message : '无法读取文档与切块记录，请稍后重试。');
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function openDocument(document: KnowledgeDocument) {
+    if (pending.current) return;
+    setSelectedDocument(document);
+    void readDocument(document.id, false);
+  }
+
+  function backToDocuments() {
+    if (selectedKnowledgeBase) void openKnowledgeBase(selectedKnowledgeBase);
+  }
+
+  async function chunkDocument() {
+    if (!selectedWorkspace || !selectedKnowledgeBase || !selectedDocument || !documentDetail
+        || chunks === null || error || pending.current || busy !== null
+        || (documentDetail.status !== 'parsed' && documentDetail.status !== 'ready')) return;
+    const workspaceId = selectedWorkspace.id;
+    const knowledgeBaseId = selectedKnowledgeBase.id;
+    const documentId = selectedDocument.id;
+    const { id, controller } = beginRequest();
+    setBusy('chunking');
+    setChunkOutcome(null);
+    setChunks(null);
+    try {
+      const rows = await createDocumentChunks(workspaceId, knowledgeBaseId, documentId, controller.signal);
+      if (!isCurrent(id, controller)) return;
+      setChunks(rows);
+      setChunkOutcome({ kind: 'confirmed', count: rows.length });
+      // 切块结果与最新文档状态分别确认，读取故障不撤销已确认的切块响应。
+      setDocumentDetail(null);
+      setBusy('document-detail');
+      try {
+        const detail = await getDocument(workspaceId, knowledgeBaseId, documentId, controller.signal);
+        if (isCurrent(id, controller)) setDocumentDetail(detail);
+      } catch (failure) {
+        if (!isCurrent(id, controller)) return;
+        if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+        else {
+          if (failure instanceof ApiError && failure.status === 404) setChunks(null);
+          setError('切块响应已确认，但文档最新状态未确认。' + (failure instanceof ApiError
+            ? failure.message : '请刷新后核对。'));
+        }
+      }
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else {
+        setDocumentDetail(null);
+        setChunkOutcome(failure instanceof ChunkUnconfirmedError || !(failure instanceof ApiError)
+          ? { kind: 'unconfirmed', message: CHUNK_UNCONFIRMED_MESSAGE }
+          : { kind: 'rejected', message: failure.message });
+      }
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForChunking() {
+    if (busy !== 'chunking') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome({ kind: 'unconfirmed', message: CHUNK_UNCONFIRMED_MESSAGE });
   }
 
   async function upload(file: File) {
@@ -209,6 +331,11 @@ export default function App() {
   async function exit() {
     if (busy === 'upload') {
       setUploadOutcome({ kind: 'unconfirmed', message: UPLOAD_UNCONFIRMED_MESSAGE });
+    }
+    if (busy === 'chunking') {
+      setDocumentDetail(null);
+      setChunks(null);
+      setChunkOutcome({ kind: 'unconfirmed', message: CHUNK_UNCONFIRMED_MESSAGE });
     }
     const { id, controller } = beginRequest();
     setBusy('logout');
@@ -298,12 +425,21 @@ export default function App() {
           </form>
           {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
           <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
-        </section> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
+        </section> : selectedWorkspace && selectedKnowledgeBase && selectedDocument ? <DocumentProcessing
+          workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+          documentName={selectedDocument.originalFilename} document={documentDetail} chunks={chunks}
+          error={error} outcome={chunkOutcome}
+          activity={busy === 'document-detail' ? 'loading' : busy === 'chunking' ? 'chunking'
+            : busy === 'logout' ? 'logout' : 'idle'}
+          onBack={backToDocuments} onRefresh={() => void readDocument(selectedDocument.id)}
+          onChunk={() => void chunkDocument()} onCancel={stopWaitingForChunking}
+        /> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           documents={documents} error={error}
           activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout'
             : busy === 'upload' ? 'uploading' : 'idle'}
           onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
+          onOpenDocument={openDocument}
         >
           <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
             workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}

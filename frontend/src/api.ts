@@ -12,6 +12,14 @@ export type UploadedDocument = KnowledgeDocument & {
   status: "parsed" | "failed";
   parseError: string | null;
 };
+export type DocumentChunk = {
+  id: string;
+  documentId: string;
+  chunkIndex: number;
+  content: string;
+  startChar: number;
+  endChar: number;
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -30,6 +38,15 @@ export class UploadUnconfirmedError extends ApiError {
   constructor(status: number | null = null) {
     super(UPLOAD_UNCONFIRMED_MESSAGE, status);
     this.name = "UploadUnconfirmedError";
+  }
+}
+
+export const CHUNK_UNCONFIRMED_MESSAGE = "切块结果未确认；未自动重试。请刷新文档与切块记录后再决定是否重新执行。";
+
+export class ChunkUnconfirmedError extends ApiError {
+  constructor(status: number | null = null) {
+    super(CHUNK_UNCONFIRMED_MESSAGE, status);
+    this.name = "ChunkUnconfirmedError";
   }
 }
 
@@ -77,6 +94,7 @@ async function request(
   parentSignal: AbortSignal,
   isLogin = false,
   noContent = false,
+  expectedStatus?: number,
 ): Promise<unknown> {
   if (parentSignal.aborted) throw new ApiError("请求已取消。");
   const controller = new AbortController();
@@ -108,6 +126,7 @@ async function request(
       if (response.status !== 204) throw new ApiError(INVALID_RESPONSE);
       return null;
     }
+    if (expectedStatus !== undefined && response.status !== expectedStatus) throw new ApiError(INVALID_RESPONSE);
     try {
       const payload: unknown = await response.json();
       if (controller.signal.aborted) throw interrupted();
@@ -229,6 +248,126 @@ export async function listDocuments(
       id, knowledgeBaseId: itemKnowledgeBaseId, originalFilename: item.original_filename, status: item.status,
     };
   });
+}
+
+function documentPath(workspaceId: string, knowledgeBaseId: string, documentId: string): string {
+  return `/api/v1/workspaces/${strictUuid(workspaceId)}/knowledge-bases/${strictUuid(knowledgeBaseId)}/documents/${strictUuid(documentId)}`;
+}
+
+export async function getDocument(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+  signal: AbortSignal,
+): Promise<KnowledgeDocument> {
+  const path = documentPath(workspaceId, knowledgeBaseId, documentId);
+  const payload = await request(path, { method: "GET" }, signal, false, false, 200);
+  if (!isObject(payload) || typeof payload.original_filename !== "string"
+      || Array.from(payload.original_filename).length < 1 || Array.from(payload.original_filename).length > 255
+      || !isDocumentStatus(payload.status)) throw new ApiError(INVALID_RESPONSE);
+  const id = strictUuid(payload.id);
+  const returnedKnowledgeBaseId = strictUuid(payload.knowledge_base_id);
+  if (id !== strictUuid(documentId) || returnedKnowledgeBaseId !== strictUuid(knowledgeBaseId)) {
+    throw new ApiError(INVALID_RESPONSE);
+  }
+  return {
+    id, knowledgeBaseId: returnedKnowledgeBaseId, originalFilename: payload.original_filename, status: payload.status,
+  };
+}
+
+function parseDocumentChunks(payload: unknown, documentId: string, allowEmpty: boolean): DocumentChunk[] {
+  const characterLimit = 10 * 1024 * 1024;
+  if (!Array.isArray(payload) || payload.length > 10_000 || (!allowEmpty && payload.length === 0)) {
+    throw new ApiError(INVALID_RESPONSE);
+  }
+  const seen = new Set<string>();
+  let totalCharacters = 0;
+  let previousStart = -1;
+  let previousEnd = -1;
+  return payload.map((item: unknown, index: number) => {
+    if (!isObject(item) || !Number.isSafeInteger(item.chunk_index) || item.chunk_index !== index + 1
+        || typeof item.content !== "string" || item.content.length === 0
+        || !Number.isSafeInteger(item.start_char) || !Number.isSafeInteger(item.end_char)) {
+      throw new ApiError(INVALID_RESPONSE);
+    }
+    const startChar = item.start_char as number;
+    const endChar = item.end_char as number;
+    if (startChar < 0 || endChar <= startChar
+        || (index === 0 && startChar !== 0)
+        || (index > 0 && (startChar <= previousStart || endChar <= previousEnd || startChar > previousEnd))) {
+      throw new ApiError(INVALID_RESPONSE);
+    }
+    const id = strictUuid(item.id);
+    const returnedDocumentId = strictUuid(item.document_id);
+    if (returnedDocumentId !== documentId || seen.has(id)) throw new ApiError(INVALID_RESPONSE);
+    let characterCount = 0;
+    for (const _character of item.content) {
+      characterCount += 1;
+      if (totalCharacters + characterCount > characterLimit) throw new ApiError(INVALID_RESPONSE);
+    }
+    if (characterCount !== endChar - startChar) throw new ApiError(INVALID_RESPONSE);
+    totalCharacters += characterCount;
+    previousStart = startChar;
+    previousEnd = endChar;
+    seen.add(id);
+    return { id, documentId: returnedDocumentId, chunkIndex: index + 1, content: item.content, startChar, endChar };
+  });
+}
+
+export async function listDocumentChunks(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+  signal: AbortSignal,
+): Promise<DocumentChunk[]> {
+  const path = `${documentPath(workspaceId, knowledgeBaseId, documentId)}/chunks`;
+  return parseDocumentChunks(await request(path, { method: "GET" }, signal, false, false, 200), strictUuid(documentId), true);
+}
+
+export async function createDocumentChunks(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+  signal: AbortSignal,
+): Promise<DocumentChunk[]> {
+  const path = `${documentPath(workspaceId, knowledgeBaseId, documentId)}/chunks`;
+  if (signal.aborted) throw new ApiError("请求已取消。");
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 10_000);
+  try {
+    const response = await fetch(path, webRequestOptions({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chunk_size: 500, overlap: 50 }),
+    }, controller.signal));
+    if (controller.signal.aborted) throw new ChunkUnconfirmedError();
+    const rejectionMessages: Record<number, string> = {
+      401: SESSION_EXPIRED,
+      403: "切块请求被拒绝，请检查登录与浏览器来源后重试。",
+      404: "该文档不存在或你已无权访问，请返回文档列表。",
+      409: "当前文档状态或已有切块配置不允许执行本次切块，请刷新文档与切块记录。",
+      422: "切块请求未被接受，参数或单次处理量可能超过后端限制。",
+    };
+    if (Object.hasOwn(rejectionMessages, response.status)) {
+      throw new ApiError(rejectionMessages[response.status], response.status);
+    }
+    if (response.status !== 200) throw new ChunkUnconfirmedError(response.status);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted) throw new ChunkUnconfirmedError();
+    try {
+      return parseDocumentChunks(payload, strictUuid(documentId), false);
+    } catch {
+      throw new ChunkUnconfirmedError();
+    }
+  } catch (failure) {
+    if (failure instanceof ApiError) throw failure;
+    throw new ChunkUnconfirmedError();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
 }
 
 export function validateUploadFile(file: File): string | null {

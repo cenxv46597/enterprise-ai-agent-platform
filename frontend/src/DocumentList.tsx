@@ -17,11 +17,12 @@ type Props = {
   error: string;
   onBack: () => void;
   onRefresh: () => void;
+  onOpenDocument: (document: KnowledgeDocument) => void;
   children?: ReactNode;
 };
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
-  activity, error, onBack, onRefresh, children }: Props) {
+  activity, error, onBack, onRefresh, onOpenDocument, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
   return <section aria-labelledby="document-title">
@@ -49,7 +50,10 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
             <span className="workspace-symbol" aria-hidden="true">D</span>
             <div><h2>{document.originalFilename}</h2>
               <span className={`document-status status-${document.status}`}>{status.label}</span>
-              <p className="document-description">{status.description}</p></div>
+              <p className="document-description">{status.description}</p>
+              <button className="button secondary card-entry" disabled={busy}
+                aria-label={`查看${document.originalFilename}的处理详情`}
+                onClick={() => onOpenDocument(document)}>查看与切块</button></div>
           </li>;
         })}</ul>
         {documents.length === 20 && <p className="session-note">当前页已满，可能还有更多文档；本版仅展示第一页。</p>}
