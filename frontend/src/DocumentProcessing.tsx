@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { DocumentChunk, DocumentStatus, KnowledgeDocument } from './api';
 
 export type ChunkOutcome =
@@ -10,13 +11,14 @@ type Props = {
   documentName: string;
   document: KnowledgeDocument | null;
   chunks: DocumentChunk[] | null;
-  activity: 'idle' | 'loading' | 'chunking' | 'logout';
+  activity: 'idle' | 'loading' | 'chunking' | 'embedding' | 'logout';
   error: string;
   outcome: ChunkOutcome | null;
   onBack: () => void;
   onRefresh: () => void;
   onChunk: () => void;
   onCancel: () => void;
+  children?: ReactNode;
 };
 
 const STATUS_TEXT: Record<DocumentStatus, { label: string; description: string }> = {
@@ -39,7 +41,7 @@ function preview(content: string): { text: string; shortened: boolean } {
 }
 
 export default function DocumentProcessing({ workspaceName, knowledgeBaseName, documentName, document,
-  chunks, activity, error, outcome, onBack, onRefresh, onChunk, onCancel }: Props) {
+  chunks, activity, error, outcome, onBack, onRefresh, onChunk, onCancel, children }: Props) {
   const busy = activity !== 'idle';
   const canChunk = !busy && !error && document !== null && chunks !== null
     && (document.status === 'parsed' || document.status === 'ready');
@@ -115,6 +117,7 @@ export default function DocumentProcessing({ workspaceName, knowledgeBaseName, d
             })}</ol>
           </>}
       </section>
+      {children}
     </>}
   </section>;
 }

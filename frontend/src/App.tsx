@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
+  createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
   type DocumentChunk, type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
+import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
 
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
-  | 'document-detail' | 'chunking' | 'logout' | null;
+  | 'document-detail' | 'chunking' | 'embedding' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -26,6 +28,7 @@ export default function App() {
   const [documentDetail, setDocumentDetail] = useState<KnowledgeDocument | null>(null);
   const [chunks, setChunks] = useState<DocumentChunk[] | null>(null);
   const [chunkOutcome, setChunkOutcome] = useState<ChunkOutcome | null>(null);
+  const [embeddingOutcome, setEmbeddingOutcome] = useState<EmbeddingOutcome | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -47,6 +50,7 @@ export default function App() {
     setDocumentDetail(null);
     setChunks(null);
     setChunkOutcome(null);
+    setEmbeddingOutcome(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -113,6 +117,7 @@ export default function App() {
     setDocumentDetail(null);
     setChunks(null);
     setChunkOutcome(null);
+    setEmbeddingOutcome(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -140,6 +145,7 @@ export default function App() {
     setDocumentDetail(null);
     setChunks(null);
     setChunkOutcome(null);
+    setEmbeddingOutcome(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -166,6 +172,7 @@ export default function App() {
     setDocumentDetail(null);
     setChunks(null);
     setChunkOutcome(null);
+    setEmbeddingOutcome(null);
     void refresh();
   }
 
@@ -178,6 +185,7 @@ export default function App() {
     setDocumentDetail(null);
     setChunks(null);
     setChunkOutcome(null);
+    setEmbeddingOutcome(null);
     setBusy('documents');
     setError('');
     try {
@@ -203,7 +211,10 @@ export default function App() {
     const { id, controller } = beginRequest();
     setDocumentDetail(null);
     setChunks(null);
-    if (!preserveOutcome) setChunkOutcome(null);
+    if (!preserveOutcome) {
+      setChunkOutcome(null);
+      setEmbeddingOutcome(null);
+    }
     setBusy('document-detail');
     setError('');
     try {
@@ -214,6 +225,7 @@ export default function App() {
       if (isCurrent(id, controller)) {
         setChunks(rows);
         setChunkOutcome(current => current?.kind === 'confirmed' ? current : null);
+        setEmbeddingOutcome(current => current?.kind === 'confirmed' ? current : null);
       }
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -293,6 +305,64 @@ export default function App() {
     setChunkOutcome({ kind: 'unconfirmed', message: CHUNK_UNCONFIRMED_MESSAGE });
   }
 
+  async function embedDocument(maxChunks: number) {
+    if (!selectedWorkspace || !selectedKnowledgeBase || !selectedDocument || !documentDetail
+        || chunks === null || chunks.length === 0 || error || pending.current || busy !== null
+        || (documentDetail.status !== 'parsed' && documentDetail.status !== 'ready')
+        || !Number.isSafeInteger(maxChunks) || maxChunks < 1 || maxChunks > 1000
+        || (documentDetail.status === 'parsed' && chunks.length > maxChunks)) return;
+    const workspaceId = selectedWorkspace.id;
+    const knowledgeBaseId = selectedKnowledgeBase.id;
+    const documentId = selectedDocument.id;
+    const expectedChunkCount = chunks.length;
+    const { id, controller } = beginRequest();
+    setBusy('embedding');
+    setEmbeddingOutcome(null);
+    try {
+      const result = await createDocumentEmbeddings(workspaceId, knowledgeBaseId, documentId, maxChunks, controller.signal);
+      if (!isCurrent(id, controller)) return;
+      if (result.chunkCount !== expectedChunkCount) throw new EmbeddingUnconfirmedError();
+      setEmbeddingOutcome({ kind: 'confirmed', result });
+      setDocumentDetail(null);
+      setBusy('document-detail');
+      try {
+        const detail = await getDocument(workspaceId, knowledgeBaseId, documentId, controller.signal);
+        if (isCurrent(id, controller)) setDocumentDetail(detail);
+      } catch (failure) {
+        if (!isCurrent(id, controller)) return;
+        if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+        else {
+          if (failure instanceof ApiError && failure.status === 404) setChunks(null);
+          setError('向量化成功响应已校验，但文档最新状态未确认。' + (failure instanceof ApiError
+            ? failure.message : '请刷新后核对。'));
+        }
+      }
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else {
+        setDocumentDetail(null);
+        setChunks(null);
+        setEmbeddingOutcome(failure instanceof EmbeddingUnconfirmedError || !(failure instanceof ApiError)
+          ? { kind: 'unconfirmed', message: EMBEDDING_UNCONFIRMED_MESSAGE }
+          : { kind: 'rejected', message: failure.message });
+      }
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForEmbedding() {
+    if (busy !== 'embedding') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setEmbeddingOutcome({ kind: 'unconfirmed', message: EMBEDDING_UNCONFIRMED_MESSAGE });
+  }
+
   async function upload(file: File) {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
     const workspace = selectedWorkspace;
@@ -336,6 +406,11 @@ export default function App() {
       setDocumentDetail(null);
       setChunks(null);
       setChunkOutcome({ kind: 'unconfirmed', message: CHUNK_UNCONFIRMED_MESSAGE });
+    }
+    if (busy === 'embedding') {
+      setDocumentDetail(null);
+      setChunks(null);
+      setEmbeddingOutcome({ kind: 'unconfirmed', message: EMBEDDING_UNCONFIRMED_MESSAGE });
     }
     const { id, controller } = beginRequest();
     setBusy('logout');
@@ -430,10 +505,15 @@ export default function App() {
           documentName={selectedDocument.originalFilename} document={documentDetail} chunks={chunks}
           error={error} outcome={chunkOutcome}
           activity={busy === 'document-detail' ? 'loading' : busy === 'chunking' ? 'chunking'
-            : busy === 'logout' ? 'logout' : 'idle'}
+            : busy === 'embedding' ? 'embedding' : busy === 'logout' ? 'logout' : 'idle'}
           onBack={backToDocuments} onRefresh={() => void readDocument(selectedDocument.id)}
           onChunk={() => void chunkDocument()} onCancel={stopWaitingForChunking}
-        /> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
+        >
+          <DocumentEmbedding key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}/${selectedDocument.id}`}
+            document={documentDetail} chunks={chunks} outcome={embeddingOutcome}
+            activity={busy === 'embedding' ? 'embedding' : busy !== null || !!error ? 'blocked' : 'idle'}
+            onEmbed={maxChunks => void embedDocument(maxChunks)} onCancel={stopWaitingForEmbedding} />
+        </DocumentProcessing> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           documents={documents} error={error}
           activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout'

@@ -20,6 +20,14 @@ export type DocumentChunk = {
   startChar: number;
   endChar: number;
 };
+export type DocumentEmbedding = {
+  documentId: string;
+  status: "ready";
+  model: string;
+  dimensions: 1024;
+  chunkCount: number;
+  reused: boolean;
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -47,6 +55,15 @@ export class ChunkUnconfirmedError extends ApiError {
   constructor(status: number | null = null) {
     super(CHUNK_UNCONFIRMED_MESSAGE, status);
     this.name = "ChunkUnconfirmedError";
+  }
+}
+
+export const EMBEDDING_UNCONFIRMED_MESSAGE = "向量化结果未确认；可能已调用模型或保存结果，未自动重试。请先刷新文档与切块核对状态，不要立即重复提交。";
+
+export class EmbeddingUnconfirmedError extends ApiError {
+  constructor(status: number | null = null) {
+    super(EMBEDDING_UNCONFIRMED_MESSAGE, status);
+    this.name = "EmbeddingUnconfirmedError";
   }
 }
 
@@ -364,6 +381,70 @@ export async function createDocumentChunks(
   } catch (failure) {
     if (failure instanceof ApiError) throw failure;
     throw new ChunkUnconfirmedError();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
+export async function createDocumentEmbeddings(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+  maxChunks: number,
+  signal: AbortSignal,
+): Promise<DocumentEmbedding> {
+  const path = `${documentPath(workspaceId, knowledgeBaseId, documentId)}/embeddings`;
+  if (!Number.isSafeInteger(maxChunks) || maxChunks < 1 || maxChunks > 1000) {
+    throw new ApiError("请明确填写本次最多新生成的块数，范围为 1 到 1000 的整数。");
+  }
+  if (signal.aborted) throw new ApiError("请求已取消。");
+  const normalizedDocumentId = strictUuid(documentId);
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 330_000);
+  try {
+    const response = await fetch(path, webRequestOptions({
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ max_chunks: maxChunks }),
+    }, controller.signal));
+    if (controller.signal.aborted) throw new EmbeddingUnconfirmedError();
+    const rejectionMessages: Record<number, string> = {
+      401: SESSION_EXPIRED,
+      403: "向量化请求被拒绝，请检查登录与浏览器来源。",
+      404: "该文档不存在或你已无权访问，请返回文档列表。",
+      409: "当前文档状态或向量配置不允许完成本次操作，请刷新文档与切块核对状态；本响应不能确认是否已产生费用。",
+      422: "请核对向量化参数、已有块数与本次新生成上限；本响应不能确认是否已产生费用。",
+    };
+    if (Object.hasOwn(rejectionMessages, response.status)) {
+      throw new ApiError(rejectionMessages[response.status], response.status);
+    }
+    if (response.status !== 200) throw new EmbeddingUnconfirmedError(response.status);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted) throw new EmbeddingUnconfirmedError();
+    try {
+      if (!isObject(payload) || strictUuid(payload.document_id) !== normalizedDocumentId
+          || payload.status !== "ready" || payload.dimensions !== 1024
+          || typeof payload.model !== "string" || !payload.model.trim()
+          || Array.from(payload.model).length > 200
+          || !Number.isSafeInteger(payload.chunk_count)
+          || (payload.chunk_count as number) < 1 || (payload.chunk_count as number) > 10_000
+          || typeof payload.reused !== "boolean"
+          || (!payload.reused && (payload.chunk_count as number) > maxChunks)) {
+        throw new EmbeddingUnconfirmedError();
+      }
+      return {
+        documentId: normalizedDocumentId, status: "ready", model: payload.model, dimensions: 1024,
+        chunkCount: payload.chunk_count as number, reused: payload.reused,
+      };
+    } catch {
+      throw new EmbeddingUnconfirmedError();
+    }
+  } catch (failure) {
+    if (failure instanceof ApiError) throw failure;
+    throw new EmbeddingUnconfirmedError();
   } finally {
     clearTimeout(timer);
     signal.removeEventListener("abort", cancel);
