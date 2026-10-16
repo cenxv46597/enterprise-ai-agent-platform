@@ -204,6 +204,7 @@ describe('知识库内的文档列表', () => {
     expect(screen.queryByRole('status')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(documentRequests(requests)).toHaveLength(1);
+    expect(screen.getByText('当前页 · 5 份文档 · 1 份可检索 · 全部处理状态')).toBeTruthy();
     for (const id of [USER_ID, SPACE_A, SPACE_B, KB_A, ...rows.map(row => row.id)]) {
       expect(document.body.textContent).not.toContain(id);
     }

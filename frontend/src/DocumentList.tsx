@@ -21,6 +21,7 @@ type Props = {
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
   activity, error, onBack, onRefresh }: Props) {
   const busy = activity !== 'idle';
+  const readyCount = documents.filter(document => document.status === 'ready').length;
   return <section aria-labelledby="document-title">
     <button className="button secondary back-button" disabled={activity === 'logout'}
       onClick={onBack}>返回知识库</button>
@@ -38,7 +39,7 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
       : activity === 'logout' ? <p className="message" role="status">正在确认退出…</p>
       : error ? null : documents.length === 0 ? <div className="empty-state">
         <h2>该知识库暂无文档</h2><p>这里会展示该知识库中已有的文档。</p></div>
-      : <><p className="page-caption">当前页 · {documents.length} 份文档 · 全部处理状态</p>
+      : <><p className="page-caption">当前页 · {documents.length} 份文档 · {readyCount} 份可检索 · 全部处理状态</p>
         <ul className="workspace-list">{documents.map(document => {
           const status = STATUS_TEXT[document.status];
           return <li className="workspace-card" key={document.id}>
