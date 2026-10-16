@@ -1,6 +1,13 @@
 export type User = { id: string; username: string };
 export type Workspace = { id: string; name: string };
 export type KnowledgeBase = { id: string; workspaceId: string; name: string };
+export type DocumentStatus = "uploaded" | "processing" | "parsed" | "ready" | "failed";
+export type KnowledgeDocument = {
+  id: string;
+  knowledgeBaseId: string;
+  originalFilename: string;
+  status: DocumentStatus;
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -32,6 +39,11 @@ function strictUuid(value: unknown): string {
   const normalized = uuid(value);
   if (normalized.length !== 36) throw new ApiError(INVALID_RESPONSE);
   return normalized;
+}
+
+function isDocumentStatus(value: unknown): value is DocumentStatus {
+  return value === "uploaded" || value === "processing" || value === "parsed"
+    || value === "ready" || value === "failed";
 }
 
 async function request(
@@ -170,5 +182,34 @@ export async function listKnowledgeBases(workspaceId: string, signal: AbortSigna
     if (itemWorkspaceId !== normalizedWorkspaceId || seen.has(id)) throw new ApiError(INVALID_RESPONSE);
     seen.add(id);
     return { id, workspaceId: itemWorkspaceId, name: item.name };
+  });
+}
+
+export async function listDocuments(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  signal: AbortSignal,
+): Promise<KnowledgeDocument[]> {
+  const normalizedWorkspaceId = strictUuid(workspaceId);
+  const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  const payload = await request(
+    `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/documents?limit=20&offset=0`,
+    { method: "GET" }, signal,
+  );
+  if (!Array.isArray(payload) || payload.length > 20) throw new ApiError(INVALID_RESPONSE);
+  const seen = new Set<string>();
+  return payload.map((item: unknown) => {
+    if (!isObject(item) || typeof item.original_filename !== "string"
+        || Array.from(item.original_filename).length < 1 || Array.from(item.original_filename).length > 255
+        || !isDocumentStatus(item.status)) {
+      throw new ApiError(INVALID_RESPONSE);
+    }
+    const id = strictUuid(item.id);
+    const itemKnowledgeBaseId = strictUuid(item.knowledge_base_id);
+    if (itemKnowledgeBaseId !== normalizedKnowledgeBaseId || seen.has(id)) throw new ApiError(INVALID_RESPONSE);
+    seen.add(id);
+    return {
+      id, knowledgeBaseId: itemKnowledgeBaseId, originalFilename: item.original_filename, status: item.status,
+    };
   });
 }

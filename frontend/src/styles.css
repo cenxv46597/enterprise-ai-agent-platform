@@ -47,6 +47,12 @@ input:disabled { background: #f4f6f7; }
 .card-entry { margin-top: 14px; }
 .back-button { margin-bottom: 24px; }
 .list-error { margin-bottom: 20px; }
+.document-status { display: inline-block; padding: 2px 9px; margin: 4px 0 9px; border-radius: 5px; font-size: 12px; font-weight: 600; background: #edf0f3; color: #465b6c; }
+.status-processing { background: #eaf1fb; color: #305b8c; }
+.status-parsed { background: #fff3da; color: #806016; }
+.status-ready { background: #e9f3f0; color: #246e65; }
+.status-failed { background: #fff0ed; color: #9d352a; }
+.workspace-card p.document-description { font-size: 13px; line-height: 1.6; }
 .empty-state { border: 1px dashed #bdcdd3; border-radius: 10px; text-align: center; padding: 52px 20px; background: #fff; }
 .empty-state h2 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
 .empty-state p { color: #617381; font-size: 14px; margin: 0; }

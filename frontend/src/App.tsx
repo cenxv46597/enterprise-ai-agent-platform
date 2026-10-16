@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
-  type KnowledgeBase, type Session, type Workspace } from './api';
+import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
+  type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
+import DocumentList from './DocumentList';
 
-type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'logout' | null;
+type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -13,6 +14,8 @@ export default function App() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
+  const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBase | null>(null);
+  const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -27,6 +30,8 @@ export default function App() {
     setWorkspaces([]);
     setSelectedWorkspace(null);
     setKnowledgeBases([]);
+    setSelectedKnowledgeBase(null);
+    setDocuments([]);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -86,6 +91,8 @@ export default function App() {
     setWorkspaces([]);
     setSelectedWorkspace(null);
     setKnowledgeBases([]);
+    setSelectedKnowledgeBase(null);
+    setDocuments([]);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -106,6 +113,8 @@ export default function App() {
     const { id, controller } = beginRequest();
     setSelectedWorkspace(workspace);
     setKnowledgeBases([]);
+    setSelectedKnowledgeBase(null);
+    setDocuments([]);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -125,7 +134,34 @@ export default function App() {
   function backToWorkspaces() {
     setSelectedWorkspace(null);
     setKnowledgeBases([]);
+    setSelectedKnowledgeBase(null);
+    setDocuments([]);
     void refresh();
+  }
+
+  async function openKnowledgeBase(knowledgeBase: KnowledgeBase) {
+    if (!selectedWorkspace) return;
+    const { id, controller } = beginRequest();
+    setSelectedKnowledgeBase(knowledgeBase);
+    setDocuments([]);
+    setBusy('documents');
+    setError('');
+    try {
+      const rows = await listDocuments(selectedWorkspace.id, knowledgeBase.id, controller.signal);
+      if (isCurrent(id, controller)) setDocuments(rows);
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else if (failure instanceof ApiError && failure.status === 404) {
+        setError('该知识库不存在或你已无权访问，请返回知识库列表。');
+      } else setError(failure instanceof ApiError ? failure.message : '无法读取文档，请稍后重试。');
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function backToKnowledgeBases() {
+    if (selectedWorkspace) void openWorkspace(selectedWorkspace);
   }
 
   async function exit() {
@@ -217,7 +253,12 @@ export default function App() {
           </form>
           {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
           <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
-        </section> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
+        </section> : selectedWorkspace && selectedKnowledgeBase ? <DocumentList
+          workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+          documents={documents} error={error}
+          activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout' : 'idle'}
+          onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
+        /> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
           <button className="button secondary back-button" disabled={busy === 'logout'}
             onClick={backToWorkspaces}>返回工作空间</button>
           <div className="page-heading">
@@ -240,7 +281,9 @@ export default function App() {
               <ul className="workspace-list">{knowledgeBases.map(knowledgeBase =>
                 <li className="workspace-card" key={knowledgeBase.id}>
                   <span className="workspace-symbol" aria-hidden="true">K</span>
-                  <div><h2>{knowledgeBase.name}</h2></div>
+                  <div><h2>{knowledgeBase.name}</h2>
+                    <button className="button secondary card-entry" aria-label={`查看${knowledgeBase.name}的文档`}
+                      onClick={() => void openKnowledgeBase(knowledgeBase)}>查看文档</button></div>
                 </li>,
               )}</ul>
               {knowledgeBases.length === 20 && <p className="session-note">当前页已满，可能还有更多知识库；本版仅展示第一页。</p>}
