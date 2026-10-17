@@ -15,6 +15,8 @@
 与引用问答分别记录参与程度和验证范围。
 接续小步见[逐项补充条件](frontend/frontend-conversation-conditions.md)：
 手动逐项保存，输入齐备后暂停，显式执行仍待后续。
+随后见[规则适用确认与显式标准估算](frontend/frontend-conversation-billing.md)：
+用户确认后手动执行，核对保存结果与来源后展示小计及合计。
 
 ## 按用途查找
 

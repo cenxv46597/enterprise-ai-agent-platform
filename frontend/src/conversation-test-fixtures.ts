@@ -80,19 +80,20 @@ export function waitingReply(question = QUESTION) {
       evidence: runEvidence(), calculations: [], metrics: null } };
 }
 
-export function billingWaitingReply(question = QUESTION) {
-  const reference = { ...evidenceReference(0), end_char: 100 + Array.from(RULE).length };
+export function billingWaitingReply(question = QUESTION, monthlyFee = '120', visitFee = '30') {
+  const rule = `月费${monthlyFee}元，每次上门服务费${visitFee}元。`;
+  const reference = { ...evidenceReference(0), end_char: 100 + Array.from(rule).length };
   const visit = { field_name: 'visit_count', label: '上门次数', unit: '次',
-    min_value: 0, max_value: 9999, rule_quote: RULE, evidence_ids: [1] };
+    min_value: 0, max_value: 9999, rule_quote: rule, evidence_ids: [1] };
   const months = { field_name: 'billing_months', label: '计费月数', unit: '个月',
-    min_value: 1, max_value: 12, rule_quote: RULE, evidence_ids: [1] };
+    min_value: 1, max_value: 12, rule_quote: rule, evidence_ids: [1] };
   const rate = (quote: string, value: string, unit: string) => ({ ...reference, evidence_id: 1,
-    quote, value, unit, start_char: 100 + RULE.indexOf(quote),
-    end_char: 100 + RULE.indexOf(quote) + Array.from(quote).length });
+    quote, value, unit, start_char: 100 + rule.indexOf(quote),
+    end_char: 100 + rule.indexOf(quote) + Array.from(quote).length });
   return { ...initialMessage(), status: 'waiting_for_user', reply: '请先提供上门服务次数。',
     task: { question, clarification: visit, confirmed_inputs: [], clarifications: [visit, months], evidence: [reference],
-      billing_plan: { workflow: 'monthly_visit_v1', rule_evidence_id: 1, rule_quote: RULE,
-        monthly_fee: rate('月费120元', '120', '元/个月'), visit_fee: rate('每次上门服务费30元', '30', '元/次') } },
+      billing_plan: { workflow: 'monthly_visit_v1', rule_evidence_id: 1, rule_quote: rule,
+        monthly_fee: rate(`月费${monthlyFee}元`, monthlyFee, '元/个月'), visit_fee: rate(`每次上门服务费${visitFee}元`, visitFee, '元/次') } },
     run: { run_id: RUN_ID, status: 'waiting_for_user', stop_reason: null, steps: [], result: null,
       evidence: [{ evidence_id: 1, ...reference }], calculations: [], metrics: null } };
 }
@@ -104,8 +105,8 @@ export function failedReply(status: 'failed' | 'stopped' = 'failed') {
 
 export const CONDITION_REQUEST_ID = '44444444-4444-4444-4444-444444444444';
 export const MONTH_REQUEST_ID = '55555555-5555-5555-5555-555555555555';
-export function conditionReply(ready = false, count = 3, months = 2) {
-  const task = billingWaitingReply().task;
+export function conditionReply(ready = false, count = 3, months = 2, monthlyFee = '120', visitFee = '30') {
+  const task = billingWaitingReply(QUESTION, monthlyFee, visitFee).task;
   const confirmed = [{ field_name: 'visit_count', value: count, unit: '次', request_id: CONDITION_REQUEST_ID,
     raw_text: `${count}次`, provenance: 'user_message' }];
   if (ready) confirmed.push({ field_name: 'billing_months', value: months, unit: '个月', request_id: MONTH_REQUEST_ID,
@@ -115,4 +116,23 @@ export function conditionReply(ready = false, count = 3, months = 2) {
     task: { ...task, clarification: task.clarifications[1], confirmed_inputs: confirmed },
     run: null, billing_result: null, answer_preference: null,
     execution_deferred: ready ? 'explicit_execution_required' : null };
+}
+
+export const EXECUTION_REQUEST_ID = '66666666-6666-6666-6666-666666666666';
+export function billingExecutionReply(count = 3, months = 2, monthlyFee = '120', visitFee = '30',
+  monthlySubtotal = '240', visitSubtotal = '90', total = '330') {
+  const before = conditionReply(true, count, months, monthlyFee, visitFee);
+  const result = { workflow: 'monthly_visit_v1', scope: 'confirmed_standard_rule_estimate', currency: 'CNY',
+    plan: before.task.billing_plan, visit_count: before.task.confirmed_inputs[0], billing_months: before.task.confirmed_inputs[1],
+    confirmation_request_id: EXECUTION_REQUEST_ID, monthly_subtotal: monthlySubtotal, visit_subtotal: visitSubtotal, total,
+    steps: [
+      { step: 1, operation: 'multiply', left_ref: 'monthly_fee', right_ref: 'billing_months',
+        left_value: monthlyFee, right_value: String(months), value: monthlySubtotal, unit: '元', provenance: 'program_calculation' },
+      { step: 2, operation: 'multiply', left_ref: 'visit_fee', right_ref: 'visit_count',
+        left_value: visitFee, right_value: String(count), value: visitSubtotal, unit: '元', provenance: 'program_calculation' },
+      { step: 3, operation: 'add', left_ref: 'step_1', right_ref: 'step_2',
+        left_value: monthlySubtotal, right_value: visitSubtotal, value: total, unit: '元', provenance: 'program_calculation' },
+    ] };
+  return { ...before, request_id: EXECUTION_REQUEST_ID, version: 4, status: 'completed', execution_deferred: null,
+    task: { ...before.task, billing_result: structuredClone(result) }, billing_result: result };
 }

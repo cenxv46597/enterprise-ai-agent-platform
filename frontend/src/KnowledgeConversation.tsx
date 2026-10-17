@@ -2,7 +2,9 @@ import { useState, type FormEvent } from 'react';
 import type {
   CreatedConversation, ConversationSnapshot, FirstMessageRequest, FirstConversationReply,
   ConversationConditions, ConditionRequest, ConversationPending,
+  BillingExecutionRequest, BillingEstimate,
 } from './conversation-api';
+import { BillingConfirmation, BillingResult } from './ConversationBilling';
 
 type Notice = { kind: 'unconfirmed' | 'rejected'; message: string };
 export type ConversationView = {
@@ -16,17 +18,21 @@ export type ConversationView = {
   conditions: ConversationConditions | null;
   conditionRequest: (ConditionRequest & { label: string; unit: string }) | null;
   conditionNotice: string;
+  executionRequest: BillingExecutionRequest | null;
+  executionResult: BillingEstimate | null;
+  executionNotice: string;
 };
 
 type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
-  activity: 'idle' | 'creating' | 'sending' | 'supplementing' | 'reading' | 'logout';
+  activity: 'idle' | 'creating' | 'sending' | 'supplementing' | 'executing' | 'reading' | 'logout';
   view: ConversationView;
   error: string;
   onCreate: () => void;
   onSend: (content: string) => void;
   onSupplement: (value: string) => void;
+  onExecute: () => void;
   onRead: () => void;
   onCancel: () => void;
   onBack: () => void;
@@ -86,7 +92,7 @@ function PendingDetails({ pending, ready }: { pending: ConversationPending; read
 }
 
 export default function KnowledgeConversation({ workspaceName, knowledgeBaseName, activity,
-  view, error, onCreate, onSend, onSupplement, onRead, onCancel, onBack }: Props) {
+  view, error, onCreate, onSend, onSupplement, onExecute, onRead, onCancel, onBack }: Props) {
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
@@ -160,7 +166,7 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
           <FirstReply result={view.messageOutcome.result} />
         </> : <p className="message error" role="alert">{view.messageOutcome.message}</p>}
       </section>}
-      {view.conditions && !view.conditionRequest && !view.conditionNotice && <section
+      {view.conditions && !view.conditionRequest && !view.conditionNotice && !view.executionRequest && <section
         className="search-form-panel" aria-label="补充条件">
         <PendingDetails ready={view.conditions.status === 'ready'} pending={view.conditions.pending} />
         <p>已确认保存的条件：</p>
@@ -172,12 +178,21 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
         {view.conditions.status === 'waiting_for_user' && <ConditionForm
           key={`${view.conditions.version}/${view.conditions.pending.current.fieldName}`}
           conditions={view.conditions} disabled={busy} onSubmit={onSupplement} />}
+        {view.conditions.status === 'ready' && view.conditions.pending.kind === 'billing' && <BillingConfirmation
+          key={view.conditions.version} disabled={busy} onExecute={onExecute} />}
+        {view.conditions.status === 'ready' && view.conditions.pending.kind === 'count' && <p className="session-note">
+          此任务为旧单字段算术，本页尚未接入其执行；不会将它自动升级为标准计费估算。</p>}
       </section>}
       {view.conditionRequest && <p className="submitted-query">本次补充提交：
         {view.conditionRequest.value}{view.conditionRequest.unit}（{view.conditionRequest.label}）。
         {activity === 'supplementing' ? '正在保存并核对来源…' : '尚未确认保存，后续补充已暂停。'}</p>}
       {activity === 'supplementing' && <button className="button secondary" onClick={onCancel}>停止等待补充结果</button>}
       {view.conditionNotice && <p className="message error" role="alert">{view.conditionNotice}</p>}
+      {view.executionRequest && !view.executionResult && <p role="status">
+        {activity === 'executing' ? '正在计算并核对保存结果与来源…' : '估算提交记录已保留，本页不会再次执行。'}</p>}
+      {activity === 'executing' && <button className="button secondary" onClick={onCancel}>停止等待估算结果</button>}
+      {view.executionNotice && <p className="message error" role="alert">{view.executionNotice}</p>}
+      {view.executionResult && <BillingResult result={view.executionResult} />}
       {view.created && view.request && <section className="conversation-snapshot" aria-labelledby="conversation-state-title">
         <h2 id="conversation-state-title">当前会话状态</h2>
         <button className="button secondary" disabled={busy} onClick={onRead}>读取当前会话状态</button>

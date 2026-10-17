@@ -10,6 +10,7 @@ import {
   jsonResponse, createdConversation, documentResponse,
   completedReply, abstainedReply, waitingReply, billingWaitingReply, failedReply,
   CONDITION_REQUEST_ID, MONTH_REQUEST_ID, conditionReply,
+  EXECUTION_REQUEST_ID, billingExecutionReply,
 } from './conversation-test-fixtures';
 
 const RESTORE = '/api/v1/auth/web/session';
@@ -142,12 +143,12 @@ describe('逐项补充条件页面', () => {
   function setup(response?: () => Response | Promise<Response>, sourceFailure?: () => Response | Promise<Response> | undefined) {
     let posts = 0;
     vi.mocked(crypto.randomUUID).mockReturnValueOnce(REQUEST_ID)
-      .mockReturnValueOnce(CONDITION_REQUEST_ID).mockReturnValueOnce(MONTH_REQUEST_ID);
+      .mockReturnValueOnce(CONDITION_REQUEST_ID).mockReturnValueOnce(MONTH_REQUEST_ID).mockReturnValueOnce(EXECUTION_REQUEST_ID);
     return installApi(request => {
       if (pathOf(request) === MESSAGES_PATH) {
         posts += 1;
         return posts === 1 ? jsonResponse(billingWaitingReply())
-          : response ? response() : jsonResponse(conditionReply(posts === 3));
+          : response ? response() : posts === 4 ? jsonResponse(billingExecutionReply()) : jsonResponse(conditionReply(posts === 3));
       }
       if (posts > 1 && pathOf(request) === DOCUMENT_PATH) return sourceFailure?.();
     });
@@ -172,7 +173,7 @@ describe('逐项补充条件页面', () => {
     expect(screen.getByRole('heading', { name: '输入已齐备，尚未执行计算' })).toBeTruthy();
     expect(document.body.textContent).toContain('计费月数：2个月');
     expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /执行|计算/ })).toBeNull();
+    expect((screen.getByRole('button', { name: '计算标准规则估算' }) as HTMLButtonElement).disabled).toBe(true);
     expect(firstInput().disabled).toBe(true);
     expect(messagePosts(requests)).toHaveLength(3);
     expect(sourceReads(requests)).toHaveLength(3);
@@ -269,6 +270,144 @@ describe('逐项补充条件页面', () => {
     expect(document.body.textContent).not.toContain(RULE);
     expectNoPrivateOutput();
     expect(messagePosts(requests)).toHaveLength(1);
+  });
+});
+
+describe('标准计费页内确认与显式执行', () => {
+  function installExecution(options: {
+    execution?: () => Response | Promise<Response>;
+    source?: () => Response | Promise<Response>;
+    snapshot?: () => Response;
+    logout?: () => Response;
+  } = {}) {
+    let posts = 0;
+    vi.mocked(crypto.randomUUID).mockReturnValueOnce(REQUEST_ID).mockReturnValueOnce(CONDITION_REQUEST_ID)
+      .mockReturnValueOnce(MONTH_REQUEST_ID).mockReturnValueOnce(EXECUTION_REQUEST_ID);
+    return installApi(request => {
+      if (pathOf(request) === MESSAGES_PATH) {
+        posts += 1;
+        if (posts === 1) return jsonResponse(billingWaitingReply());
+        if (posts < 4) return jsonResponse(conditionReply(posts === 3));
+        return options.execution?.() ?? jsonResponse(billingExecutionReply());
+      }
+      if (posts === 4 && pathOf(request) === DOCUMENT_PATH) return options.source?.();
+      if (pathOf(request) === LOGOUT) return options.logout?.();
+      if (pathOf(request) === CONVERSATION_PATH) return options.snapshot?.() ?? jsonResponse(billingExecutionReply());
+    });
+  }
+  async function readyPage() {
+    render(<App />); await openConversation(); await create(); await send();
+    await supplement('3'); await supplement('2');
+  }
+  async function confirmAndExecute() {
+    await click(screen.getByRole('checkbox', { name: '确认该规则适用于上述同一计费期间' }));
+    await click(screen.getByRole('button', { name: '计算标准规则估算' }));
+  }
+
+  it('ready不自动执行，勾选不发送；一次点击后展示三步估算与来源、输入和边界', async () => {
+    const requests = installExecution();
+    await readyPage();
+    const button = screen.getByRole('button', { name: '计算标准规则估算' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await click(button);
+    expect(messagePosts(requests)).toHaveLength(3);
+    await click(screen.getByRole('checkbox'));
+    expect(button.disabled).toBe(false);
+    expect(messagePosts(requests)).toHaveLength(3);
+    await click(button);
+    const result = screen.getByRole('region', { name: '标准规则估算结果' });
+    for (const value of ['240.00', '90.00', '330.00', RULE, '2 个月', '3 次', '程序计算', '不是实际账单', '未产生扣款']) {
+      expect(result.textContent).toContain(value);
+    }
+    expect(result.textContent).toContain('导出说明.md · 文本块 1');
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(4);
+    const posted = await messagePosts(requests)[3].clone().json();
+    expect(posted).toMatchObject({ request_id: EXECUTION_REQUEST_ID, expected_version: 3,
+      mode: 'execute', confirm_billing_rule: true, response_mode: 'knowledge' });
+    await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.getByRole('region', { name: '标准规则估算结果' })).toBeTruthy();
+    expect(messagePosts(requests)).toHaveLength(4);
+    expectNoPrivateOutput();
+  });
+
+  it('保存与来源核对期间不显示金额，不允许连点再次执行', async () => {
+    const pending = deferred<Response>();
+    const requests = installExecution({ source: () => pending.promise });
+    await readyPage(); await confirmAndExecute();
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(document.body.textContent).not.toContain('330.00');
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(messagePosts(requests)).toHaveLength(4);
+    await resolveResponse(pending, jsonResponse(documentResponse()));
+    expect(screen.getByRole('region', { name: '标准规则估算结果' })).toBeTruthy();
+    expect(sourceReads(requests)).toHaveLength(4);
+  });
+
+  it.each([409, 502])('执行HTTP%s后读取completed也不恢复结果或解锁重发', async status => {
+    const requests = installExecution({ execution: () => jsonResponse({ detail: PRIVATE }, status) });
+    await readyPage(); await confirmAndExecute();
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(4);
+    expectNoPrivateOutput();
+  });
+
+  it.each(['cancel', 'back', 'logout', 'expiry'])('执行期间%s隔离迟到200，不自动执行或恢复结果', async action => {
+    const pending = deferred<Response>();
+    const requests = installExecution({ execution: () => pending.promise });
+    await readyPage(); await confirmAndExecute();
+    if (action === 'cancel') await click(screen.getByRole('button', { name: '停止等待估算结果' }));
+    else if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    await resolveResponse(pending, jsonResponse(billingExecutionReply()));
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(4);
+    if (action === 'cancel') expect(document.body.textContent).toContain('标准规则估算结果未确认');
+    expectNoPrivateOutput();
+  });
+
+  it.each([401, 404])('执行来源%s失败时隐藏金额和规则', async status => {
+    const requests = installExecution({ source: () => jsonResponse({ detail: PRIVATE }, status) });
+    await readyPage(); await confirmAndExecute();
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(document.body.textContent).not.toContain('330.00');
+    if (status === 401) expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+    else expect(document.body.textContent).toContain('标准规则估算结果未确认');
+    expect(messagePosts(requests)).toHaveLength(4);
+    expectNoPrivateOutput();
+  });
+
+  it('已确认估算后状态GET404会清除结果和规则，不恢复执行按钮', async () => {
+    const requests = installExecution({ snapshot: () => jsonResponse({ detail: PRIVATE }, 404) });
+    await readyPage(); await confirmAndExecute();
+    expect(screen.getByRole('region', { name: '标准规则估算结果' })).toBeTruthy();
+    await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(4);
+  });
+
+  it('退出失败仍保留被中断估算的未确认状态，迟到回执不能恢复结果', async () => {
+    const pending = deferred<Response>();
+    const requests = installExecution({ execution: () => pending.promise,
+      logout: () => jsonResponse({ detail: PRIVATE }, 502) });
+    await readyPage(); await confirmAndExecute();
+    await click(screen.getByRole('button', { name: '退出登录' }));
+    await resolveResponse(pending, jsonResponse(billingExecutionReply()));
+    expect(document.body.textContent).toContain('标准规则估算结果未确认');
+    expect(screen.queryByRole('region', { name: '标准规则估算结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '计算标准规则估算' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(4);
+    expectNoPrivateOutput();
   });
 });
 

@@ -34,7 +34,17 @@ export type ConversationPending = {
   requirements: ConversationRequirement[];
   current: ConversationRequirement;
   sources: ConversationSource[];
+  billingPlan: BillingPlan | null;
 };
+export type BillingRate = ConversationSource & { value: string; quote: string; unit: string };
+export type BillingPlan = { ruleQuote: string; ruleEvidenceId: number; monthlyFee: BillingRate; visitFee: BillingRate };
+export type BillingEstimate = {
+  version: number; plan: BillingPlan; visits: ConfirmedCondition; months: ConfirmedCondition;
+  monthlySubtotal: string; visitSubtotal: string; total: string;
+};
+export type BillingExecutionRequest = { requestId: string; expectedVersion: number; confirmed: true };
+export const BILLING_EXECUTION_CONTENT = '确认所选标准收费规则适用于已补充的同一计费期间，执行标准规则估算。';
+export const BILLING_UNCONFIRMED_MESSAGE = '标准规则估算结果未确认；可能已计算并保存，不自动重试或再次执行。';
 export type FirstConversationReply = {
   conversationId: string;
   requestId: string;
@@ -63,13 +73,14 @@ export class ConversationUnconfirmedError extends ApiError {
 
   constructor(stage: Stage, status: number | null = null) {
     super(stage === 'create' ? CONVERSATION_CREATE_UNCONFIRMED_MESSAGE
-      : stage === 'condition' ? CONDITION_UNCONFIRMED_MESSAGE : CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE, status);
+      : stage === 'condition' ? CONDITION_UNCONFIRMED_MESSAGE
+        : stage === 'execution' ? BILLING_UNCONFIRMED_MESSAGE : CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE, status);
     this.name = 'ConversationUnconfirmedError';
     this.stage = stage;
   }
 }
 
-type Stage = 'create' | 'message' | 'condition';
+type Stage = 'create' | 'message' | 'condition' | 'execution';
 const MESSAGE_WAIT_MS = 2_430_000;
 // Match Python's Unicode whitespace used by billing/rules.py, including U+0085.
 const RULE_SPACE = '[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
@@ -128,6 +139,10 @@ async function request(
       409: '会话状态、版本或来源已变化，请先显式核对状态；未自动重试，本响应不能确认是否已产生费用。',
       422: '会话请求参数未被接受，请核对输入；未自动重试，本响应不能确认是否已产生费用。',
     };
+    if (stage === 'execution') {
+      messages[409] = '会话版本、状态或规则来源已变化，估算未确认，不自动再次执行。';
+      messages[422] = '估算请求参数未被接受，未自动再次执行。';
+    }
     if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status);
     if (response.status !== expectedStatus) throw new ConversationUnconfirmedError(stage, response.status);
     const payload: unknown = await response.json();
@@ -247,7 +262,7 @@ function canonicalDecimal(value: string): string {
   return value.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
 
-function validateBilling(plan: unknown, requirements: ConversationRequirement[], evidence: ConversationSource[]): void {
+function validateBilling(plan: unknown, requirements: ConversationRequirement[], evidence: ConversationSource[]): BillingPlan {
   if (!object(plan) || plan.workflow !== 'monthly_visit_v1' || requirements.length !== 2) return invalid();
   const ruleId = integer(plan.rule_evidence_id, 1, evidence.length);
   const ruleQuote = text(plan.rule_quote, 1, 400);
@@ -260,6 +275,7 @@ function validateBilling(plan: unknown, requirements: ConversationRequirement[],
   const rule = ruleQuote.replace(RULE_EDGE_SPACE, '').match(STANDARD_BILLING_RULE);
   if (!rule) return invalid();
   const reference = evidence[ruleId - 1];
+  const rates: BillingRate[] = [];
   for (const [rate, unit, quote, price] of [
     [plan.monthly_fee, '元/个月', rule[1], rule[2]], [plan.visit_fee, '元/次', rule[3], rule[4]],
   ] as const) {
@@ -271,7 +287,9 @@ function validateBilling(plan: unknown, requirements: ConversationRequirement[],
         || bound.documentName !== reference.documentName || bound.chunkIndex !== reference.chunkIndex
         || bound.startChar < reference.startChar || bound.endChar > reference.endChar
         || bound.endChar - bound.startChar !== Array.from(quote).length) return invalid();
+    rates.push({ ...bound, value: rate.value, quote, unit });
   }
+  return { ruleQuote, ruleEvidenceId: ruleId, monthlyFee: rates[0], visitFee: rates[1] };
 }
 
 function pending(value: unknown, question: string, runSources: ConversationSource[], confirmedCount = 0,
@@ -286,12 +304,12 @@ function pending(value: unknown, question: string, runSources: ConversationSourc
   if (!Array.isArray(rawRequirements) || rawRequirements.length > 2) return invalid();
   if (value.billing_plan === null || value.billing_plan === undefined) {
     if (rawRequirements.length !== 0) return invalid();
-    return { kind: 'count', question, current, requirements: [current], sources: evidence };
+    return { kind: 'count', question, current, requirements: [current], sources: evidence, billingPlan: null };
   }
   const requirements = rawRequirements.map((item: unknown) => requirement(item, evidence));
-  validateBilling(value.billing_plan, requirements, evidence);
+  const billingPlan = validateBilling(value.billing_plan, requirements, evidence);
   if (!sameRequirement(current, requirements[currentIndex])) return invalid();
-  return { kind: 'billing', question, current, requirements, sources: evidence };
+  return { kind: 'billing', question, current, requirements, sources: evidence, billingPlan };
 }
 
 function parseFirstReply(
@@ -406,18 +424,14 @@ export async function submitConversationCondition(
     if (!Array.isArray(rawInputs) || rawInputs.length !== previous.inputs.length + 1) return invalid();
     const expected: ConfirmedCondition[] = [...previous.inputs,
       { fieldName: current.fieldName, value: Number(submitted.value), unit: current.unit, requestId, rawText: content }];
-    rawInputs.forEach((item: unknown, index: number) => {
-      const bound = expected[index];
-      if (!object(item) || item.field_name !== bound.fieldName || item.value !== bound.value
-          || item.unit !== bound.unit || item.request_id !== bound.requestId || item.raw_text !== bound.rawText
-          || item.provenance !== 'user_message') return invalid();
-    });
+    validateConfirmedInputs(rawInputs, expected);
     const ready = expected.length === previous.pending.requirements.length;
     if (payload.status !== (ready ? 'ready' : 'waiting_for_user')
         || payload.execution_deferred !== (ready ? 'explicit_execution_required' : null)) return invalid();
     const next = pending(payload.task, previous.pending.question, previous.pending.sources, expected.length,
       ready ? expected.length - 1 : expected.length);
     if (next.kind !== previous.pending.kind || next.requirements.length !== previous.pending.requirements.length
+        || JSON.stringify(next.billingPlan) !== JSON.stringify(previous.pending.billingPlan)
         || next.requirements.some((item, index) => !sameRequirement(item, previous.pending.requirements[index]))) return invalid();
     const documents = new Map(next.sources.map(item => [item.documentId, item.documentName]));
     for (const [documentId, documentName] of documents) {
@@ -430,5 +444,103 @@ export async function submitConversationCondition(
   } catch (failure) {
     if (!signal.aborted && failure instanceof ApiError && failure.status === 401) throw failure;
     throw new ConversationUnconfirmedError('condition', failure instanceof ApiError ? failure.status : null);
+  }
+}
+
+function validateConfirmedInputs(value: unknown, expected: ConfirmedCondition[]): void {
+  if (!Array.isArray(value) || value.length !== expected.length) return invalid();
+  value.forEach((item: unknown, index: number) => {
+    const bound = expected[index];
+    if (!object(item) || item.field_name !== bound.fieldName || item.value !== bound.value
+        || item.unit !== bound.unit || item.request_id !== bound.requestId || item.raw_text !== bound.rawText
+        || item.provenance !== 'user_message') return invalid();
+  });
+}
+
+// Use integer cents so large allowed prices are never rounded through JS Number.
+function cents(value: string): bigint {
+  const normalized = canonicalDecimal(value);
+  if (!/^(?:0|[1-9][0-9]{0,17})(?:\.[0-9]{1,2})?$/.test(normalized)
+      || normalized.trim() !== normalized) return invalid();
+  const [whole, fraction = ''] = normalized.split('.');
+  return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+}
+
+function decimalFromCents(value: bigint): string {
+  return canonicalDecimal(`${value / 100n}.${String(value % 100n).padStart(2, '0')}`);
+}
+
+export function formatBillingMoney(value: string): string {
+  const [whole, fraction = ''] = value.split('.');
+  return `${whole}.${fraction.padEnd(2, '0')}`;
+}
+
+function parseBillingEstimate(value: unknown, previous: ConversationConditions, requestId: string): BillingEstimate {
+  if (!object(value) || value.workflow !== 'monthly_visit_v1'
+      || value.scope !== 'confirmed_standard_rule_estimate' || value.currency !== 'CNY'
+      || value.confirmation_request_id !== requestId) return invalid();
+  const plan = validateBilling(value.plan, previous.pending.requirements, previous.pending.sources);
+  if (JSON.stringify(plan) !== JSON.stringify(previous.pending.billingPlan)) return invalid();
+  const [visits, months] = previous.inputs;
+  validateConfirmedInputs([value.visit_count, value.billing_months], [visits, months]);
+  const monthlySubtotal = decimalFromCents(cents(plan.monthlyFee.value) * BigInt(months.value));
+  const visitSubtotal = decimalFromCents(cents(plan.visitFee.value) * BigInt(visits.value));
+  const total = decimalFromCents(cents(monthlySubtotal) + cents(visitSubtotal));
+  if (value.monthly_subtotal !== monthlySubtotal || value.visit_subtotal !== visitSubtotal || value.total !== total
+      || !Array.isArray(value.steps) || value.steps.length !== 3) return invalid();
+  const expected = [
+    ['multiply', 'monthly_fee', 'billing_months', plan.monthlyFee.value, String(months.value), monthlySubtotal],
+    ['multiply', 'visit_fee', 'visit_count', plan.visitFee.value, String(visits.value), visitSubtotal],
+    ['add', 'step_1', 'step_2', monthlySubtotal, visitSubtotal, total],
+  ];
+  value.steps.forEach((step: unknown, index: number) => {
+    const [operation, leftRef, rightRef, leftValue, rightValue, result] = expected[index];
+    if (!object(step) || step.step !== index + 1 || step.operation !== operation
+        || step.left_ref !== leftRef || step.right_ref !== rightRef
+        || step.left_value !== leftValue || step.right_value !== rightValue || step.value !== result
+        || step.unit !== '元' || step.provenance !== 'program_calculation') return invalid();
+  });
+  return { version: previous.version + 1, plan, visits, months, monthlySubtotal, visitSubtotal, total };
+}
+
+export async function executeConversationBilling(
+  workspaceId: string, knowledgeBaseId: string, conversationId: string,
+  previous: ConversationConditions, submitted: BillingExecutionRequest, signal: AbortSignal,
+): Promise<BillingEstimate> {
+  const id = strictUuid(conversationId);
+  const requestId = strictUuid(submitted.requestId);
+  if (submitted.confirmed !== true || submitted.expectedVersion !== previous.version || previous.status !== 'ready'
+      || previous.pending.kind !== 'billing' || !previous.pending.billingPlan || previous.inputs.length !== 2
+      || !Number.isSafeInteger(previous.version) || previous.version < 1 || previous.version >= 200
+      || previous.inputs.some(item => item.requestId === requestId)) {
+    throw new ApiError('请先补齐标准计费条件，并明确确认规则适用于同一计费期间。');
+  }
+  const payload = await request(`${scopedPath(workspaceId, knowledgeBaseId)}/${id}/messages`,
+    'POST', 'execution', 200, signal, 10_000, JSON.stringify({ request_id: requestId,
+      expected_version: previous.version, content: BILLING_EXECUTION_CONTENT,
+      mode: 'execute', confirm_billing_rule: true, response_mode: 'knowledge' }));
+  try {
+    if (signal.aborted || !object(payload) || payload.conversation_id !== id || payload.request_id !== requestId
+        || payload.version !== previous.version + 1 || payload.status !== 'completed'
+        || payload.run !== null || payload.execution_deferred !== null || payload.answer_preference !== null
+        || !object(payload.task)) return invalid();
+    validateConfirmedInputs(payload.task.confirmed_inputs, previous.inputs);
+    const task = pending(payload.task, previous.pending.question, previous.pending.sources, 2, 1);
+    if (task.kind !== 'billing' || !sameRequirement(task.current, previous.pending.current)
+        || JSON.stringify(task.billingPlan) !== JSON.stringify(previous.pending.billingPlan)
+        || task.requirements.some((item, index) => !sameRequirement(item, previous.pending.requirements[index]))) return invalid();
+    const result = parseBillingEstimate(payload.billing_result, previous, requestId);
+    const taskResult = parseBillingEstimate(payload.task.billing_result, previous, requestId);
+    if (JSON.stringify(result) !== JSON.stringify(taskResult)) return invalid();
+    for (const [documentId, documentName] of new Map(task.sources.map(item => [item.documentId, item.documentName]))) {
+      if (signal.aborted) return invalid();
+      const document = await getDocument(workspaceId, knowledgeBaseId, documentId, signal);
+      if (signal.aborted || document.originalFilename !== documentName || document.status !== 'ready') return invalid();
+    }
+    if (signal.aborted) return invalid();
+    return result;
+  } catch (failure) {
+    if (!signal.aborted && failure instanceof ApiError && failure.status === 401) throw failure;
+    throw new ConversationUnconfirmedError('execution', failure instanceof ApiError ? failure.status : null);
   }
 }

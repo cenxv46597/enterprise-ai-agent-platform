@@ -26,6 +26,10 @@ form { display: flex; flex-direction: column; gap: 10px; margin-top: 26px; }
 label { font-size: 14px; font-weight: 600; }
 input { width: 100%; min-height: 44px; border: 1px solid #bccad2; border-radius: 6px; padding: 9px 12px; background: #fff; color: #172b3d; margin-bottom: 10px; }
 input:disabled { background: #f4f6f7; }
+.conversation-billing-confirmation label { display: flex; align-items: center; gap: 10px; margin: 16px 0; }
+.conversation-billing-confirmation input[type="checkbox"] {
+  width: 20px; height: 20px; min-height: 20px; margin: 0; padding: 0; flex-shrink: 0;
+}
 textarea { width: 100%; resize: vertical; min-height: 100px; border: 1px solid #bccad2; border-radius: 6px; padding: 10px 12px; color: #172b3d; background: #fff; }
 textarea:disabled { background: #f4f6f7; }
 .button { border: 1px solid transparent; border-radius: 6px; padding: 9px 17px; font-size: 14px; font-weight: 600; min-height: 42px; }
