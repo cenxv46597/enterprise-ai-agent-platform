@@ -20,12 +20,13 @@ type Props = {
   onSearch?: () => void;
   onAnswer?: () => void;
   onConversation?: () => void;
+  onWorkflow?: () => void;
   onOpenDocument: (document: KnowledgeDocument) => void;
   children?: ReactNode;
 };
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
-  activity, error, onBack, onRefresh, onSearch, onAnswer, onConversation, onOpenDocument, children }: Props) {
+  activity, error, onBack, onRefresh, onSearch, onAnswer, onConversation, onWorkflow, onOpenDocument, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
   return <section aria-labelledby="document-title">
@@ -36,6 +37,8 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
         <h1 id="document-title">文档</h1>
         <p className="intro">知识库：<strong>{knowledgeBaseName}</strong></p></div>
       <div className="page-actions">
+        {onWorkflow && <button className="button secondary" disabled={busy || !!error}
+          onClick={onWorkflow}>问答工作流</button>}
         {onConversation && <button className="button secondary" disabled={busy || !!error}
           onClick={onConversation}>会话问答</button>}
         {onAnswer && <button className="button primary" disabled={busy || !!error}
