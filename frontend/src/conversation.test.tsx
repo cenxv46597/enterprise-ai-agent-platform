@@ -165,6 +165,9 @@ describe('逐项补充条件页面', () => {
     expect(screen.getByLabelText('补充计费月数')).toBeTruthy();
     expect((screen.getByLabelText('补充计费月数') as HTMLInputElement).value).toBe('');
     expect(messagePosts(requests)).toHaveLength(2);
+    await supplement('0');
+    expect(screen.getByRole('alert').textContent).toContain('1 到 12');
+    expect(messagePosts(requests)).toHaveLength(2);
     await supplement('2');
     expect(screen.getByRole('heading', { name: '输入已齐备，尚未执行计算' })).toBeTruthy();
     expect(document.body.textContent).toContain('计费月数：2个月');
