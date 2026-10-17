@@ -3,6 +3,7 @@ import { ApiError, getDocument, parseKnowledgeAnswer, strictUuid, webRequestOpti
 
 export type WorkflowCreation = { requestId: string; question: string };
 export type WorkflowExecution = { requestId: string; expectedVersion: 0 };
+export type WorkflowResume = { requestId: string; expectedVersion: number; confirmed: true };
 export type WorkflowMeta = {
   id: string; question: string; maxContextCharacters: number;
   status: 'pending' | 'running' | 'failed' | 'completed'; nextStep: 'retrieve' | 'generate' | 'done';
@@ -10,14 +11,15 @@ export type WorkflowMeta = {
   errorCode: string | null; retryable: boolean;
 };
 export type WorkflowReceipt = {
-  requestId: string; attemptNumber: 1; status: 'completed' | 'failed'; workflow: WorkflowMeta;
+  requestId: string; attemptNumber: number; status: 'completed' | 'failed'; workflow: WorkflowMeta;
   answer: KnowledgeAnswerResult | null;
 };
-type Stage = 'create' | 'execute' | 'read';
+type Stage = 'create' | 'execute' | 'read' | 'resume';
 export const WORKFLOW_NOTICES: Record<Stage, string> = {
   create: '工作流创建结果未确认；可能已保存任务，不自动再次创建。',
   execute: '工作流执行结果未确认；可能已调用外部服务或保存检查点，不自动重试或恢复。',
   read: '工作流当前状态未确认；可按需重新读取，不会自动执行。',
+  resume: '生成恢复结果未确认；可能已调用生成服务或保存结果，本页不自动重试或再次恢复。',
 };
 export class WorkflowUnconfirmedError extends ApiError {
   readonly stage: Stage;
@@ -33,6 +35,27 @@ const RETRYABLE = new Set(['embedding_timeout', 'embedding_error', 'generation_c
 type Hit = { chunkId: string; documentId: string; documentName: string; chunkIndex: number;
   content: string; startChar: number; endChar: number };
 type Parsed = { meta: WorkflowMeta; hits: Hit[]; answer: KnowledgeAnswerResult | null };
+// Keep verified checkpoint provenance private and in memory. Metadata GET never manufactures it.
+type CheckpointProvenance = { workspace: string; knowledgeBase: string; hits: Hit[] };
+const receiptCheckpoints = new WeakMap<WorkflowReceipt, CheckpointProvenance & { meta: WorkflowMeta; requestId: string }>();
+const readSnapshots = new WeakMap<WorkflowMeta, CheckpointProvenance>();
+export function sameWorkflowMeta(left: WorkflowMeta, right: WorkflowMeta): boolean {
+  return left.id === right.id && left.question === right.question && left.maxContextCharacters === right.maxContextCharacters
+    && left.status === right.status && left.nextStep === right.nextStep && left.version === right.version
+    && left.attemptCount === right.attemptCount && left.checkpointCount === right.checkpointCount
+    && left.errorCode === right.errorCode && left.retryable === right.retryable;
+}
+export function canResumeWorkflow(failure: WorkflowReceipt | null, current: WorkflowMeta | null): boolean {
+  if (!failure || !current) return false;
+  const saved = receiptCheckpoints.get(failure);
+  const snapshot = readSnapshots.get(current);
+  return !!saved && !!snapshot && snapshot.workspace === saved.workspace && snapshot.knowledgeBase === saved.knowledgeBase
+    && JSON.stringify(snapshot.hits) === JSON.stringify(saved.hits)
+    && saved.requestId === failure.requestId && failure.status === 'failed' && failure.attemptNumber === 1
+    && sameWorkflowMeta(failure.workflow, saved.meta) && sameWorkflowMeta(current, saved.meta)
+    && current.status === 'failed' && current.nextStep === 'generate' && current.retryable
+    && current.checkpointCount !== null && current.attemptCount === 1 && current.version <= 28;
+}
 function invalid(): never { throw new Error('Invalid public workflow'); }
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -59,7 +82,7 @@ async function request(url: string, stage: Stage, status: number, signal: AbortS
   const controller = new AbortController();
   const cancel = () => controller.abort();
   signal.addEventListener('abort', cancel, { once: true });
-  const timer = setTimeout(cancel, stage === 'execute' ? 630_000 : 10_000);
+  const timer = setTimeout(cancel, stage === 'execute' || stage === 'resume' ? 630_000 : 10_000);
   try {
     const options: RequestInit = body === undefined ? { method: 'GET' }
       : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -181,28 +204,58 @@ export async function executeAnswerWorkflow(workspaceId: string, knowledgeBaseId
   }
   const payload = await request(`${path(workspace, knowledgeBase)}/${id}/execute`, 'execute', 200, signal,
     { request_id: requestId, expected_version: 0, recover_interrupted: false });
+  return confirmExecution(payload, workspace, knowledgeBase, created, requestId, signal, 'execute');
+}
+
+async function confirmExecution(payload: unknown, workspace: string, knowledgeBase: string, previous: WorkflowMeta,
+  requestId: string, signal: AbortSignal, stage: 'execute' | 'resume', originalHits?: Hit[]): Promise<WorkflowReceipt> {
   try {
-    if (signal.aborted || !object(payload) || payload.request_id !== requestId || payload.attempt_number !== 1
+    const expectedAttempt = stage === 'execute' ? 1 : previous.attemptCount + 1;
+    if (signal.aborted || !object(payload) || payload.request_id !== requestId || payload.attempt_number !== expectedAttempt
         || (payload.status !== 'completed' && payload.status !== 'failed')) return invalid();
-    const parsed = parseState(payload.workflow, workspace, knowledgeBase, created.question, created);
+    const parsed = parseState(payload.workflow, workspace, knowledgeBase, previous.question, previous);
     const meta = parsed.meta;
-    if (meta.attemptCount !== 1 || meta.status !== payload.status
-        || (meta.status === 'completed' ? meta.version !== 3 : meta.version !== 2 && meta.version !== 3)
+    if (meta.attemptCount !== expectedAttempt || meta.status !== payload.status) return invalid();
+    if (stage === 'execute' && (
+        (meta.status === 'completed' ? meta.version !== 3 : meta.version !== 2 && meta.version !== 3)
         || (meta.version === 2 && meta.checkpointCount !== null)
         || (meta.status === 'failed' && meta.nextStep === 'generate' && meta.version !== 3)
         || (meta.status === 'failed' && meta.nextStep === 'retrieve' && meta.version === 3
-          && meta.errorCode !== 'evidence_changed' && meta.errorCode !== 'checkpoint_invalid')) return invalid();
+          && meta.errorCode !== 'evidence_changed' && meta.errorCode !== 'checkpoint_invalid'))) return invalid();
+    if (stage === 'resume' && (meta.version !== previous.version + 2
+        || (meta.checkpointCount === null
+          ? meta.status !== 'failed' || (meta.errorCode !== 'evidence_changed' && meta.errorCode !== 'checkpoint_invalid')
+          : JSON.stringify(parsed.hits) !== JSON.stringify(originalHits)))) return invalid();
     for (const [documentId, documentName] of new Map(parsed.hits.map(hit => [hit.documentId, hit.documentName]))) {
       if (signal.aborted) return invalid();
       const document = await getDocument(workspace, knowledgeBase, documentId, signal);
       if (signal.aborted || document.originalFilename !== documentName || document.status !== 'ready') return invalid();
     }
     if (signal.aborted) return invalid();
-    return { requestId, attemptNumber: 1, status: payload.status, workflow: meta, answer: parsed.answer };
+    const receipt: WorkflowReceipt = { requestId, attemptNumber: expectedAttempt, status: payload.status, workflow: meta, answer: parsed.answer };
+    receiptCheckpoints.set(receipt, { meta: { ...meta }, hits: parsed.hits, requestId, workspace, knowledgeBase });
+    return receipt;
   } catch (failure) {
     if (!signal.aborted && failure instanceof ApiError && failure.status === 401) throw failure;
-    throw new WorkflowUnconfirmedError('execute', failure instanceof ApiError ? failure.status : null);
+    throw new WorkflowUnconfirmedError(stage, failure instanceof ApiError ? failure.status : null);
   }
+}
+
+export async function resumeAnswerWorkflow(workspaceId: string, knowledgeBaseId: string,
+  failure: WorkflowReceipt, current: WorkflowMeta, submitted: WorkflowResume, signal: AbortSignal): Promise<WorkflowReceipt> {
+  const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
+  const requestId = strictUuid(submitted.requestId);
+  if (!canResumeWorkflow(failure, current) || submitted.confirmed !== true
+      || submitted.expectedVersion !== current.version || requestId === failure.requestId) {
+    throw new ApiError('请先核对本页已确认的生成失败状态，再明确允许新的调用；本步不恢复未知结果或执行中任务。');
+  }
+  const saved = receiptCheckpoints.get(failure)!;
+  if (saved.workspace !== workspace || saved.knowledgeBase !== knowledgeBase) {
+    throw new ApiError('恢复范围与已确认任务不一致。');
+  }
+  const payload = await request(`${path(workspace, knowledgeBase)}/${strictUuid(current.id)}/execute`, 'resume', 200, signal,
+    { request_id: requestId, expected_version: current.version, recover_interrupted: false });
+  return confirmExecution(payload, workspace, knowledgeBase, current, requestId, signal, 'resume', saved.hits);
 }
 
 export async function readAnswerWorkflow(workspaceId: string, knowledgeBaseId: string,
@@ -212,6 +265,8 @@ export async function readAnswerWorkflow(workspaceId: string, knowledgeBaseId: s
   try {
     if (signal.aborted) return invalid();
     // Deliberately project metadata only: GET cannot confirm this page's execution request.
-    return parseState(payload, workspace, knowledgeBase, created.question, created).meta;
+    const parsed = parseState(payload, workspace, knowledgeBase, created.question, created);
+    readSnapshots.set(parsed.meta, { workspace, knowledgeBase, hits: parsed.hits });
+    return parsed.meta;
   } catch { throw new WorkflowUnconfirmedError('read'); }
 }

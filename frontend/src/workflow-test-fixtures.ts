@@ -7,6 +7,7 @@ import {
 export const WORKFLOW_ID = '77777777-7777-7777-7777-777777777777';
 export const CREATION_REQUEST_ID = '88888888-8888-8888-8888-888888888888';
 export const WORKFLOW_EXECUTION_REQUEST_ID = '99999999-9999-9999-9999-999999999999';
+export const WORKFLOW_RESUME_REQUEST_ID = '12121212-1212-1212-1212-121212121212';
 export const WORKFLOWS_PATH = `${BASE_PATH}/answer-workflows`;
 export const WORKFLOW_PATH = `${WORKFLOWS_PATH}/${WORKFLOW_ID}`;
 export const WORKFLOW_EXECUTE_PATH = `${WORKFLOW_PATH}/execute`;
@@ -56,4 +57,10 @@ export function runningWorkflow(step: 'retrieve' | 'generate' = 'retrieve', ques
 export function workflowExecution(workflow: ReturnType<typeof createdWorkflow> = completedWorkflow()) {
   return { request_id: WORKFLOW_EXECUTION_REQUEST_ID, attempt_number: 1,
     status: workflow.status === 'completed' ? 'completed' : 'failed', workflow };
+}
+
+export function resumedWorkflowExecution(workflow: ReturnType<typeof createdWorkflow> = completedWorkflow()) {
+  return { request_id: WORKFLOW_RESUME_REQUEST_ID, attempt_number: 2,
+    status: workflow.status === 'completed' ? 'completed' : 'failed',
+    workflow: { ...workflow, version: 5, attempt_count: 2 } };
 }

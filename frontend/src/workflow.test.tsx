@@ -6,6 +6,7 @@ import { USER_ID, WORKSPACE_ID, KNOWLEDGE_BASE_ID, OTHER_KNOWLEDGE_BASE_ID,
   documentResponse, jsonResponse } from './conversation-test-fixtures';
 import { WORKFLOWS_PATH, WORKFLOW_PATH, WORKFLOW_EXECUTE_PATH, CREATION_REQUEST_ID, WORKFLOW_EXECUTION_REQUEST_ID,
   createdWorkflow, completedWorkflow, abstainedWorkflow, failedWorkflow, runningWorkflow, workflowExecution } from './workflow-test-fixtures';
+import { WORKFLOW_RESUME_REQUEST_ID, resumedWorkflowExecution } from './workflow-test-fixtures';
 
 const RESTORE = '/api/v1/auth/web/session', LOGOUT = '/api/v1/auth/web/logout';
 const SPACES = '/api/v1/workspaces', KNOWLEDGE = `${SPACES}/${WORKSPACE_ID}/knowledge-bases`;
@@ -232,5 +233,159 @@ describe('独立问答工作流页第一小步', () => {
     await click(screen.getByRole('button', { name: '读取当前工作流状态' }));
     expectNoAnswer(); expect((screen.getByRole('button', { name: '执行工作流一次' }) as HTMLButtonElement).disabled).toBe(true);
     expect(posts(requests)).toHaveLength(1);
+  });
+});
+
+describe('保留检查点的生成失败显式恢复', () => {
+  function installRecovery(options: {
+    failure?: ReturnType<typeof failedWorkflow>; snapshot?: () => Response;
+    first?: () => Response;
+    resume?: () => Response | Promise<Response>; source?: () => Response | Promise<Response>;
+    logout?: () => Response;
+  } = {}) {
+    let executions = 0;
+    vi.mocked(crypto.randomUUID).mockReset().mockReturnValueOnce(CREATION_REQUEST_ID)
+      .mockReturnValueOnce(WORKFLOW_EXECUTION_REQUEST_ID).mockReturnValue(WORKFLOW_RESUME_REQUEST_ID);
+    return install(request => {
+      if (pathname(request) === WORKFLOW_EXECUTE_PATH) {
+        executions += 1;
+        return executions === 1 ? options.first?.() ?? jsonResponse(workflowExecution(options.failure ?? failedWorkflow('generate')))
+          : options.resume?.() ?? jsonResponse(resumedWorkflowExecution());
+      }
+      if (pathname(request) === WORKFLOW_PATH) return options.snapshot?.()
+        ?? jsonResponse(executions >= 2 ? resumedWorkflowExecution().workflow : options.failure ?? failedWorkflow('generate'));
+      if (executions >= 2 && pathname(request) === OTHER_DOCUMENT_PATH) return options.source?.();
+      if (pathname(request) === LOGOUT) return options.logout?.();
+    });
+  }
+  async function prepare(read = true) {
+    await open(); await create(); await execute();
+    if (read) await click(screen.getByRole('button', { name: '读取当前工作流状态' }));
+  }
+  async function recover() {
+    await click(screen.getByRole('checkbox', { name: '我已核对当前失败状态，允许本次恢复可能产生新的生成调用' }));
+    await click(screen.getByRole('button', { name: '确认并恢复生成一次' }));
+  }
+
+  it('已确认失败后先读状态，勾选不提交；明确恢复使用新编号与版本3，回执是第二次尝试', async () => {
+    const requests = installRecovery(); await prepare(false);
+    expect(screen.queryByRole('checkbox')).toBeNull(); expect(posts(requests)).toHaveLength(1);
+    const count = requests.length;
+    await click(screen.getByRole('button', { name: '读取当前工作流状态' }));
+    expect(requests.slice(count).map(pathname)).toEqual([WORKFLOW_PATH]);
+    const button = screen.getByRole('button', { name: '确认并恢复生成一次' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true); await click(button); expect(posts(requests)).toHaveLength(1);
+    await click(screen.getByRole('checkbox')); expect(button.disabled).toBe(false);
+    expect(posts(requests)).toHaveLength(1);
+    await click(button);
+    const receipt = screen.getByRole('region', { name: '恢复执行回执' });
+    expect(receipt.textContent).toContain(ANSWER); expect(receipt.textContent).toContain('已记录尝试次数：2');
+    expect(receipt.textContent).toContain('记录版本：5');
+    expect(await posts(requests)[1].clone().json()).toEqual({ request_id: WORKFLOW_RESUME_REQUEST_ID,
+      expected_version: 3, recover_interrupted: false });
+    expect(posts(requests)).toHaveLength(2);
+    await click(screen.getByRole('button', { name: '读取当前工作流状态' }));
+    expect(screen.getByRole('region', { name: '恢复执行回执' }).textContent).toContain(ANSWER);
+    expect(screen.queryByRole('button', { name: '确认并恢复生成一次' })).toBeNull();
+    expect(posts(requests)).toHaveLength(2);
+  });
+
+  it('重新读取状态时清除勾选，核对成功后仍须重新确认', async () => {
+    const requests = installRecovery(); await prepare(); await click(screen.getByRole('checkbox'));
+    await click(screen.getByRole('button', { name: '读取当前工作流状态' }));
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole('button', { name: '确认并恢复生成一次' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(posts(requests)).toHaveLength(1);
+  });
+
+  it.each(['retrieve', 'running', 'changed-version', 'changed-checkpoint', 'unknown-first'])(
+    '%s不开放本次恢复，不从GET重建未知失败回执', async scenario => {
+      const current = failedWorkflow('generate');
+      if (scenario === 'changed-version') current.version = 4;
+      if (scenario === 'changed-checkpoint') current.checkpoint!.hits.reverse();
+      const requests = installRecovery({
+        failure: scenario === 'retrieve' ? failedWorkflow('retrieve') : undefined,
+        snapshot: scenario === 'running' ? () => jsonResponse(runningWorkflow('generate'))
+          : scenario === 'changed-version' || scenario === 'changed-checkpoint' ? () => jsonResponse(current) : undefined,
+        first: scenario === 'unknown-first' ? () => jsonResponse({ detail: PRIVATE }, 503) : undefined,
+      });
+      await prepare(); expect(posts(requests)).toHaveLength(1);
+      expect(screen.queryByRole('checkbox')).toBeNull();
+      expect(screen.queryByRole('button', { name: '确认并恢复生成一次' })).toBeNull();
+      expectNoAnswer();
+    });
+
+  it('恢复来源全部核对前不展示答案或开放第二次恢复', async () => {
+    const pending = deferred(); const requests = installRecovery({ source: () => pending.promise });
+    await prepare(); await recover(); expectNoAnswer();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: '确认并恢复生成一次' })).toBeNull();
+    expect(posts(requests)).toHaveLength(2);
+    await resolve(pending, jsonResponse(documentResponse(OTHER_DOCUMENT_ID)));
+    expect(screen.getByRole('region', { name: '恢复执行回执' }).textContent).toContain(LONG_QUOTE);
+    expect(posts(requests)).toHaveLength(2);
+  });
+
+  it.each([409, 503])('恢复HTTP%s后即使GET当前为completed，也不恢复答案或重新开放恢复', async status => {
+    const requests = installRecovery({ resume: () => jsonResponse({ detail: PRIVATE }, status) });
+    await prepare(); await recover(); expectNoAnswer();
+    await click(screen.getByRole('button', { name: '读取当前工作流状态' })); expectNoAnswer();
+    expect(screen.queryByRole('checkbox')).toBeNull(); expect(posts(requests)).toHaveLength(2);
+  });
+
+  it.each(['generation_error', 'evidence_changed'])('恢复后合法失败%s不自动再次恢复或检索', async code => {
+    const failure = failedWorkflow('generate'); failure.error_code = code;
+    if (code === 'evidence_changed') { failure.checkpoint = null; failure.next_step = 'retrieve'; failure.retryable = false; }
+    const requests = installRecovery({ resume: () => jsonResponse(resumedWorkflowExecution(failure)) });
+    await prepare(); await recover();
+    const receipt = screen.getByRole('region', { name: '恢复执行回执' });
+    expect(receipt.textContent).toContain('执行失败'); expect(receipt.textContent).toContain('尝试次数：2');
+    expect(screen.queryByRole('checkbox')).toBeNull(); expect(posts(requests)).toHaveLength(2); expectNoAnswer();
+  });
+
+  it.each(['cancel', 'back', 'logout', 'expiry'])('恢复等待期间%s隔离迟到结果，不再发送POST', async action => {
+    const pending = deferred(); const requests = installRecovery({ resume: () => pending.promise });
+    await prepare(); await recover();
+    if (action === 'cancel') await click(screen.getByRole('button', { name: '停止等待恢复结果' }));
+    else if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    await resolve(pending, jsonResponse(resumedWorkflowExecution())); expectNoAnswer();
+    expect(posts(requests)).toHaveLength(2);
+    if (action === 'cancel') expect(document.body.textContent).toContain('生成恢复结果未确认');
+  });
+
+  it.each([401, 404])('恢复来源%s失败不展示答案或允许再恢复', async status => {
+    const requests = installRecovery({ source: () => jsonResponse({ detail: PRIVATE }, status) });
+    await prepare(); await recover(); expectNoAnswer();
+    expect(screen.queryByRole('checkbox')).toBeNull(); expect(posts(requests)).toHaveLength(2);
+    if (status === 401) expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+    else expect(document.body.textContent).toContain('生成恢复结果未确认');
+  });
+
+  it('恢复时退出失败仍保留未确认记录，迟到回执不能复活', async () => {
+    const pending = deferred(); const requests = installRecovery({ resume: () => pending.promise,
+      logout: () => jsonResponse({ detail: PRIVATE }, 502) });
+    await prepare(); await recover(); await click(screen.getByRole('button', { name: '退出登录' }));
+    await resolve(pending, jsonResponse(resumedWorkflowExecution())); expectNoAnswer();
+    expect(document.body.textContent).toContain('生成恢复结果未确认'); expect(posts(requests)).toHaveLength(2);
+  });
+
+  it('恢复来源等待中取消，迟到来源成功也不显示答案', async () => {
+    const pending = deferred(); const requests = installRecovery({ source: () => pending.promise });
+    await prepare(); await recover(); expectNoAnswer();
+    await click(screen.getByRole('button', { name: '停止等待恢复结果' }));
+    await resolve(pending, jsonResponse(documentResponse(OTHER_DOCUMENT_ID))); expectNoAnswer();
+    expect(posts(requests)).toHaveLength(2); expect(document.body.textContent).toContain('生成恢复结果未确认');
+  });
+
+  it('恢复成功后GET404清除恢复答案，不保留可执行入口', async () => {
+    let reads = 0;
+    const requests = installRecovery({ snapshot: () => ++reads === 1 ? jsonResponse(failedWorkflow('generate'))
+      : jsonResponse({ detail: PRIVATE }, 404) });
+    await prepare(); await recover(); expect(document.body.textContent).toContain(ANSWER);
+    await click(screen.getByRole('button', { name: '读取当前工作流状态' })); expectNoAnswer();
+    expect(screen.queryByRole('button', { name: '确认并恢复生成一次' })).toBeNull();
+    expect(posts(requests)).toHaveLength(2);
   });
 });

@@ -15,7 +15,8 @@ import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
 import { createAnswerWorkflow, executeAnswerWorkflow, readAnswerWorkflow, WorkflowUnconfirmedError,
-  WORKFLOW_NOTICES, type WorkflowCreation, type WorkflowExecution } from './workflow-api';
+  resumeAnswerWorkflow, canResumeWorkflow, sameWorkflowMeta,
+  WORKFLOW_NOTICES, type WorkflowCreation, type WorkflowExecution, type WorkflowResume } from './workflow-api';
 import {
   createConversation, sendFirstConversationMessage, getConversationSnapshot, ConversationUnconfirmedError,
   CONVERSATION_CREATE_UNCONFIRMED_MESSAGE, CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE,
@@ -27,7 +28,7 @@ import {
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
   | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer'
   | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-execute'
-  | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-read' | 'logout' | null;
+  | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -572,7 +573,8 @@ export default function App() {
     setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
     setConversationView(null); setUploadOutcome(null); setError('');
     setWorkflowView({ creation: null, created: null, createNotice: '', execution: null, receipt: null,
-      executeNotice: '', snapshot: null, readNotice: '', blocked: false });
+      executeNotice: '', snapshot: null, readNotice: '', blocked: false,
+      resumeRequest: null, resumeReceipt: null, resumeNotice: '' });
   }
 
   async function createWorkflow(question: string) {
@@ -626,10 +628,13 @@ export default function App() {
       const snapshot = await readAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, created, controller.signal);
       if (isCurrent(id, controller)) setWorkflowView(view => {
         if (!view) return view;
-        const previous = view.receipt?.workflow ?? created;
-        const changed = snapshot.version !== previous.version || snapshot.status !== previous.status;
+        const previous = view.resumeReceipt?.workflow ?? view.receipt?.workflow ?? created;
+        const checkpointMismatch = !view.resumeRequest && view.receipt?.status === 'failed'
+          && previous.nextStep === 'generate' && previous.retryable && sameWorkflowMeta(snapshot, previous)
+          && !canResumeWorkflow(view.receipt, snapshot);
+        const changed = !sameWorkflowMeta(snapshot, previous) || checkpointMismatch;
         return { ...view, snapshot, blocked: view.blocked || changed,
-          receipt: changed ? null : view.receipt,
+          receipt: changed ? null : view.receipt, resumeReceipt: changed ? null : view.resumeReceipt,
           readNotice: changed ? '当前任务记录已变化，本页暂停写入；读取状态不会确认本次执行回执或解锁重发。' : '' };
       });
     } catch (failure) {
@@ -637,6 +642,7 @@ export default function App() {
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
       else setWorkflowView(view => view && { ...view,
         receipt: failure instanceof ApiError && failure.status === 404 ? null : view.receipt,
+        resumeReceipt: failure instanceof ApiError && failure.status === 404 ? null : view.resumeReceipt,
         blocked: view.blocked || (failure instanceof ApiError && failure.status === 404), readNotice:
           failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError) ? failure.message : WORKFLOW_NOTICES.read });
     } finally {
@@ -644,18 +650,43 @@ export default function App() {
     }
   }
 
+  async function resumeWorkflow() {
+    if (!workflowView?.created || !workflowView.receipt || !workflowView.snapshot || workflowView.resumeRequest
+        || workflowView.readNotice || !canResumeWorkflow(workflowView.receipt, workflowView.snapshot)
+        || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const failure = workflowView.receipt, current = workflowView.snapshot;
+    const submitted: WorkflowResume = { requestId: crypto.randomUUID(), expectedVersion: current.version, confirmed: true };
+    const { id, controller } = beginRequest();
+    setBusy('workflow-resume'); setError('');
+    setWorkflowView(view => view && { ...view, resumeRequest: submitted, resumeReceipt: null,
+      resumeNotice: '', snapshot: null, readNotice: '' });
+    try {
+      const resumeReceipt = await resumeAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id,
+        failure, current, submitted, controller.signal);
+      if (isCurrent(id, controller)) setWorkflowView(view => view && { ...view, resumeReceipt });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setWorkflowView(view => view && { ...view, resumeNotice:
+        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError) ? failure.message : WORKFLOW_NOTICES.resume });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
   function markWorkflowInterrupted(activity: Busy) {
     const stage = activity === 'workflow-create' ? 'create' : activity === 'workflow-execute' ? 'execute'
-      : activity === 'workflow-read' ? 'read' : null;
+      : activity === 'workflow-resume' ? 'resume' : activity === 'workflow-read' ? 'read' : null;
     if (!stage) return;
     setWorkflowView(view => view && { ...view, blocked: view.blocked || stage !== 'read',
       createNotice: stage === 'create' ? WORKFLOW_NOTICES.create : view.createNotice,
       executeNotice: stage === 'execute' ? WORKFLOW_NOTICES.execute : view.executeNotice,
+      resumeNotice: stage === 'resume' ? WORKFLOW_NOTICES.resume : view.resumeNotice,
       readNotice: stage === 'read' ? WORKFLOW_NOTICES.read : view.readNotice });
   }
 
   function stopWaitingForWorkflow() {
-    if (busy !== 'workflow-create' && busy !== 'workflow-execute' && busy !== 'workflow-read') return;
+    if (busy !== 'workflow-create' && busy !== 'workflow-execute' && busy !== 'workflow-read' && busy !== 'workflow-resume') return;
     generation.current += 1; pending.current?.abort(); pending.current = null;
     markWorkflowInterrupted(busy); setBusy(null);
   }
@@ -923,9 +954,10 @@ export default function App() {
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'workflow-create' ? 'creating' : busy === 'workflow-execute' ? 'executing'
-            : busy === 'workflow-read' ? 'reading' : busy === 'logout' ? 'logout' : 'idle'}
+            : busy === 'workflow-resume' ? 'resuming' : busy === 'workflow-read' ? 'reading' : busy === 'logout' ? 'logout' : 'idle'}
           view={workflowView} error={error} onCreate={question => void createWorkflow(question)}
           onExecute={() => void executeWorkflow()} onRead={() => void readWorkflow()}
+          onResume={() => void resumeWorkflow()}
           onCancel={stopWaitingForWorkflow} onBack={backToDocuments}
         /> : selectedWorkspace && selectedKnowledgeBase && conversationView ? <KnowledgeConversation
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}

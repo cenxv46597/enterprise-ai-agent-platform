@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { KnowledgeAnswerResult } from './api';
-import type { WorkflowCreation, WorkflowMeta, WorkflowReceipt } from './workflow-api';
+import { canResumeWorkflow, type WorkflowCreation, type WorkflowMeta, type WorkflowReceipt, type WorkflowResume } from './workflow-api';
 
 export type WorkflowView = {
   creation: WorkflowCreation | null;
@@ -12,17 +12,21 @@ export type WorkflowView = {
   snapshot: WorkflowMeta | null;
   readNotice: string;
   blocked: boolean;
+  resumeRequest: WorkflowResume | null;
+  resumeReceipt: WorkflowReceipt | null;
+  resumeNotice: string;
 };
 
 type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
-  activity: 'idle' | 'creating' | 'executing' | 'reading' | 'logout';
+  activity: 'idle' | 'creating' | 'executing' | 'resuming' | 'reading' | 'logout';
   view: WorkflowView;
   error: string;
   onCreate: (question: string) => void;
   onExecute: () => void;
   onRead: () => void;
+  onResume: () => void;
   onCancel: () => void;
   onBack: () => void;
 };
@@ -65,7 +69,7 @@ function Metadata({ workflow }: { workflow: WorkflowMeta }) {
       失败原因：{Object.hasOwn(ERROR_TEXT, workflow.errorCode)
         ? ERROR_TEXT[workflow.errorCode] : '原因未识别，未展示原始内容'}。</p>}
     {workflow.status === 'failed' && <p className="session-note">{workflow.retryable
-      ? '后端允许后续显式恢复；本页尚未提供恢复操作。'
+      ? '后端允许后续显式恢复；是否开放操作仍需核对当前状态及页面范围。'
       : '当前记录不允许恢复；本页不会再次执行。'}</p>}
     <p className="session-note">固定步骤为“检索资料 → 保存检查点 → 生成回答 → 完成”。
       以上是已收到的记录，不是实时进度；记录版本也不等于执行次数。</p>
@@ -96,13 +100,14 @@ function Answer({ answer }: { answer: KnowledgeAnswerResult }) {
 }
 
 export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, activity,
-  view, error, onCreate, onExecute, onRead, onCancel, onBack }: Props) {
+  view, error, onCreate, onExecute, onRead, onResume, onCancel, onBack }: Props) {
   const [question, setQuestion] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
   const canCreate = !busy && !view.creation && !view.created && !view.blocked;
   const canExecute = !busy && !view.blocked && !!view.created && !view.execution
     && !view.receipt && view.created.status === 'pending' && view.created.version === 0;
+  const canResume = !busy && !view.resumeRequest && !view.readNotice && canResumeWorkflow(view.receipt, view.snapshot);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,7 +166,8 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
         <p className="message">工作流已确认创建。创建操作不会自动执行。</p>
         <p>创建时冻结的正文字符预算：{view.created.maxContextCharacters} 个字符。</p>
         <p className="session-note">点击执行后依次检索资料、保存检查点、生成回答。
-          执行可能调用向量服务和回答模型；本页不自动重试，也不提供失败恢复。</p>
+          执行可能调用向量服务和回答模型；本页不自动重试。
+          已确认的生成失败可按下方条件明确恢复一次。</p>
         <div className="processing-actions">
           <button className="button primary" disabled={!canExecute} onClick={() => { if (canExecute) onExecute(); }}>
             {activity === 'executing' ? '正在执行工作流…' : '执行工作流一次'}</button>
@@ -170,9 +176,36 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
         {activity === 'executing' && <p className="message" role="status">正在执行并核对保存结果与引用来源…</p>}
         {activity === 'executing' && <p className="session-note">
           停止等待不能保证后端停止或没有产生费用。</p>}
-        {view.execution && <p className="session-note">本次执行提交已保留，本页不会再次执行。
-          读取状态不会自动重发，也不会解锁执行按钮。</p>}
+        {view.execution && <p className="session-note">首次执行提交已保留，不会重发。
+          读取状态不会自动重发或解锁首次执行；恢复须另行明确确认。</p>}
         {view.executeNotice && <p className="message error" role="alert">{view.executeNotice}</p>}
+      </section>}
+      {view.receipt?.status === 'failed' && !view.resumeRequest && <section className="search-form-panel" aria-label="生成失败恢复">
+        <h2>从检查点恢复生成</h2>
+        <p>本步仅处理本页已确认的生成失败，且需保留检索检查点。
+          请先手动读取当前状态，核对版本、尝试次数、失败阶段和原检查点一致。</p>
+        {canResume ? <RecoveryConfirmation key={view.snapshot!.version} onResume={onResume} /> :
+          <p className="session-note">当前尚未满足恢复条件。读取状态不会自动执行；
+            检索失败、执行中、结果未确认或资料变化的任务不能在这里恢复。</p>}
+      </section>}
+      {view.resumeRequest && <section className="search-form-panel" aria-label="恢复提交记录">
+        <h2>本次恢复提交</h2>
+        <p>按已核对的版本 {view.resumeRequest.expectedVersion} 明确提交，复用检索检查点继续生成。</p>
+        {activity === 'resuming' && <>
+          <p role="status">正在恢复生成并核对保存结果与全部来源…</p>
+          <button className="button secondary" onClick={onCancel}>停止等待恢复结果</button>
+          <p className="session-note">停止等待不能保证后端停止或没有产生新的调用费用。</p>
+        </>}
+        <p className="session-note">本页仅恢复一次，不重发该请求；读取状态不会开放再次恢复。</p>
+        {view.resumeNotice && <p className="message error" role="alert">{view.resumeNotice}</p>}
+      </section>}
+      {view.resumeReceipt && <section className="answer-results" aria-label="恢复执行回执">
+        <h2>恢复执行回执</h2>
+        <p>恢复回执：{view.resumeReceipt.status === 'completed' ? '处理完成' : '执行失败'}；
+          已记录尝试次数：{view.resumeReceipt.attemptNumber}。</p>
+        <Metadata workflow={view.resumeReceipt.workflow} />
+        {view.resumeReceipt.status === 'completed' && view.resumeReceipt.answer
+          ? <Answer answer={view.resumeReceipt.answer} /> : <p className="message error">本次恢复没有完整回答，本页不继续恢复。</p>}
       </section>}
       {view.receipt && <section className="answer-results" aria-labelledby="workflow-receipt-title">
         <h2 id="workflow-receipt-title">本次执行回执</h2>
@@ -189,10 +222,23 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
         {activity === 'reading' && <button className="button secondary conversation-cancel" onClick={onCancel}>停止读取状态</button>}
         {activity === 'reading' && <p role="status">正在读取当前工作流状态…</p>}
         {view.readNotice && <p className="message error" role="alert">{view.readNotice}</p>}
-        {view.snapshot ? <Metadata workflow={view.snapshot} /> : <p>尚未手动读取。</p>}
+        {view.snapshot ? <Metadata workflow={view.snapshot} /> : <p>尚无本次有效读取记录。</p>}
         <p className="session-note">这里只读取状态元数据，不恢复答案、引文或本次执行回执。
           即使记录仍未变化，原请求也可能在处理；不能据此直接重发。</p>
       </section>}
     </>}
   </section>;
+}
+
+function RecoveryConfirmation({ onResume }: { onResume: () => void }) {
+  const [confirmed, setConfirmed] = useState(false);
+  return <div className="conversation-billing-confirmation">
+    <p>将复用已经保存的检索结果，后端仍会重新核对原文来源；不会自动重新检索。
+      继续生成可能产生新的调用费用，先前超时的调用也不能据此判断未计费。</p>
+    <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.currentTarget.checked)} />
+      我已核对当前失败状态，允许本次恢复可能产生新的生成调用</label>
+    <button className="button primary" disabled={!confirmed} onClick={() => { if (confirmed) onResume(); }}>
+      确认并恢复生成一次</button>
+    <p className="session-note">勾选不会提交，点击按钮才发起恢复；不接管仍在执行或结果未知的请求。</p>
+  </div>;
 }
