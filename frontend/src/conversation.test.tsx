@@ -314,6 +314,10 @@ describe('标准计费页内确认与显式执行', () => {
     await click(screen.getByRole('checkbox'));
     expect(button.disabled).toBe(false);
     expect(messagePosts(requests)).toHaveLength(3);
+    await click(screen.getByRole('checkbox'));
+    expect(button.disabled).toBe(true);
+    expect(messagePosts(requests)).toHaveLength(3);
+    await click(screen.getByRole('checkbox'));
     await click(button);
     const result = screen.getByRole('region', { name: '标准规则估算结果' });
     for (const value of ['240.00', '90.00', '330.00', RULE, '2 个月', '3 次', '程序计算', '不是实际账单', '未产生扣款']) {
