@@ -20,7 +20,7 @@
 
 两版 `input_sha256` 与排除系统提示词后的 `fixed_request_sha256` 相同。`request_body` 只改动系统消息，保留原用户消息、来源编号及顺序、请求模型与 `max_tokens`。SHA 用于内容核对，不证明历史真实性或请求送达。
 
-实际执行指令及学习任务见[阶段 1.11](../phase1-prompt-comparison.md)。原快照、原六题问答及人工模板没有覆盖。
+实际执行指令及学习任务见[阶段 1.11](../backend/phase1-prompt-comparison.md)。原快照、原六题问答及人工模板没有覆盖。
 
 ## 程序验证
 

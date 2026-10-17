@@ -2,34 +2,39 @@
 
 这是一个面向学习与求职展示的企业知识和工作流智能体平台，强调可测试、可解释的工程实现。
 
+文档已按用途分类，入口见[文档导航](docs/README.md)。继续开发请先读
+[当前交接](docs/handoff/handoff-current.md)、[最新进度总结](docs/progress/progress-2026-10-17.md)
+和[新对话提示词](docs/handoff/new-chat-prompt.md)。下文各阶段的“当前”和“下一步”保留历史口径，
+不覆盖最新交接与实际代码。
+
 网页已用 React + TypeScript + Vite 连接已有后端，展示登录和本人工作空间第一页。
-[第一步](docs/frontend-login.md)的内存登录已由学习者实际操作确认；当前新增
-[Cookie 登录恢复](docs/frontend-session.md)，在原 30 分钟有效期内支持刷新与重开，不自动续期。
+[第一步](docs/frontend/frontend-login.md)的内存登录已由学习者实际操作确认；当前新增
+[Cookie 登录恢复](docs/frontend/frontend-session.md)，在原 30 分钟有效期内支持刷新与重开，不自动续期。
 网页不再持有 JWT，命令行仍使用 Bearer；学习者已确认真实登录后刷新仍保持登录，
 完整关闭重开与退出等操作继续分别验收。后续再接知识库与文档页面。
 Cookie 恢复阶段前端 29 项模拟测试、后端身份联合 65 项与前端构建通过；新恢复接口已可达，
 浏览器重试恢复与真实账号刷新保持登录均已有操作确认。
 
-[2026-10-15 进度总结与剩余工作](docs/progress-2026-10-15.md)整理了今天的 CLI 入库到引用回答闭环、
+[2026-10-15 进度总结与剩余工作](docs/progress/progress-2026-10-15.md)整理了今天的 CLI 入库到引用回答闭环、
 网页登录恢复、实际验证边界及下一步。下一开发小步是“点击工作空间 → 知识库列表”。
 
-继续开发或切换对话时，先读[当前交接](docs/handoff-current.md)；[新对话提示词](docs/new-chat-prompt.md)保留学习、验证与 Git 约定。
+继续开发或切换对话时，先读[当前交接](docs/handoff/handoff-current.md)；[新对话提示词](docs/handoff/new-chat-prompt.md)保留学习、验证与 Git 约定。
 
-首版演示开始收拢：新增[HTTP 登录与资料浏览客户端](docs/demo-browse.md)，从终端登录已有
+首版演示开始收拢：新增[HTTP 登录与资料浏览客户端](docs/cli/demo-browse.md)，从终端登录已有
 账号、按编号选择空间和知识库、查看文档状态。当前只展示各层第一页，默认浏览不调用模型。
 登录和既有资料浏览已由学习者实际运行并截图确认。
 
-客户端现可通过显式 `--upload FILE` 上传文档，见[演示第二步](docs/demo-upload.md)。
+客户端现可通过显式 `--upload FILE` 上传文档，见[演示第二步](docs/cli/demo-upload.md)。
 上传只保存并解析；正常解析显示“已解析，尚未可检索”。
-已上传的文档可通过独立 `--chunk` 选择并保存文本块，见[演示第三步](docs/demo-chunks.md)；
+已上传的文档可通过独立 `--chunk` 选择并保存文本块，见[演示第三步](docs/cli/demo-chunks.md)；
 同配置复用已有结果。显式 `--embed --max-chunks N` 可对已有文档生成向量，见
-[演示第四步](docs/demo-embeddings.md)；学习者已实际操作确认 `demo-export-records.md` 的
+[演示第四步](docs/cli/demo-embeddings.md)；学习者已实际操作确认 `demo-export-records.md` 的
 8 块、1024 维结果保存成功，最新状态为可检索。新增独立 `--search`，输入问题后
-展示所选知识库的最多 3 个候选段落与来源，见[演示第五步](docs/demo-search.md)；
+展示所选知识库的最多 3 个候选段落与来源，见[演示第五步](docs/cli/demo-search.md)；
 学习者已完成一次真实检索，返回 3 个候选，首位块包含该题答案；终端 300 字符预览未
 展示到答案句，详见操作记录。这是单题证据，不代表整体检索质量。
 独立 `--ask` 已接入后端资料问答，可展示答案及完整引文或正常弃答，见
-[演示第六步](docs/demo-answers.md)；学习者已完成一次真实问答，四项信息与原文一致，
+[演示第六步](docs/cli/demo-answers.md)；学习者已完成一次真实问答，四项信息与原文一致，
 引文位于第 1 块的 `[436,467)`。该样例走通单轮入库到回答链路，不代表整体正确率。
 
 ## 当前进度
@@ -38,35 +43,35 @@ Cookie 恢复阶段前端 29 项模拟测试、后端身份联合 65 项与前�
 
 - **文档链路：** 工作空间与知识库管理，TXT/Markdown 与可提取文字 PDF 上传、原文件保存、解析、确定性切块、事务与重复请求复用。PDF 不支持扫描件 OCR。
 - **问答链路：** 百炼 1024 维向量、PostgreSQL/pgvector 知识库检索、DeepSeek 基于证据回答、逐字引用校验和证据不足时弃答。
-- **检索增强：** [阶段 2.1](docs/phase2-hybrid-retrieval.md)已接入可选词项与向量混合策略，按块 ID 合并、融合名次并返回各路排名。小规模处理上限明确，真实两路召回收益尚待验收。
+- **检索增强：** [阶段 2.1](docs/backend/phase2-hybrid-retrieval.md)已接入可选词项与向量混合策略，按块 ID 合并、融合名次并返回各路排名。小规模处理上限明确，真实两路召回收益尚待验收。
 - **验证能力：** 文件对账、真实数据库故障测试、检索及上下文覆盖、逐项语义审核、模型辅助评审、生成输入快照和固定证据提示词对比。
 - **已有真实演示：** [首次六题联调](docs/evaluation/live-rag-smoke-2026-10-10.md)给出四个回答和两个弃答；[带干扰资料检索](docs/evaluation/retrieval-eval-2026-10-10.md)使用四份文档、二十九个候选块。它们是小规模链路与证据覆盖验证，不能推广为企业资料的质量成绩。
-- **当前验收：** [提示词对比](docs/phase1-prompt-comparison.md)支持六题全选、显式十二次尝试预算和缺失快照预检；受控模拟不调用模型。新的真实六题输入、真实配对与逐项语义核对尚未完成。
-- **候选重排：** [阶段 2.2](docs/phase2-candidate-reranking.md)可选先召回二十段、再由已有生成模型排序，验证完整编号排列并保留引用来源；超时或输出故障明确标记降级。默认关闭，真实排序收益尚待验收。
-- **知识智能体：** [阶段 3.1](docs/phase3-knowledge-agent.md)已有有界运行、只读知识工具、故障观察与引用校验；[阶段 3.2](docs/phase3-native-tools.md)增加原生工具调用、同编号结果回传和历史隔离，旧 JSON 协议可显式选择。多调用整体拒绝，重复动作与证据保护仍由后端执行；真实任务质量待验收。
-- **受限计算器：** [阶段 3.3](docs/phase3-calculator.md)保留两个原文数值的十进制四则运算；[阶段 4.2](docs/phase4-sourced-calculations.md)新增会话内来源引用式计算器，接受已确认用户字段及当前运行先前成功的结果，不允许模型自由填写值。最多八次决策、七次成功计算；暂不做百分比解释、单位换算或业务公式验证。
-- **会话接续：** [阶段 4.1](docs/phase4-conversation-state.md)保存会话、结构化待补条件与有界近期决策上下文；“三次”绑定到待补字段后跨请求恢复为 ready。随后用 `mode=execute` 显式恢复来源绑定算术，运行结果与轮次共同保存；ready 不代表年度费用任务完成。
-- **受控业务流程：** [阶段 4.3](docs/phase4-standard-billing.md)新增标准月费加上门次费估算。完整原文绑定费率，逐项补齐次数及 1..12 个计费月数，用户显式确认规则适用后，由程序固定三步计算。completed 仅代表该标准估算，不是实际账单、扣费或通用政策验证。
-- **显式答复偏好：** [阶段 4.4](docs/phase4-answer-preferences.md)已实现知识库级简洁/详细设置、版本化更新与清除，不从聊天自动抽取。只影响会话最终有证据生成，不能改变证据、工具或计费公式；该阶段完整程序回归通过、应用库当时已升级至 0008。设置由有权限的工作空间成员共享，不是私有用户记忆或完整长期记忆平台，真实风格与忠实性未知，学习者实践仍待完成。
-- **只读 MCP 接入：** [阶段 4.5](docs/phase4-mcp-search.md)已实现并完成程序验收：自建本地 stdio Server、官方 Python SDK Client 和显式工具白名单；单次 Agent 可选择 MCP 搜索，Host 整批回验知识库范围与完整原文。默认本地搜索不变，不开放删除或任意命令，不静默回退。真实非空向量/模型端到端质量和学习者实践尚未验收。
-- **检查点问答：** [阶段 4.6](docs/phase4-answer-workflows.md)独立固定两步工作流程序验收完成：创建任务、显式领取执行权、保存检索检查点、生成并校验引用、保存不可变回执；合法检查点在新请求中复验来源后继续生成，过期中断执行需显式接管。不是任意 Agent 恢复，也不能保证外部模型费用恰好一次；个人实践与真实语义质量待验收。
+- **当前验收：** [提示词对比](docs/backend/phase1-prompt-comparison.md)支持六题全选、显式十二次尝试预算和缺失快照预检；受控模拟不调用模型。新的真实六题输入、真实配对与逐项语义核对尚未完成。
+- **候选重排：** [阶段 2.2](docs/backend/phase2-candidate-reranking.md)可选先召回二十段、再由已有生成模型排序，验证完整编号排列并保留引用来源；超时或输出故障明确标记降级。默认关闭，真实排序收益尚待验收。
+- **知识智能体：** [阶段 3.1](docs/backend/phase3-knowledge-agent.md)已有有界运行、只读知识工具、故障观察与引用校验；[阶段 3.2](docs/backend/phase3-native-tools.md)增加原生工具调用、同编号结果回传和历史隔离，旧 JSON 协议可显式选择。多调用整体拒绝，重复动作与证据保护仍由后端执行；真实任务质量待验收。
+- **受限计算器：** [阶段 3.3](docs/backend/phase3-calculator.md)保留两个原文数值的十进制四则运算；[阶段 4.2](docs/backend/phase4-sourced-calculations.md)新增会话内来源引用式计算器，接受已确认用户字段及当前运行先前成功的结果，不允许模型自由填写值。最多八次决策、七次成功计算；暂不做百分比解释、单位换算或业务公式验证。
+- **会话接续：** [阶段 4.1](docs/backend/phase4-conversation-state.md)保存会话、结构化待补条件与有界近期决策上下文；“三次”绑定到待补字段后跨请求恢复为 ready。随后用 `mode=execute` 显式恢复来源绑定算术，运行结果与轮次共同保存；ready 不代表年度费用任务完成。
+- **受控业务流程：** [阶段 4.3](docs/backend/phase4-standard-billing.md)新增标准月费加上门次费估算。完整原文绑定费率，逐项补齐次数及 1..12 个计费月数，用户显式确认规则适用后，由程序固定三步计算。completed 仅代表该标准估算，不是实际账单、扣费或通用政策验证。
+- **显式答复偏好：** [阶段 4.4](docs/backend/phase4-answer-preferences.md)已实现知识库级简洁/详细设置、版本化更新与清除，不从聊天自动抽取。只影响会话最终有证据生成，不能改变证据、工具或计费公式；该阶段完整程序回归通过、应用库当时已升级至 0008。设置由有权限的工作空间成员共享，不是私有用户记忆或完整长期记忆平台，真实风格与忠实性未知，学习者实践仍待完成。
+- **只读 MCP 接入：** [阶段 4.5](docs/backend/phase4-mcp-search.md)已实现并完成程序验收：自建本地 stdio Server、官方 Python SDK Client 和显式工具白名单；单次 Agent 可选择 MCP 搜索，Host 整批回验知识库范围与完整原文。默认本地搜索不变，不开放删除或任意命令，不静默回退。真实非空向量/模型端到端质量和学习者实践尚未验收。
+- **检查点问答：** [阶段 4.6](docs/backend/phase4-answer-workflows.md)独立固定两步工作流程序验收完成：创建任务、显式领取执行权、保存检索检查点、生成并校验引用、保存不可变回执；合法检查点在新请求中复验来源后继续生成，过期中断执行需显式接管。不是任意 Agent 恢复，也不能保证外部模型费用恰好一次；个人实践与真实语义质量待验收。
 - **身份与成员：** 注册、登录和当前用户查询已接入；签名访问令牌标识用户，数据库成员关系决定其可访问的工作空间。创建者为所有者，仅所有者能添加已注册成员；成员可使用当前工作空间内的业务接口。设计见 [ADR 0026](docs/adr/0026-user-workspace-access.md)。1709 项以分段方式覆盖并通过，未取得单次连续完整回归全绿；基础问答与跟随提示一行实践已收拢，真实部署验收仍待。
 - **运行观测首步：** 已返回本次控制器耗时、决策次数和工具实际执行次数，单次接口公开、会话保存和重放；决策数包含程序决策，不能推算模型请求数或费用。旧运行统计缺省为空，见[ADR0028](docs/adr/0028-agent-run-metrics.md)。
 - **后续主线：** 工作空间、知识库、文档三级列表、可选文档状态筛选和可提取文字 PDF 入库已接入后端。固定只读 SQL 文档状态任务已接入会话入口，支持候选展示、数字选择与模板回答，已有运行统计。当前网页已实现登录与本人工作空间第一页；下一步逐步接入知识库、文档和问答，继续推进观测、真实评测、部署与交付。阶段 4.6 个人实践等未完成事项保持原状态。长期记忆与工作流按明确需求扩展；单文件默认上限 5 MiB。
 
-查询基础阶段：状态查询只读取已绑定范围内一份文档的 ID、文件名、状态与错误码，历史专项 **11 项通过、无跳过（6.08 秒）**。候选查询按文件名的字面子串匹配，忽略大小写；返回内部 ID、文件名、上传时间与大小，最多五份并标记是否还有匹配，不自动选中同名文档。候选初版专项 **20 项通过、无跳过（13.80 秒）**，当时尚未接入 Agent、选择界面，也未新增 API 或迁移，后续封装与观察见下文；初版证据见[学习记录](docs/learning-progress.md#2026-10-14按文件名获取候选文档)。
+查询基础阶段：状态查询只读取已绑定范围内一份文档的 ID、文件名、状态与错误码，历史专项 **11 项通过、无跳过（6.08 秒）**。候选查询按文件名的字面子串匹配，忽略大小写；返回内部 ID、文件名、上传时间与大小，最多五份并标记是否还有匹配，不自动选中同名文档。候选初版专项 **20 项通过、无跳过（13.80 秒）**，当时尚未接入 Agent、选择界面，也未新增 API 或迁移，后续封装与观察见下文；初版证据见[学习记录](docs/progress/learning-progress.md#2026-10-14按文件名获取候选文档)。
 
-候选初版之后，学习者已完成上限阅读与跟随提示两处测试修改；本轮只运行相关 4/5/6 三个参数化节点，**3 项通过、无跳过（2.53 秒）**，未重跑整份文件或全套回归，不与初版 20 项相加，见[本人实践记录](docs/learning-progress.md#2026-10-14候选上限阅读与本人两处实践)。
+候选初版之后，学习者已完成上限阅读与跟随提示两处测试修改；本轮只运行相关 4/5/6 三个参数化节点，**3 项通过、无跳过（2.53 秒）**，未重跑整份文件或全套回归，不与初版 20 项相加，见[本人实践记录](docs/progress/learning-progress.md#2026-10-14候选上限阅读与本人两处实践)。
 
-候选工具 `find_documents` 的封装和独立结果字段已完成，可按既有 ToolRegistry 协议调用；模型只提供文件名线索，后端绑定查询范围。封装阶段历史联合专项 **43 项通过、无跳过（1.83 秒）**，包含封装 17 项和既有控制器 26 项；当时 Agent 尚未消费候选结果，之后已补观察传递，仍不代表完整文档状态功能。该专项没有数据库或真实模型调用，详见[封装记录](docs/learning-progress.md#2026-10-14候选查询工具封装与独立结果)。
+候选工具 `find_documents` 的封装和独立结果字段已完成，可按既有 ToolRegistry 协议调用；模型只提供文件名线索，后端绑定查询范围。封装阶段历史联合专项 **43 项通过、无跳过（1.83 秒）**，包含封装 17 项和既有控制器 26 项；当时 Agent 尚未消费候选结果，之后已补观察传递，仍不代表完整文档状态功能。该专项没有数据库或真实模型调用，详见[封装记录](docs/progress/learning-progress.md#2026-10-14候选查询工具封装与独立结果)。
 
-候选结果现可传入下一轮 Agent 的 JSON/native 观察，独立于正文引用；默认知识问答只取得候选时仍沿用证据不足弃答。新观察 10 项、封装 17 项、控制器 26 项及原生协议 50 项联合专项 **103 项通过、无跳过（7.34 秒）**，全部替身/模拟 HTTP，无数据库或真实模型调用。当时生产接口未注册候选工具，选择和状态回答待完成，详见[观察记录](docs/learning-progress.md#2026-10-14候选结果观察与正文证据分离)。
+候选结果现可传入下一轮 Agent 的 JSON/native 观察，独立于正文引用；默认知识问答只取得候选时仍沿用证据不足弃答。新观察 10 项、封装 17 项、控制器 26 项及原生协议 50 项联合专项 **103 项通过、无跳过（7.34 秒）**，全部替身/模拟 HTTP，无数据库或真实模型调用。当时生产接口未注册候选工具，选择和状态回答待完成，详见[观察记录](docs/progress/learning-progress.md#2026-10-14候选结果观察与正文证据分离)。
 
-状态工具 get_document_status 封装已完成，只接收文档 ID，后端绑定范围并返回独立状态元数据，不读取正文。封装阶段历史状态工具20项、候选封装17项及控制器26项纯替身联合专项 **63项通过、无跳过（2.05秒）**；当时Agent尚未观察状态结果，生产接口未注册两种工具，选择与最终状态回答待完成，详见[状态工具记录](docs/learning-progress.md#2026-10-14处理阶段澄清与状态工具封装)。
+状态工具 get_document_status 封装已完成，只接收文档 ID，后端绑定范围并返回独立状态元数据，不读取正文。封装阶段历史状态工具20项、候选封装17项及控制器26项纯替身联合专项 **63项通过、无跳过（2.05秒）**；当时Agent尚未观察状态结果，生产接口未注册两种工具，选择与最终状态回答待完成，详见[状态工具记录](docs/progress/learning-progress.md#2026-10-14处理阶段澄清与状态工具封装)。
 
-2026-10-14 状态观察与回答：后端显式指定 response_mode=document_status，JSON/native 回传独立状态元数据；唯一候选或已明确文档的状态查询可由程序模板回答，默认知识问答仍只使用正文。工具错误、缺少状态、多文档或候选错配不会伪装完成；首版状态模式不恢复曾失败的工具。新增闭环27项及受影响既有114项联合专项 **141项通过、无跳过（4.66秒）**，全部替身/模拟HTTP，无数据库或真实模型。当时歧义追问、选择恢复和生产接口注册仍待，详见[闭环记录](docs/learning-progress.md#2026-10-14状态观察与确定性回答)。
+2026-10-14 状态观察与回答：后端显式指定 response_mode=document_status，JSON/native 回传独立状态元数据；唯一候选或已明确文档的状态查询可由程序模板回答，默认知识问答仍只使用正文。工具错误、缺少状态、多文档或候选错配不会伪装完成；首版状态模式不恢复曾失败的工具。新增闭环27项及受影响既有114项联合专项 **141项通过、无跳过（4.66秒）**，全部替身/模拟HTTP，无数据库或真实模型。当时歧义追问、选择恢复和生产接口注册仍待，详见[闭环记录](docs/progress/learning-progress.md#2026-10-14状态观察与确定性回答)。
 
-2026-10-14，文档状态任务已接入现有会话消息入口：开始任务时指定response_mode=document_status，多份/截断候选保存为独立选择待办，用户回复数字编号后按保存的ID查询最新状态；选择后不再调用模型挑选。零匹配正常结束，唯一完整匹配可直接继续。复用会话版本/请求重放，默认knowledge与旧摘要兼容，无新表或迁移；单次/agent-runs未注册状态工具。新增选择专项19项通过；联合首轮188通过、1个旧摘要测试失败（279.46秒），固定历史请求字段后专项复测3项通过、无跳过（12.68秒），不相加、无单次最终联合全绿。数据库用独立eaap_test随机schema，模型全部替身；无日常库操作或真实模型调用。详见[最新学习记录](docs/learning-progress.md#2026-10-14同名候选选择与会话接入)和[ADR0027](docs/adr/0027-scoped-document-status-selection.md)。
+2026-10-14，文档状态任务已接入现有会话消息入口：开始任务时指定response_mode=document_status，多份/截断候选保存为独立选择待办，用户回复数字编号后按保存的ID查询最新状态；选择后不再调用模型挑选。零匹配正常结束，唯一完整匹配可直接继续。复用会话版本/请求重放，默认knowledge与旧摘要兼容，无新表或迁移；单次/agent-runs未注册状态工具。新增选择专项19项通过；联合首轮188通过、1个旧摘要测试失败（279.46秒），固定历史请求字段后专项复测3项通过、无跳过（12.68秒），不相加、无单次最终联合全绿。数据库用独立eaap_test随机schema，模型全部替身；无日常库操作或真实模型调用。详见[最新学习记录](docs/progress/learning-progress.md#2026-10-14同名候选选择与会话接入)和[ADR0027](docs/adr/0027-scoped-document-status-selection.md)。
 
 已登录并创建会话后，向已有的
 `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/conversations/{conversation_id}/messages`
@@ -85,9 +90,9 @@ Cookie 恢复阶段前端 29 项模拟测试、后端身份联合 65 项与前�
 实际请求使用新的request_id和最新返回的version；重放相同request_id返回保存的响应，
 不重新查询。`new_task`可更换文件名线索。候选列表和状态详情为元数据，不能据此回答制度内容。
 
-2026-10-14，运行观测首步已完成：AgentRun.metrics返回total_ms、decision_count、tool_execution_count；工具在实际执行入口计数，校验拒绝/重复/步数拦截不计，进入执行后失败也计。决策包含程序决策，不等于模型请求数；耗时只覆盖本次控制器运行。单次接口公开、会话保存/重放，旧记录缺省None，无迁移。新增14项与受影响既有114项联合专项 **128项通过、无跳过（7.33秒）**；两项接口场景使用独立eaap_test随机schema，其他为纯替身/MockTransport，无日常库或真实模型调用。Token/费用、请求级追踪及聚合仍待。见[运行统计记录](docs/learning-progress.md#2026-10-14agent运行统计与实际执行口径)和[ADR0028](docs/adr/0028-agent-run-metrics.md)。
+2026-10-14，运行观测首步已完成：AgentRun.metrics返回total_ms、decision_count、tool_execution_count；工具在实际执行入口计数，校验拒绝/重复/步数拦截不计，进入执行后失败也计。决策包含程序决策，不等于模型请求数；耗时只覆盖本次控制器运行。单次接口公开、会话保存/重放，旧记录缺省None，无迁移。新增14项与受影响既有114项联合专项 **128项通过、无跳过（7.33秒）**；两项接口场景使用独立eaap_test随机schema，其他为纯替身/MockTransport，无日常库或真实模型调用。Token/费用、请求级追踪及聚合仍待。见[运行统计记录](docs/progress/learning-progress.md#2026-10-14agent运行统计与实际执行口径)和[ADR0028](docs/adr/0028-agent-run-metrics.md)。
 
-阶段 4.3 最终历史完整回归 **1273 项通过、无跳过（523.88 秒）**，使用独立真实 PostgreSQL/pgvector 与受控模型，覆盖标准计费两条件恢复、固定公式、规则确认与结果、迁移、来源引用式链式算术、持久会话、原生协议、检索增强和既有六题工具。阶段 4.3 新增 139 项测试；真实模型选对收费原文与工具、实际业务语义仍待验收，没有新增真实模型调用。本机应用库已升级为 `20261011_0007`，既有六张表记录数保持一致。首轮完整 1272 项通过后另补引文限长保护，最终版本重新全量通过；此前各阶段的临时目录权限等故障仍保留在[学习记录](docs/learning-progress.md)。该结果不能用于宣称阶段 4.4 新代码已通过完整回归。测试数量不代表项目完成比例，也不替代模型语义验收。
+阶段 4.3 最终历史完整回归 **1273 项通过、无跳过（523.88 秒）**，使用独立真实 PostgreSQL/pgvector 与受控模型，覆盖标准计费两条件恢复、固定公式、规则确认与结果、迁移、来源引用式链式算术、持久会话、原生协议、检索增强和既有六题工具。阶段 4.3 新增 139 项测试；真实模型选对收费原文与工具、实际业务语义仍待验收，没有新增真实模型调用。本机应用库已升级为 `20261011_0007`，既有六张表记录数保持一致。首轮完整 1272 项通过后另补引文限长保护，最终版本重新全量通过；此前各阶段的临时目录权限等故障仍保留在[学习记录](docs/progress/learning-progress.md)。该结果不能用于宣称阶段 4.4 新代码已通过完整回归。测试数量不代表项目完成比例，也不替代模型语义验收。
 
 阶段 4.4 恢复前纯程序/模拟 HTTP 专项 **324 项通过、无跳过（3.11 秒）**，包含此前
 311 项而不相加；当时 **1361 项收集（2.48 秒）**不是全量执行。锁顺序 fake-op 仅验证
@@ -104,7 +109,7 @@ knowledge_bases=2、documents=5、chunks=34、conversations=0、conversation_tur
 新 answer_preferences=0，compare_metadata=[]。阶段 4.4 程序验收完成；真实风格与忠实性、
 学习者实践及三道面试题尚未完成。本轮按完成模块本地提交、不推送，不预填提交编号；真实模型调用为零。
 
-模块完成证据与设计取舍集中在[路线图](docs/roadmap.md)、[架构设计](docs/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/learning-progress.md)。公开演示文档描述的管理页、备份和具体令牌规则是虚构产品内容；本项目首版 JWT 的实际能力以代码和 ADR 0026 为准。演示资料中提及 PDF 也不构成本项目 PDF 解析质量的验收证据。
+模块完成证据与设计取舍集中在[路线图](docs/progress/roadmap.md)、[架构设计](docs/architecture/architecture.md)、[ADR](docs/adr/)和[学习记录](docs/progress/learning-progress.md)。公开演示文档描述的管理页、备份和具体令牌规则是虚构产品内容；本项目首版 JWT 的实际能力以代码和 ADR 0026 为准。演示资料中提及 PDF 也不构成本项目 PDF 解析质量的验收证据。
 
 ## 本地启动（CMD）
 
@@ -141,9 +146,9 @@ python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 - `POST /api/v1/workspaces/{workspace_id}/members`：所有者通过 `{"username":"已注册用户名"}` 把用户加入为 `member`。普通成员不能添加成员；当前普通成员仍可使用知识库内已有的上传、偏好设置和模型接口，不是只读角色。
 - `GET /api/v1/workspaces?limit=20&offset=0`：仅列出当前用户所属工作空间的 ID、名称和创建时间，先按成员关系筛选，再按创建时间和 ID 升序分页；默认 20、最多 100 条，无成员关系时返回 `200 []`。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}`。
-- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：先校验工作空间成员关系，再按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；有权限的工作空间中结果为空返回 `200 []`，不存在或无访问权返回 `404`。分页本身不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/data-api-design-proposal.md#知识库列表小步补齐)。
+- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases?limit=20&offset=0`：先校验工作空间成员关系，再按工作空间列出知识库，默认每页 20 条，最多 100 条；先限定范围，按创建时间和 ID 升序后分页。返回元数据数组，不执行检索或调用模型；有权限的工作空间中结果为空返回 `200 []`，不存在或无访问权返回 `404`。分页本身不是语义相关性筛选或身份授权，详细契约见[资源接口设计](docs/architecture/data-api-design-proposal.md#知识库列表小步补齐)。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents` 和 `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents/{document_id}`。
-- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents?limit=20&offset=0`：分页浏览文档元数据，包含尚未就绪或处理失败的记录及安全错误码；默认 20、最多 100 条。可加 `status=failed` 查找失败记录，支持五种已有处理状态；不传时仍显示全部状态。数据库先限定父级与状态，再排序分页，不是获取一页后再筛选。管理列表不读取正文、不调用模型，也不改变检索仅使用 `ready` 文档的规则，见[文档列表契约](docs/data-api-design-proposal.md#文档列表小步补齐)。
+- `GET /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/documents?limit=20&offset=0`：分页浏览文档元数据，包含尚未就绪或处理失败的记录及安全错误码；默认 20、最多 100 条。可加 `status=failed` 查找失败记录，支持五种已有处理状态；不传时仍显示全部状态。数据库先限定父级与状态，再排序分页，不是获取一页后再筛选。管理列表不读取正文、不调用模型，也不改变检索仅使用 `ready` 文档的规则，见[文档列表契约](docs/architecture/data-api-design-proposal.md#文档列表小步补齐)。
 - 在上面的具体文档路径后追加 `/chunks`，使用 `POST` 保存切块、`GET` 按编号读取切块。
 - 在具体文档路径后追加 `/embeddings`，使用 `POST` 生成并保存向量，不需要请求体。
 - `POST /api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/search`：在指定知识库内检索相关段落。
@@ -157,15 +162,15 @@ python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 
 本机随机密码仅存仓库根被 Git 忽略、未跟踪的 `.env.demo-accounts`，单文件 ACL 禁止继承、仅允许当前 Windows 用户；密码/Token 不写聊天、日志或 Git。无需重复注册或运行 `assign_owner`。交互隐藏输入注册 CLI 仍可用于其他本机账号，复用正式逻辑且不自动迁移或授权；注册授权操作不计为学习者本人代码实践或独立理由。
 
-2026-10-13 注册授权轮 **82 次日常 HTTP 状态及内容维护核验通过**，覆盖本人资料访问、跨空间/父子拼接拒绝和匿名拒绝；跨空间成员写入被 404 拒绝，没有成功互邀或交叉成员关系。这些核验不加 pytest 数量，也不是公网或前端部署验收；注册授权轮无业务代码修改、pytest 重跑、全套收集或模型调用，详细证据与故障轨迹见[当前交接](docs/handoff-current.md#5-真实验证口径)。
+2026-10-13 注册授权轮 **82 次日常 HTTP 状态及内容维护核验通过**，覆盖本人资料访问、跨空间/父子拼接拒绝和匿名拒绝；跨空间成员写入被 404 拒绝，没有成功互邀或交叉成员关系。这些核验不加 pytest 数量，也不是公网或前端部署验收；注册授权轮无业务代码修改、pytest 重跑、全套收集或模型调用，详细证据与故障轨迹见[当前交接](docs/handoff/handoff-current.md#5-真实验证口径)。
 
-历史身份专项 9 项通过；起点 1709 项有分段通过记录，并非单次连续完整回归。上轮 `246f6d8` 的本机注册、身份和迁移联合专项 **35 项通过、无跳过（26.00 秒）**，含新增 CLI 26 项与既有 9 项，不与历史相加；该轮未重跑全量或全套收集。CLI 全部替身，既有 HTTP/迁移使用独立 `eaap_test` 随机模式及受控模型，无真实模型调用，不在日常库跑 pytest；首次沙箱准备阶段 `PermissionError` 无测试结果，按既有沙箱外方式和新临时目录复测通过，未改 ACL/卷，不推断环境根因。运行过渡已完成；2026-10-14 基础问答、代码阅读与跟随提示一行实践已收拢，既有单用例 1 项通过（22.32 秒），不记独立完整测试设计或权限实现，详见[学习记录](docs/learning-progress.md#2026-10-14身份基础问答代码阅读与一行实践收拢)。
+历史身份专项 9 项通过；起点 1709 项有分段通过记录，并非单次连续完整回归。上轮 `246f6d8` 的本机注册、身份和迁移联合专项 **35 项通过、无跳过（26.00 秒）**，含新增 CLI 26 项与既有 9 项，不与历史相加；该轮未重跑全量或全套收集。CLI 全部替身，既有 HTTP/迁移使用独立 `eaap_test` 随机模式及受控模型，无真实模型调用，不在日常库跑 pytest；首次沙箱准备阶段 `PermissionError` 无测试结果，按既有沙箱外方式和新临时目录复测通过，未改 ACL/卷，不推断环境根因。运行过渡已完成；2026-10-14 基础问答、代码阅读与跟随提示一行实践已收拢，既有单用例 1 项通过（22.32 秒），不记独立完整测试设计或权限实现，详见[学习记录](docs/progress/learning-progress.md#2026-10-14身份基础问答代码阅读与一行实践收拢)。
 
-资源浏览阶段历史专项 **66 项通过、无跳过（59.62 秒）**，使用独立 PostgreSQL 测试库与临时存储，无模型调用；不是完整后端回归或真实模型质量验收，个人实践状态见[学习记录](docs/learning-progress.md#2026-10-13资源浏览与失败文档定位)。
+资源浏览阶段历史专项 **66 项通过、无跳过（59.62 秒）**，使用独立 PostgreSQL 测试库与临时存储，无模型调用；不是完整后端回归或真实模型质量验收，个人实践状态见[学习记录](docs/progress/learning-progress.md#2026-10-13资源浏览与失败文档定位)。
 
 知识库名称在同一工作空间内重复时返回 `409`，路径中的父子资源不匹配时返回 `404`。上传接口的表单字段名是 `file`；支持 UTF-8 的 `.txt`、`.md` 与可提取文字的 `.pdf`。单文件默认最多 5 MiB；PDF 另限制最多 100 页、提取后最多 1,000,000 字符。损坏、加密、无可提取文字或超过 PDF 解析上限的已接收文件保留 `failed` 文档记录及固定安全错误码；不支持扫描件 OCR。上传成功解析只到 `parsed`，仍需切块与向量生成才能进入检索。详见 [PDF 解析 ADR](docs/adr/0025-text-layer-pdf-ingestion.md)。
 
-PDF 相关四个测试文件首次运行85项通过、1项因测试使用旧 `updated_at` 而失败（96.35秒）；修正测试后仅复测该节点，1项通过（5.60秒）。共86个不同用例得到验证，不是一次完整绿灯的专项回归；测试使用独立 PostgreSQL 与生成的简单PDF，不含真实模型质量验收，详见[学习记录](docs/learning-progress.md#2026-10-13可提取文字-pdf-入库)。
+PDF 相关四个测试文件首次运行85项通过、1项因测试使用旧 `updated_at` 而失败（96.35秒）；修正测试后仅复测该节点，1项通过（5.60秒）。共86个不同用例得到验证，不是一次完整绿灯的专项回归；测试使用独立 PostgreSQL 与生成的简单PDF，不含真实模型质量验收，详见[学习记录](docs/progress/learning-progress.md#2026-10-13可提取文字-pdf-入库)。
 
 切块接口请求体为 `{"chunk_size": 500, "overlap": 50}`，发送 `{}` 使用默认值。首次保存和同配置重试均返回 `200` 和块列表；未切块时查询返回空列表。参数或算法版本与已有结果不同、文档未成功解析时返回 `409`；整数或重叠参数无效、预估处理量超限时返回 `422`。单批上限为 10,000 块和累计 10 × 1024 × 1024 个字符，避免高重叠放大内存用量。原文件不可读或切块状态异常返回安全的 `500`，具体原因记录在服务端日志中。
 
@@ -205,9 +210,9 @@ EAAP_EMBEDDING_DIMENSIONS=1024
 
 ## 知识库检索
 
-可选重排请求示例：`{"query":"如何提交退款？","strategy":"hybrid","rerank":true,"candidate_k":20,"top_k":5}`。问答改用 `question` 字段。默认关闭，开启后复用生成服务做至多一次额外模型请求；正文总量上限 20000 字符，超限返回 422。`reranking` 提供成功、降级或空库跳过状态，原距离和融合分数保留用于解释召回，重排成功后的最终顺序由模型排列决定。完整协议和测试练习见[阶段 2.2](docs/phase2-candidate-reranking.md)。
+可选重排请求示例：`{"query":"如何提交退款？","strategy":"hybrid","rerank":true,"candidate_k":20,"top_k":5}`。问答改用 `question` 字段。默认关闭，开启后复用生成服务做至多一次额外模型请求；正文总量上限 20000 字符，超限返回 422。`reranking` 提供成功、降级或空库跳过状态，原距离和融合分数保留用于解释召回，重排成功后的最终顺序由模型排列决定。完整协议和测试练习见[阶段 2.2](docs/backend/phase2-candidate-reranking.md)。
 
-`/search` 与 `/answers` 请求均可增加 `"strategy": "hybrid"`，省略时继续使用 `vector`。混合模式分别从词项与向量通道取前二十，再合并排序；搜索响应提供融合得分及两路排名，原 `distance` 仍是余弦距离，混合结果按融合分数排序。当前支持最多 2000 个就绪块和 100 万正文字符，超限返回 `422`；运行和学习实践见[混合检索说明](docs/phase2-hybrid-retrieval.md)。
+`/search` 与 `/answers` 请求均可增加 `"strategy": "hybrid"`，省略时继续使用 `vector`。混合模式分别从词项与向量通道取前二十，再合并排序；搜索响应提供融合得分及两路排名，原 `distance` 仍是余弦距离，混合结果按融合分数排序。当前支持最多 2000 个就绪块和 100 万正文字符，超限返回 `422`；运行和学习实践见[混合检索说明](docs/backend/phase2-hybrid-retrieval.md)。
 
 完成真实服务配置、文档切块和向量化后，通过 `/docs` 调用知识库的 `/search` 接口：
 
@@ -265,11 +270,11 @@ EAAP_GENERATION_MODEL=deepseek-flash
 
 上下文评测使用 `python backend/scripts/evaluate_context.py --plan` 验证已有快照，用 `--write-report --report docs/evaluation/context-eval-local.json` 保存离线比较。无需 `.env`、数据库或模型密钥，结果和学习实践见[上下文评测说明](docs/evaluation/context-eval-2026-10-11.md)。
 
-逐项审核使用 `python backend/scripts/evaluate_answers.py --plan`，没有模型调用。模型辅助评审使用 `python backend/scripts/review_answers.py --plan`，先确认题目与调用预算；只有显式 `--run` 才读取 `EAAP_REVIEW_*` 并产生服务请求。首轮可用 `--case-id restart_recovery_steps --max-cases 1` 限定一题，具体运行、退出码和统计范围见[操作说明](docs/phase1-model-review.md)。
+逐项审核使用 `python backend/scripts/evaluate_answers.py --plan`，没有模型调用。模型辅助评审使用 `python backend/scripts/review_answers.py --plan`，先确认题目与调用预算；只有显式 `--run` 才读取 `EAAP_REVIEW_*` 并产生服务请求。首轮可用 `--case-id restart_recovery_steps --max-cases 1` 限定一题，具体运行、退出码和统计范围见[操作说明](docs/backend/phase1-model-review.md)。
 
-2026-10-11 已完成[首轮真实单题评审](docs/evaluation/model-review-first-case-2026-10-11.md)：调用一次，三项 AI 建议通过，人工审核尚未完成。公开演示脚本另支持 `--capture-generation`，在新报告中保存准备发送的生成消息与参数，供后续固定证据实验；默认关闭，记录失败阻止请求，尚未采集新的真实生成快照。用法与边界见[阶段 1.10](docs/phase1-generation-snapshots.md)。
+2026-10-11 已完成[首轮真实单题评审](docs/evaluation/model-review-first-case-2026-10-11.md)：调用一次，三项 AI 建议通过，人工审核尚未完成。公开演示脚本另支持 `--capture-generation`，在新报告中保存准备发送的生成消息与参数，供后续固定证据实验；默认关闭，记录失败阻止请求，尚未采集新的真实生成快照。用法与边界见[阶段 1.10](docs/backend/phase1-generation-snapshots.md)。
 
-两版提示词比较使用 `python backend/scripts/compare_prompts.py --plan` 规划，默认一题两次尝试；`--mock` 演练程序且不调用模型，`--run` 要求实际采集的公开快照。保留原问题、资料与顺序，只改变系统提示词，语义质量仍待审核，详见[阶段 1.11](docs/phase1-prompt-comparison.md)与[模拟记录](docs/evaluation/prompt-comparison-mock-2026-10-11.md)。
+两版提示词比较使用 `python backend/scripts/compare_prompts.py --plan` 规划，默认一题两次尝试；`--mock` 演练程序且不调用模型，`--run` 要求实际采集的公开快照。保留原问题、资料与顺序，只改变系统提示词，语义质量仍待审核，详见[阶段 1.11](docs/backend/phase1-prompt-comparison.md)与[模拟记录](docs/evaluation/prompt-comparison-mock-2026-10-11.md)。
 
 首次创建数据库卷时，Compose 会额外建立独立的 `eaap_test` 测试库并启用 `vector` 扩展。已有数据库卷的初始化脚本不会重跑，可执行一次：
 
@@ -325,10 +330,10 @@ completed 就声称全年费用任务完成。旧执行结果不会成为下一�
 `20261012_0009`，本机应用库已另行正常升级至0009，七张旧表计数前后相同，新两表为空。
 新环境启动前运行正常 Alembic 升级，
 不把脚本存在当作本机已经升级。实际本机升级和测试结果见
-[学习记录](docs/learning-progress.md)。数据契约、实践和限制见[阶段 4.1](docs/phase4-conversation-state.md)
+[学习记录](docs/progress/learning-progress.md)。数据契约、实践和限制见[阶段 4.1](docs/backend/phase4-conversation-state.md)
 与 [ADR 0019](docs/adr/0019-persistent-conversation-clarification.md)。
 
-来源引用参数、显式执行请求、舍入继承和限制见[阶段 4.2](docs/phase4-sourced-calculations.md)
+来源引用参数、显式执行请求、舍入继承和限制见[阶段 4.2](docs/backend/phase4-sourced-calculations.md)
 与 [ADR 0020](docs/adr/0020-source-referenced-chained-calculations.md)。存在 execute 轮次时，
 新迁移会拒绝无损降级，不删除或改写执行历史。
 
@@ -340,7 +345,7 @@ completed 就声称全年费用任务完成。旧执行结果不会成为下一�
 结果仅是所选标准规则估算；没有自动验证其他块或文档中的政策，不支持通用单位换算。
 旧单字段任务仍走原算术流程，不静默升级；完成后改变条件使用 new_task，不删除历史。
 存在当前或历史标准计费数据时，0007 拒绝不兼容降级。完整请求与小实践见
-[阶段 4.3](docs/phase4-standard-billing.md)和 [ADR 0021](docs/adr/0021-controlled-standard-billing.md)。
+[阶段 4.3](docs/backend/phase4-standard-billing.md)和 [ADR 0021](docs/adr/0021-controlled-standard-billing.md)。
 
 ## 显式答复偏好：阶段 4.4 程序验收完成
 
@@ -354,7 +359,7 @@ MessageRead.answer_preference 记录进入偏好生成能力调用路径时的�
 追问、空检索、停止、计算器和确定性计费不标记风格应用；单次 /answers、/agent-runs
 暂不读取偏好。new_task 和新会话不清除设置，旧 request_id 重放保留旧响应与旧快照。
 当前清除不擦除历史轮次记录，也没有聊天自动抽取或自由文本指令。偏好属于知识库，同一工作空间成员可读取和修改；当前没有每个用户私有的偏好或会话隔离。
-设计、显式请求和待用户实践见[阶段 4.4](docs/phase4-answer-preferences.md)与
+设计、显式请求和待用户实践见[阶段 4.4](docs/backend/phase4-answer-preferences.md)与
 [ADR 0022](docs/adr/0022-explicit-answer-preferences.md)。完整回归通过，本机已正常升级至 0008。
 小实践优先用 TestClient、独立 retrieval_context 与 StyledGeneration 替身；在 /docs 直接发送
 真实模型会话可能产生费用，真实请求需另行明确预算，不是本练习的默认要求。
@@ -394,7 +399,7 @@ Host 对返回结果复验严格 JSON、范围、ready 状态与非空向量，�
 MCP 发现与 readOnlyHint 都不是执行授权；平台白名单和具体操作的权限/确认是两层
 边界。当前没有删除工具或用户授权流程，子进程是持有必要配置的受控本地程序，不是
 安全沙箱或远端多租户服务。完整设计、验证范围、小实践和待逐题面试见
-[阶段 4.5](docs/phase4-mcp-search.md)与 [ADR 0023](docs/adr/0023-allowlisted-local-mcp-search.md)。
+[阶段 4.5](docs/backend/phase4-mcp-search.md)与 [ADR 0023](docs/adr/0023-allowlisted-local-mcp-search.md)。
 
 阶段 4.5 最终完整后端回归 **1501 项通过、无跳过（482.40 秒，0:08:02）**，使用独立
 eaap_test PostgreSQL 与模拟/受控模型；新增 MCP 140 项（95 项协议、45 项 API）。
@@ -444,9 +449,9 @@ recover_interrupted=true 显式接管。没有续租、后台自动恢复或取�
 未进入业务断言；原样单项复跑1通过（5.17秒），业务代码未因此改动，最终重新全量通过。
 不推断环境根因，不将pytest耗时当接口性能；详情与早次专项失败轨迹保留在阶段文档。
 独立测试库和模拟模型不代表真实任务质量或成本节省比例，学习者代码实践未完成。
-设计、请求、测试边界与八部分教学见[阶段 4.6](docs/phase4-answer-workflows.md)及
+设计、请求、测试边界与八部分教学见[阶段 4.6](docs/backend/phase4-answer-workflows.md)及
 [ADR 0024](docs/adr/0024-checkpointed-answer-workflows.md)。
 
 ## GitHub 版本管理
 
-完成且验证的模块按学习者恢复的约定进行本地提交，提交前检查范围、安全和格式并报告结果；GitHub 推送必须另行得到确认，不与本地提交绑定。2026-10-12 昨日积累的三条提交已授权正常推送，本地与远程核对为 a167235；该次授权不代表新模块自动推送。首次上传与后续流程见 [GitHub 工作约定](docs/github-workflow.md)。
+完成且验证的模块按学习者恢复的约定进行本地提交，提交前检查范围、安全和格式并报告结果；GitHub 推送必须另行得到确认，不与本地提交绑定。2026-10-12 昨日积累的三条提交已授权正常推送，本地与远程核对为 a167235；该次授权不代表新模块自动推送。首次上传与后续流程见 [GitHub 工作约定](docs/operations/github-workflow.md)。

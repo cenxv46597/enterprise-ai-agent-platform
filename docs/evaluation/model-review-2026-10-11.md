@@ -36,4 +36,4 @@
 
 ## 后续验证
 
-核对模型的结论、理由和片段，用可靠对照样例校准，再决定是否扩展到六题。新增[生成输入快照](../phase1-generation-snapshots.md)支持后续固定证据实验；尚未采集真实生成快照或进行两版提示词比较。方案与限制见 [ADR 0011](../adr/0011-offline-model-review.md)。
+核对模型的结论、理由和片段，用可靠对照样例校准，再决定是否扩展到六题。新增[生成输入快照](../backend/phase1-generation-snapshots.md)支持后续固定证据实验；尚未采集真实生成快照或进行两版提示词比较。方案与限制见 [ADR 0011](../adr/0011-offline-model-review.md)。
