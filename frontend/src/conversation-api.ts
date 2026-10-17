@@ -45,20 +45,31 @@ export type FirstConversationReply = {
   calculationCount: number;
 };
 
+export type ConfirmedCondition = {
+  fieldName: string; value: number; unit: string; requestId: string; rawText: string;
+};
+export type ConversationConditions = {
+  version: number; status: 'waiting_for_user' | 'ready'; pending: ConversationPending;
+  inputs: ConfirmedCondition[];
+};
+export type ConditionRequest = { requestId: string; expectedVersion: number; value: string };
+export const CONDITION_UNCONFIRMED_MESSAGE = '补充条件结果未确认；可能已保存，已暂停后续补充，不自动重试。';
+
 export const CONVERSATION_CREATE_UNCONFIRMED_MESSAGE = '会话创建结果未确认；可能已保存空会话，未自动再次创建。';
 export const CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE = '首条消息结果未确认；可能已调用模型并保存会话，未自动重试。';
 
 export class ConversationUnconfirmedError extends ApiError {
-  readonly stage: 'create' | 'message';
+  readonly stage: Stage;
 
-  constructor(stage: 'create' | 'message', status: number | null = null) {
-    super(stage === 'create' ? CONVERSATION_CREATE_UNCONFIRMED_MESSAGE : CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE, status);
+  constructor(stage: Stage, status: number | null = null) {
+    super(stage === 'create' ? CONVERSATION_CREATE_UNCONFIRMED_MESSAGE
+      : stage === 'condition' ? CONDITION_UNCONFIRMED_MESSAGE : CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE, status);
     this.name = 'ConversationUnconfirmedError';
     this.stage = stage;
   }
 }
 
-type Stage = 'create' | 'message';
+type Stage = 'create' | 'message' | 'condition';
 const MESSAGE_WAIT_MS = 2_430_000;
 // Match Python's Unicode whitespace used by billing/rules.py, including U+0085.
 const RULE_SPACE = '[\\u0009-\\u000d\\u001c-\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
@@ -263,9 +274,10 @@ function validateBilling(plan: unknown, requirements: ConversationRequirement[],
   }
 }
 
-function pending(value: unknown, question: string, runSources: ConversationSource[]): ConversationPending {
+function pending(value: unknown, question: string, runSources: ConversationSource[], confirmedCount = 0,
+  currentIndex = 0): ConversationPending {
   if (!object(value) || value.kind !== undefined || value.question !== question
-      || !Array.isArray(value.confirmed_inputs) || value.confirmed_inputs.length !== 0) return invalid();
+      || !Array.isArray(value.confirmed_inputs) || value.confirmed_inputs.length !== confirmedCount) return invalid();
   const evidence = sources(value.evidence, false);
   if (evidence.length === 0 || evidence.length !== runSources.length
       || evidence.some((item, index) => !sameSource(item, runSources[index]))) return invalid();
@@ -278,7 +290,7 @@ function pending(value: unknown, question: string, runSources: ConversationSourc
   }
   const requirements = rawRequirements.map((item: unknown) => requirement(item, evidence));
   validateBilling(value.billing_plan, requirements, evidence);
-  if (!sameRequirement(current, requirements[0])) return invalid();
+  if (!sameRequirement(current, requirements[currentIndex])) return invalid();
   return { kind: 'billing', question, current, requirements, sources: evidence };
 }
 
@@ -361,5 +373,62 @@ export async function sendFirstConversationMessage(
   } catch (failure) {
     if (!signal.aborted && failure instanceof ApiError && failure.status === 401) throw failure;
     throw new ConversationUnconfirmedError('message', failure instanceof ApiError ? failure.status : null);
+  }
+}
+
+// Only a verified POST receipt can advance these conditions. A metadata GET cannot.
+export async function submitConversationCondition(
+  workspaceId: string, knowledgeBaseId: string, conversationId: string,
+  previous: ConversationConditions, submitted: ConditionRequest, signal: AbortSignal,
+): Promise<ConversationConditions> {
+  const id = strictUuid(conversationId);
+  const requestId = strictUuid(submitted.requestId);
+  const current = previous.pending.current;
+  if (previous.status !== 'waiting_for_user' || submitted.expectedVersion !== previous.version
+      || !Number.isSafeInteger(previous.version) || previous.version < 1 || previous.version >= 200
+      || typeof submitted.value !== 'string' || submitted.value.trim() !== submitted.value
+      || !/^(?:0|[1-9][0-9]{0,3})$/.test(submitted.value)
+      || Number(submitted.value) < current.minValue || Number(submitted.value) > current.maxValue
+      || previous.inputs.some(item => item.requestId === requestId)) {
+    throw new ApiError('请输入当前字段范围内的整数，并使用已确认的会话版本。');
+  }
+  const content = `${submitted.value}${current.unit}`;
+  const payload = await request(`${scopedPath(workspaceId, knowledgeBaseId)}/${id}/messages`,
+    'POST', 'condition', 200, signal, 10_000, JSON.stringify({
+      request_id: requestId, expected_version: submitted.expectedVersion, content,
+      mode: 'continue', confirm_billing_rule: false, response_mode: 'knowledge',
+    }));
+  try {
+    if (signal.aborted || !object(payload) || payload.conversation_id !== id || payload.request_id !== requestId
+        || payload.version !== previous.version + 1 || payload.run !== null || payload.billing_result !== null
+        || payload.answer_preference !== null || !object(payload.task)) return invalid();
+    const rawInputs = payload.task.confirmed_inputs;
+    if (!Array.isArray(rawInputs) || rawInputs.length !== previous.inputs.length + 1) return invalid();
+    const expected: ConfirmedCondition[] = [...previous.inputs,
+      { fieldName: current.fieldName, value: Number(submitted.value), unit: current.unit, requestId, rawText: content }];
+    rawInputs.forEach((item: unknown, index: number) => {
+      const bound = expected[index];
+      if (!object(item) || item.field_name !== bound.fieldName || item.value !== bound.value
+          || item.unit !== bound.unit || item.request_id !== bound.requestId || item.raw_text !== bound.rawText
+          || item.provenance !== 'user_message') return invalid();
+    });
+    const ready = expected.length === previous.pending.requirements.length;
+    if (payload.status !== (ready ? 'ready' : 'waiting_for_user')
+        || payload.execution_deferred !== (ready ? 'explicit_execution_required' : null)) return invalid();
+    const next = pending(payload.task, previous.pending.question, previous.pending.sources, expected.length,
+      ready ? expected.length - 1 : expected.length);
+    if (next.kind !== previous.pending.kind || next.requirements.length !== previous.pending.requirements.length
+        || next.requirements.some((item, index) => !sameRequirement(item, previous.pending.requirements[index]))) return invalid();
+    const documents = new Map(next.sources.map(item => [item.documentId, item.documentName]));
+    for (const [documentId, documentName] of documents) {
+      if (signal.aborted) return invalid();
+      const document = await getDocument(workspaceId, knowledgeBaseId, documentId, signal);
+      if (signal.aborted || document.originalFilename !== documentName || document.status !== 'ready') return invalid();
+    }
+    if (signal.aborted) return invalid();
+    return { version: payload.version as number, status: ready ? 'ready' : 'waiting_for_user', pending: next, inputs: expected };
+  } catch (failure) {
+    if (!signal.aborted && failure instanceof ApiError && failure.status === 401) throw failure;
+    throw new ConversationUnconfirmedError('condition', failure instanceof ApiError ? failure.status : null);
   }
 }

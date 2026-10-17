@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type {
   CreatedConversation, ConversationSnapshot, FirstMessageRequest, FirstConversationReply,
+  ConversationConditions, ConditionRequest, ConversationPending,
 } from './conversation-api';
 
 type Notice = { kind: 'unconfirmed' | 'rejected'; message: string };
@@ -12,16 +13,20 @@ export type ConversationView = {
   messageOutcome: { kind: 'confirmed'; result: FirstConversationReply } | Notice | null;
   snapshot: ConversationSnapshot | null;
   readError: string;
+  conditions: ConversationConditions | null;
+  conditionRequest: (ConditionRequest & { label: string; unit: string }) | null;
+  conditionNotice: string;
 };
 
 type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
-  activity: 'idle' | 'creating' | 'sending' | 'reading' | 'logout';
+  activity: 'idle' | 'creating' | 'sending' | 'supplementing' | 'reading' | 'logout';
   view: ConversationView;
   error: string;
   onCreate: () => void;
   onSend: (content: string) => void;
+  onSupplement: (value: string) => void;
   onRead: () => void;
   onCancel: () => void;
   onBack: () => void;
@@ -33,8 +38,6 @@ const STATE_TEXT: Record<ConversationSnapshot['status'], string> = {
 
 function FirstReply({ result }: { result: FirstConversationReply }) {
   const answer = result.answer;
-  const pending = result.pending;
-  const ruleSourceIds = new Set(pending?.requirements.flatMap(item => item.evidenceIds));
   return <>
     {result.calculationCount > 0 && <p className="session-note">
       本轮包含 {result.calculationCount} 次已执行算术操作；此处展示本轮回复，未核对算术明细。</p>}
@@ -53,23 +56,7 @@ function FirstReply({ result }: { result: FirstConversationReply }) {
           <blockquote className="answer-quote">{citation.quote}</blockquote>
         </li>,
       )}</ol>
-    </> : result.kind === 'waiting' && pending ? <div className="conversation-pending">
-      <h3>等待补充条件</h3>
-      <p>当前需要补充：<strong>{pending.current.label}</strong>，
-        范围 {pending.current.minValue} 到 {pending.current.maxValue}，单位：{pending.current.unit}。</p>
-      <p>规则原文：</p>
-      {Array.from(new Set(pending.requirements.map(item => item.ruleQuote))).map(quote =>
-        <blockquote className="answer-quote" key={quote}>{quote}</blockquote>,
-      )}
-      <ul>{pending.requirements.map(item => <li key={item.fieldName}>
-        {item.label}{item.fieldName === pending.current.fieldName ? '（当前待补）' : ''}：
-        {item.minValue} 到 {item.maxValue}，单位：{item.unit}
-      </li>)}</ul>
-      {pending.kind === 'billing' && <p>上门次数与计费月份需要分别确认，不会根据“全年”自动填写12个月。</p>}
-      <p className="session-note">规则来源：{pending.sources.filter(source => ruleSourceIds.has(source.evidenceId)).map(source =>
-        `${source.documentName} · 文本块 ${source.chunkIndex}`).join('；')}。
-        本页尚不提交补充条件，业务任务尚未完成。</p>
-    </div> : result.kind === 'failed' ? <div className="message error" role="alert">
+    </> : result.kind === 'failed' ? <div className="message error" role="alert">
       <h3>本轮运行失败</h3><p>首条消息已保存，但本轮运行失败，没有可展示的完整答案。</p>
     </div> : result.kind === 'stopped' ? <div className="message" role="status">
       <h3>本轮运行已停止</h3><p>首条消息已保存，但本轮运行已停止，业务任务尚未完成。</p>
@@ -77,8 +64,29 @@ function FirstReply({ result }: { result: FirstConversationReply }) {
   </>;
 }
 
+function PendingDetails({ pending, ready }: { pending: ConversationPending; ready: boolean }) {
+  const ruleSourceIds = new Set(pending.requirements.flatMap(item => item.evidenceIds));
+  return <div className="conversation-pending">
+      <h3>{ready ? '输入已齐备，尚未执行计算' : '等待补充条件'}</h3>
+      {!ready && <p>当前需要补充：<strong>{pending.current.label}</strong>，
+        范围 {pending.current.minValue} 到 {pending.current.maxValue}，单位：{pending.current.unit}。</p>}
+      <p>规则原文：</p>
+      {Array.from(new Set(pending.requirements.map(item => item.ruleQuote))).map(quote =>
+        <blockquote className="answer-quote" key={quote}>{quote}</blockquote>,
+      )}
+      <ul>{pending.requirements.map(item => <li key={item.fieldName}>
+        {item.label}{!ready && item.fieldName === pending.current.fieldName ? '（当前待补）' : ''}：
+        {item.minValue} 到 {item.maxValue}，单位：{item.unit}
+      </li>)}</ul>
+      {pending.kind === 'billing' && <p>上门次数与计费月份需要分别确认，不会根据“全年”自动填写12个月。</p>}
+      <p className="session-note">规则来源：{pending.sources.filter(source => ruleSourceIds.has(source.evidenceId)).map(source =>
+        `${source.documentName} · 文本块 ${source.chunkIndex}`).join('；')}。
+        补充条件不会自动执行计算，业务任务尚未完成。</p>
+    </div>;
+}
+
 export default function KnowledgeConversation({ workspaceName, knowledgeBaseName, activity,
-  view, error, onCreate, onSend, onRead, onCancel, onBack }: Props) {
+  view, error, onCreate, onSend, onSupplement, onRead, onCancel, onBack }: Props) {
   const [content, setContent] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
@@ -112,7 +120,7 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
     {activity === 'logout' ? <p className="message" role="status">正在确认退出…</p> : <>
       <div className="search-form-panel">
         <h2>创建业务会话</h2>
-        <p>先创建当前知识库内的会话，再发送首条消息。本页仅处理首条消息；业务会话与网页登录期限分别管理。</p>
+        <p>先创建当前知识库内的会话，再发送首条消息，按需逐项补充条件；业务会话与网页登录期限分别管理。</p>
         <button className="button secondary" disabled={busy || view.createAttempted} onClick={onCreate}>
           {activity === 'creating' ? '正在创建会话…' : '创建会话'}</button>
         {activity === 'creating' && <button className="button secondary conversation-cancel" onClick={onCancel}>
@@ -152,6 +160,24 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
           <FirstReply result={view.messageOutcome.result} />
         </> : <p className="message error" role="alert">{view.messageOutcome.message}</p>}
       </section>}
+      {view.conditions && !view.conditionRequest && !view.conditionNotice && <section
+        className="search-form-panel" aria-label="补充条件">
+        <PendingDetails ready={view.conditions.status === 'ready'} pending={view.conditions.pending} />
+        <p>已确认保存的条件：</p>
+        {view.conditions.inputs.length ? <ul>{view.conditions.inputs.map(item => <li key={item.fieldName}>
+          {view.conditions!.pending.requirements.find(field => field.fieldName === item.fieldName)!.label}：
+          {item.value}{item.unit}
+        </li>)}</ul> : <p>尚无。</p>}
+        <p>已保存轮次：{view.conditions.version}。此数字表示记录版本，不表示计算完成。</p>
+        {view.conditions.status === 'waiting_for_user' && <ConditionForm
+          key={`${view.conditions.version}/${view.conditions.pending.current.fieldName}`}
+          conditions={view.conditions} disabled={busy} onSubmit={onSupplement} />}
+      </section>}
+      {view.conditionRequest && <p className="submitted-query">本次补充提交：
+        {view.conditionRequest.value}{view.conditionRequest.unit}（{view.conditionRequest.label}）。
+        {activity === 'supplementing' ? '正在保存并核对来源…' : '尚未确认保存，后续补充已暂停。'}</p>}
+      {activity === 'supplementing' && <button className="button secondary" onClick={onCancel}>停止等待补充结果</button>}
+      {view.conditionNotice && <p className="message error" role="alert">{view.conditionNotice}</p>}
       {view.created && view.request && <section className="conversation-snapshot" aria-labelledby="conversation-state-title">
         <h2 id="conversation-state-title">当前会话状态</h2>
         <button className="button secondary" disabled={busy} onClick={onRead}>读取当前会话状态</button>
@@ -164,4 +190,33 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
       </section>}
     </>}
   </section>;
+}
+
+function ConditionForm({ conditions, disabled, onSubmit }: {
+  conditions: ConversationConditions; disabled: boolean; onSubmit: (value: string) => void;
+}) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const field = conditions.pending.current;
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (disabled) return;
+    if (value.trim() !== value || !/^(?:0|[1-9][0-9]{0,3})$/.test(value)
+        || Number(value) < field.minValue || Number(value) > field.maxValue) {
+      setError(`请输入 ${field.minValue} 到 ${field.maxValue} 的整数；单位已固定，无需输入单位。`);
+      return;
+    }
+    setError('');
+    onSubmit(value);
+  }
+  return <form noValidate onSubmit={submit}>
+    <label htmlFor="condition-value">补充{field.label}</label>
+    <input id="condition-value" type="text" inputMode="numeric" value={value} disabled={disabled}
+      aria-describedby="condition-help" aria-invalid={error ? true : undefined}
+      onChange={event => { setValue(event.currentTarget.value); setError(''); }} />
+    <p id="condition-help">固定单位：{field.unit}；范围：{field.minValue} 到 {field.maxValue}，只接受整数。</p>
+    {error && <p className="message error" role="alert">{error}</p>}
+    <button className="button primary" disabled={disabled}>提交补充条件</button>
+    <p className="session-note">手动提交后由后端重新校验；结果未确认时不能重发。输入齐备后仍需另行明确执行。</p>
+  </form>;
 }

@@ -9,6 +9,7 @@ import {
   QUESTION, ANSWER, ABSTENTION, RULE, PRIVATE, LONG_QUOTE, OTHER_QUOTE,
   jsonResponse, createdConversation, documentResponse,
   completedReply, abstainedReply, waitingReply, billingWaitingReply, failedReply,
+  CONDITION_REQUEST_ID, MONTH_REQUEST_ID, conditionReply,
 } from './conversation-test-fixtures';
 
 const RESTORE = '/api/v1/auth/web/session';
@@ -130,6 +131,142 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+});
+
+async function supplement(value: string) {
+  await act(async () => { fireEvent.change(screen.getByRole('textbox', { name: /^补充/ }), { target: { value } }); });
+  await click(screen.getByRole('button', { name: '提交补充条件' }));
+}
+
+describe('逐项补充条件页面', () => {
+  function setup(response?: () => Response | Promise<Response>, sourceFailure?: () => Response | Promise<Response> | undefined) {
+    let posts = 0;
+    vi.mocked(crypto.randomUUID).mockReturnValueOnce(REQUEST_ID)
+      .mockReturnValueOnce(CONDITION_REQUEST_ID).mockReturnValueOnce(MONTH_REQUEST_ID);
+    return installApi(request => {
+      if (pathOf(request) === MESSAGES_PATH) {
+        posts += 1;
+        return posts === 1 ? jsonResponse(billingWaitingReply())
+          : response ? response() : jsonResponse(conditionReply(posts === 3));
+      }
+      if (posts > 1 && pathOf(request) === DOCUMENT_PATH) return sourceFailure?.();
+    });
+  }
+  async function start() { render(<App />); await openConversation(); await create(); await send(); }
+
+  it('按次数、月数分别手动提交；当前标记移动，ready不自动计算或解锁首问', async () => {
+    const requests = setup();
+    await start();
+    expect(screen.getByText(/固定单位：次/)).toBeTruthy();
+    await supplement('3');
+    expect(document.body.textContent).toContain('上门次数：3次');
+    expect(document.body.textContent).toContain('计费月数（当前待补）');
+    expect(document.body.textContent).not.toContain('上门次数（当前待补）');
+    expect(screen.getByLabelText('补充计费月数')).toBeTruthy();
+    expect((screen.getByLabelText('补充计费月数') as HTMLInputElement).value).toBe('');
+    expect(messagePosts(requests)).toHaveLength(2);
+    await supplement('2');
+    expect(screen.getByRole('heading', { name: '输入已齐备，尚未执行计算' })).toBeTruthy();
+    expect(document.body.textContent).toContain('计费月数：2个月');
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /执行|计算/ })).toBeNull();
+    expect(firstInput().disabled).toBe(true);
+    expect(messagePosts(requests)).toHaveLength(3);
+    expect(sourceReads(requests)).toHaveLength(3);
+    const bodies = await Promise.all(messagePosts(requests).map(item => item.clone().json()));
+    expect(bodies.map(item => item.expected_version)).toEqual([0, 1, 2]);
+    expect(bodies.map(item => item.request_id)).toEqual([REQUEST_ID, CONDITION_REQUEST_ID, MONTH_REQUEST_ID]);
+    expect(bodies.every(item => item.mode === 'continue' && item.confirm_billing_rule === false)).toBe(true);
+    expectNoPrivateOutput();
+  });
+
+  it('非法数字本地拒绝；首次保存来源未核对前不显示下一字段，不可连点', async () => {
+    const pending = deferred<Response>();
+    const requests = setup(undefined, () => pending.promise);
+    await start();
+    for (const value of ['', '-1', '1.2', '1e2', '10000', '三次']) {
+      await supplement(value);
+      expect(screen.getByRole('alert').textContent).toContain('整数');
+    }
+    expect(messagePosts(requests)).toHaveLength(1);
+    await supplement('3');
+    expect(screen.queryByLabelText('补充计费月数')).toBeNull();
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(messagePosts(requests)).toHaveLength(2);
+    await resolveResponse(pending, jsonResponse(documentResponse()));
+    expect(screen.getByLabelText('补充计费月数')).toBeTruthy();
+  });
+
+  it.each([409, 502])('补充HTTP%s后保留提交快照，读取同版本也不能解锁', async status => {
+    const requests = setup(() => jsonResponse({ detail: PRIVATE }, status));
+    await start();
+    await supplement('3');
+    expect(document.body.textContent).toContain('本次补充提交：3次');
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    expect(document.body.textContent).not.toContain(RULE);
+    await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(2);
+    expectNoPrivateOutput();
+  });
+
+  it('停止等待补充后迟到响应无效，返回文档列表不自动重发', async () => {
+    const pending = deferred<Response>();
+    const requests = setup(() => pending.promise);
+    await start();
+    await supplement('3');
+    await click(screen.getByRole('button', { name: '停止等待补充结果' }));
+    expect(document.body.textContent).toContain('补充条件结果未确认');
+    await resolveResponse(pending, jsonResponse(conditionReply()));
+    expect(screen.queryByLabelText('补充计费月数')).toBeNull();
+    await click(screen.getByRole('button', { name: '返回文档列表' }));
+    expect(screen.getByRole('button', { name: '会话问答' })).toBeTruthy();
+    expect(messagePosts(requests)).toHaveLength(2);
+  });
+
+  it.each([401, 404])('补充来源%s隐藏旧规则，401退出登录、404暂停', async status => {
+    const requests = setup(undefined, () => jsonResponse({ detail: PRIVATE }, status));
+    await start();
+    await supplement('3');
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    if (status === 401) expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+    else expect(document.body.textContent).toContain('补充条件结果未确认');
+    expect(messagePosts(requests)).toHaveLength(2);
+    expectNoPrivateOutput();
+  });
+
+  it.each(['logout', 'expiry', 'back'])('补充等待期间%s隔离迟到回执，不恢复条件或自动重发', async action => {
+    const pending = deferred<Response>();
+    const requests = setup(() => pending.promise);
+    await start();
+    await supplement('3');
+    if (action === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else if (action === 'expiry') await advance(1_800_000);
+    else await click(screen.getByRole('button', { name: '返回文档列表' }));
+    await resolveResponse(pending, jsonResponse(conditionReply()));
+    expect(screen.queryByLabelText('补充计费月数')).toBeNull();
+    expect(document.body.textContent).not.toContain(RULE);
+    expect(messagePosts(requests)).toHaveLength(2);
+    if (action !== 'back') expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
+  it('手动读取发现版本变化时清除可提交条件，不以GET内容重建任务', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === MESSAGES_PATH) return jsonResponse(billingWaitingReply());
+      if (pathOf(request) === CONVERSATION_PATH) return jsonResponse({ ...conditionReply(),
+        task: { ...conditionReply().task, question: PRIVATE } });
+    });
+    await start();
+    expect(screen.getByLabelText('补充上门次数')).toBeTruthy();
+    await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.queryByRole('button', { name: '提交补充条件' })).toBeNull();
+    expect(document.body.textContent).toContain('会话记录已变化');
+    expect(document.body.textContent).not.toContain(RULE);
+    expectNoPrivateOutput();
+    expect(messagePosts(requests)).toHaveLength(1);
+  });
 });
 
 describe('网页显式创建会话与首条消息', () => {
@@ -322,7 +459,7 @@ describe('网页显式创建会话与首条消息', () => {
     expectNoPrivateOutput();
   });
 
-  it('旧单字段待补任务也先核对全部来源，再展示原规则、字段、单位与范围，不开放补充提交', async () => {
+  it('旧单字段待补任务也先核对全部来源，再展示原规则、字段、单位与范围，再开放补充提交', async () => {
     const pending = deferred<Response>();
     const reply = waitingReply();
     const requests = installApi(request => {
@@ -339,9 +476,9 @@ describe('网页显式创建会话与首条消息', () => {
     expect(screen.queryByRole('heading', { name: '等待补充条件' })).toBeNull();
     expect(sourceReads(requests).map(pathOf)).toEqual([DOCUMENT_PATH, OTHER_DOCUMENT_PATH]);
     await resolveResponse(pending, jsonResponse(documentResponse(OTHER_DOCUMENT_ID)));
-    const result = screen.getByRole('region', { name: '本轮会话结果' });
+    const result = screen.getByRole('region', { name: '补充条件' });
     expect(screen.getByRole('heading', { name: '等待补充条件' })).toBeTruthy();
-    for (const value of [QUESTION, reply.task.clarification.rule_quote, '上门次数', '次', '0', '9999']) {
+    for (const value of [reply.task.clarification.rule_quote, '上门次数', '次', '0', '9999']) {
       expect(result.textContent).toContain(value);
     }
     expect(document.body.textContent).not.toContain(LONG_QUOTE);
@@ -350,7 +487,7 @@ describe('网页显式创建会话与首条消息', () => {
     const ruleSources = screen.getByText(/^规则来源：/);
     expect(ruleSources.textContent).toContain('导出说明.md');
     expect(ruleSources.textContent).not.toContain('保留说明.md');
-    expect(screen.queryByRole('button', { name: /执行|提交补充|开始新任务/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /执行|开始新任务/ })).toBeNull();
     await expectNoSecondMessage(requests);
     expectNoPrivateOutput();
   });
@@ -361,14 +498,14 @@ describe('网页显式创建会话与首条消息', () => {
     await openConversation();
     await create();
     await send();
-    const result = screen.getByRole('region', { name: '本轮会话结果' });
+    const result = screen.getByRole('region', { name: '补充条件' });
     expect(result.textContent).toContain('上门次数（当前待补）');
     expect(result.textContent).not.toContain('计费月数（当前待补）');
     expect(screen.getByRole('heading', { name: '等待补充条件' })).toBeTruthy();
     for (const value of [RULE, '上门次数', '计费月数', '次', '个月', '9999', '12']) {
       expect(result.textContent).toContain(value);
     }
-    expect(screen.queryByRole('button', { name: /执行|提交补充|开始新任务/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /执行|开始新任务/ })).toBeNull();
     expect(sourceReads(requests)).toHaveLength(1);
     await expectNoSecondMessage(requests);
     expectNoPrivateOutput();

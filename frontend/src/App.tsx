@@ -17,11 +17,12 @@ import {
   createConversation, sendFirstConversationMessage, getConversationSnapshot, ConversationUnconfirmedError,
   CONVERSATION_CREATE_UNCONFIRMED_MESSAGE, CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE,
   type FirstMessageRequest,
+  submitConversationCondition, CONDITION_UNCONFIRMED_MESSAGE, type ConditionRequest,
 } from './conversation-api';
 
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
   | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer'
-  | 'conversation-create' | 'conversation-message' | 'conversation-read' | 'logout' | null;
+  | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-read' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -379,7 +380,8 @@ export default function App() {
   function openConversation() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setConversationView({ createAttempted: false, created: null, createOutcome: null,
-      request: null, messageOutcome: null, snapshot: null, readError: '' });
+      request: null, messageOutcome: null, snapshot: null, readError: '',
+      conditions: null, conditionRequest: null, conditionNotice: '' });
     setSearchOpen(false);
     setSearchOutcome(null);
     setAnswerOpen(false);
@@ -425,7 +427,8 @@ export default function App() {
     setConversationView(view => view && { ...view, request: first, messageOutcome: null, snapshot: null, readError: '' });
     try {
       const result = await sendFirstConversationMessage(workspaceId, knowledgeBaseId, conversationId, first, controller.signal);
-      if (isCurrent(id, controller)) setConversationView(view => view && { ...view, messageOutcome: { kind: 'confirmed', result } });
+      if (isCurrent(id, controller)) setConversationView(view => view && { ...view, messageOutcome: { kind: 'confirmed', result },
+        conditions: result.pending ? { version: 1, status: 'waiting_for_user', pending: result.pending, inputs: [] } : null });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
@@ -433,6 +436,32 @@ export default function App() {
         failure instanceof ConversationUnconfirmedError || !(failure instanceof ApiError)
           ? { kind: 'unconfirmed', message: CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE }
           : { kind: 'rejected', message: failure.message } });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  async function supplementConversation(value: string) {
+    if (!conversationView?.created || !conversationView.conditions || conversationView.conditionRequest
+        || conversationView.conditionNotice || conversationView.conditions.status !== 'waiting_for_user'
+        || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const previous = conversationView.conditions;
+    const conversationId = conversationView.created.id;
+    const submitted: ConditionRequest = { requestId: crypto.randomUUID(), expectedVersion: previous.version, value };
+    const { id, controller } = beginRequest();
+    setBusy('conversation-supplement');
+    setConversationView(view => view && { ...view, conditionRequest: { ...submitted,
+      label: previous.pending.current.label, unit: previous.pending.current.unit }, snapshot: null, readError: '' });
+    try {
+      const conditions = await submitConversationCondition(selectedWorkspace.id, selectedKnowledgeBase.id,
+        conversationId, previous, submitted, controller.signal);
+      if (isCurrent(id, controller)) setConversationView(view => view && { ...view, conditions, conditionRequest: null });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setConversationView(view => view && { ...view, conditionNotice:
+        failure instanceof ConversationUnconfirmedError || !(failure instanceof ApiError)
+          ? CONDITION_UNCONFIRMED_MESSAGE : `${failure.message} 后续补充已暂停。` });
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
@@ -450,12 +479,15 @@ export default function App() {
     setConversationView(view => view && { ...view, snapshot: null, readError: '' });
     try {
       const snapshot = await getConversationSnapshot(workspaceId, knowledgeBaseId, conversationId, controller.signal);
-      if (isCurrent(id, controller)) setConversationView(view => view && { ...view, snapshot });
+      if (isCurrent(id, controller)) setConversationView(view => view && { ...view, snapshot,
+        conditionNotice: view.conditions && (snapshot.version !== view.conditions.version || snapshot.status !== view.conditions.status)
+          ? '会话记录已变化，后续补充已暂停；读取状态不会恢复可提交的任务。' : view.conditionNotice });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
       else if (failure instanceof ApiError && failure.status === 404) setConversationView(view => view && {
-        ...view, snapshot: null, messageOutcome: null, readError: failure.message,
+        ...view, snapshot: null, messageOutcome: null, conditions: null, readError: failure.message,
+        conditionNotice: view.conditions || view.conditionRequest ? '会话不可访问，后续补充已暂停。' : '',
       });
       else setConversationView(view => view && { ...view, readError:
         failure instanceof ApiError && !(failure instanceof ConversationUnconfirmedError) ? failure.message
@@ -470,12 +502,15 @@ export default function App() {
       createOutcome: { kind: 'unconfirmed', message: CONVERSATION_CREATE_UNCONFIRMED_MESSAGE } });
     if (activity === 'conversation-message') setConversationView(view => view && { ...view,
       messageOutcome: { kind: 'unconfirmed', message: CONVERSATION_MESSAGE_UNCONFIRMED_MESSAGE } });
+    if (activity === 'conversation-supplement') setConversationView(view => view && { ...view,
+      conditionNotice: CONDITION_UNCONFIRMED_MESSAGE });
     if (activity === 'conversation-read') setConversationView(view => view && { ...view,
       readError: '当前会话状态未确认，请按需重新读取；不会重发消息。' });
   }
 
   function stopWaitingForConversation() {
-    if (busy !== 'conversation-create' && busy !== 'conversation-message' && busy !== 'conversation-read') return;
+    if (busy !== 'conversation-create' && busy !== 'conversation-message' && busy !== 'conversation-read'
+        && busy !== 'conversation-supplement') return;
     generation.current += 1;
     pending.current?.abort();
     pending.current = null;
@@ -745,9 +780,11 @@ export default function App() {
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'conversation-create' ? 'creating' : busy === 'conversation-message' ? 'sending'
-            : busy === 'conversation-read' ? 'reading' : busy === 'logout' ? 'logout' : 'idle'}
+            : busy === 'conversation-supplement' ? 'supplementing'
+              : busy === 'conversation-read' ? 'reading' : busy === 'logout' ? 'logout' : 'idle'}
           view={conversationView} error={error} onCreate={() => void createBusinessConversation()}
           onSend={content => void sendFirstMessage(content)} onRead={() => void readCurrentConversation()}
+          onSupplement={value => void supplementConversation(value)}
           onCancel={stopWaitingForConversation} onBack={backToDocuments}
         /> : selectedWorkspace && selectedKnowledgeBase && answerOpen ? <KnowledgeAnswer
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}

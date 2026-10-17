@@ -13,6 +13,8 @@
 该模块的实现、验证与教学状态单独记录；此前真实检索仍暂缓。
 随后小步见[显式创建会话与首条消息](frontend/frontend-conversations.md)，
 与引用问答分别记录参与程度和验证范围。
+接续小步见[逐项补充条件](frontend/frontend-conversation-conditions.md)：
+手动逐项保存，输入齐备后暂停，显式执行仍待后续。
 
 ## 按用途查找
 

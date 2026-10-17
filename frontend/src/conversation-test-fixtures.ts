@@ -101,3 +101,18 @@ export function failedReply(status: 'failed' | 'stopped' = 'failed') {
   return { ...initialMessage(), reply: PRIVATE, run: { run_id: RUN_ID, status,
     stop_reason: PRIVATE, steps: [], result: null, evidence: [], calculations: [], metrics: null } };
 }
+
+export const CONDITION_REQUEST_ID = '44444444-4444-4444-4444-444444444444';
+export const MONTH_REQUEST_ID = '55555555-5555-5555-5555-555555555555';
+export function conditionReply(ready = false, count = 3, months = 2) {
+  const task = billingWaitingReply().task;
+  const confirmed = [{ field_name: 'visit_count', value: count, unit: '次', request_id: CONDITION_REQUEST_ID,
+    raw_text: `${count}次`, provenance: 'user_message' }];
+  if (ready) confirmed.push({ field_name: 'billing_months', value: months, unit: '个月', request_id: MONTH_REQUEST_ID,
+    raw_text: `${months}个月`, provenance: 'user_message' });
+  return { conversation_id: CONVERSATION_ID, request_id: ready ? MONTH_REQUEST_ID : CONDITION_REQUEST_ID,
+    version: ready ? 3 : 2, status: ready ? 'ready' : 'waiting_for_user', reply: PRIVATE,
+    task: { ...task, clarification: task.clarifications[1], confirmed_inputs: confirmed },
+    run: null, billing_result: null, answer_preference: null,
+    execution_deferred: ready ? 'explicit_execution_required' : null };
+}
