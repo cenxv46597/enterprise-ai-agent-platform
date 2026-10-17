@@ -64,6 +64,24 @@ export function completedReply() {
       citations: [0, 1].map(index => ({ ...evidenceReference(index), quote: index === 0 ? LONG_QUOTE : OTHER_QUOTE })) } } };
 }
 
+export function publicTraceStep(step = 1) {
+  return { step, action: 'tool', tool_name: 'knowledge_search', tool_call_id: PRIVATE,
+    query: PRIVATE, status: 'success', error_code: null as string | null, evidence_ids: [1, 2],
+    calculation_id: null as number | null, planner_ms: 5, execution_ms: 20,
+    reranking: null, document_candidates: null, document_status: null };
+}
+
+export function tracedReply() {
+  const base = completedReply();
+  return { ...base, run: { ...base.run,
+    steps: [
+      { ...publicTraceStep(), tool_name: 'calculator', status: 'error', error_code: 'invalid_arguments', evidence_ids: [], execution_ms: 0 },
+      publicTraceStep(2),
+      { ...publicTraceStep(3), action: 'finish', tool_name: null as string | null,
+        evidence_ids: [], planner_ms: 1, execution_ms: 30 },
+    ], metrics: { total_ms: 75, decision_count: 3, tool_execution_count: 1 } } };
+}
+
 export function abstainedReply() {
   return { ...initialMessage(), reply: ABSTENTION, run: { run_id: RUN_ID, status: 'completed',
     stop_reason: null, steps: [], evidence: [], calculations: [], metrics: null,

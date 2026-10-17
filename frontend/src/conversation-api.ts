@@ -2,6 +2,7 @@ import {
   ApiError, getDocument, parseKnowledgeAnswer, strictUuid, webRequestOptions,
   type KnowledgeAnswerResult,
 } from './api';
+import { parseConversationTrace, type ConversationTrace } from './conversation-trace';
 
 export type CreatedConversation = { id: string; version: 0; status: 'idle' };
 export type ConversationSnapshot = {
@@ -53,6 +54,7 @@ export type FirstConversationReply = {
   answer: KnowledgeAnswerResult | null;
   pending: ConversationPending | null;
   calculationCount: number;
+  trace: ConversationTrace;
 };
 
 export type ConfirmedCondition = {
@@ -331,6 +333,7 @@ function parseFirstReply(
   const reply: FirstConversationReply = {
     conversationId, requestId, version: 1, kind: 'failed', answer: null, pending: null,
     calculationCount: run.calculations.length,
+    trace: parseConversationTrace(run, evidence, run.calculations.length),
   };
   const documents = new Map<string, string>();
   if (run.status === 'waiting_for_user') {
@@ -356,6 +359,10 @@ function parseFirstReply(
       if (run.result !== null) return invalid();
       reply.kind = run.status;
     }
+  }
+  if (reply.trace.kind === 'available') {
+    // Trace evidence may include candidates not quoted in the final answer.
+    for (const item of evidence) documents.set(item.documentId, item.documentName);
   }
   return { reply, documents };
 }

@@ -5,6 +5,7 @@ import type {
   BillingExecutionRequest, BillingEstimate,
 } from './conversation-api';
 import { BillingConfirmation, BillingResult } from './ConversationBilling';
+import ConversationTrace from './ConversationTrace';
 
 type Notice = { kind: 'unconfirmed' | 'rejected'; message: string };
 export type ConversationView = {
@@ -164,6 +165,8 @@ export default function KnowledgeConversation({ workspaceName, knowledgeBaseName
         {view.messageOutcome.kind === 'confirmed' ? <>
           <p className="submitted-query">本次提交的消息：<strong>{view.request?.content}</strong></p>
           <FirstReply result={view.messageOutcome.result} />
+          {!view.conditionRequest && !view.conditionNotice && (!view.executionRequest || view.executionResult) &&
+            <ConversationTrace trace={view.messageOutcome.result.trace} kind={view.messageOutcome.result.kind} />}
         </> : <p className="message error" role="alert">{view.messageOutcome.message}</p>}
       </section>}
       {view.conditions && !view.conditionRequest && !view.conditionNotice && !view.executionRequest && <section

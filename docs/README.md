@@ -17,6 +17,8 @@
 手动逐项保存，输入齐备后暂停，显式执行仍待后续。
 随后见[规则适用确认与显式标准估算](frontend/frontend-conversation-billing.md)：
 用户确认后手动执行，核对保存结果与来源后展示小计及合计。
+再接[首条消息公开处理轨迹](frontend/frontend-conversation-trace.md)：
+默认折叠查看已有步骤和统计，展开不发送请求、不重跑工具。
 
 ## 按用途查找
 

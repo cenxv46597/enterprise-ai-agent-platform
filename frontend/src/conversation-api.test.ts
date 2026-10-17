@@ -171,7 +171,8 @@ describe('首条会话消息的独立HTTP契约', () => {
   it.each(['failed', 'stopped'] as const)('HTTP200的%s是已确认运行结果，只有安全状态而没有伪造答案', async status => {
     fetchMock.mockResolvedValueOnce(jsonResponse(failedReply(status)));
     expect(await send()).toEqual({ conversationId: CONVERSATION_ID, requestId: REQUEST_ID,
-      version: 1, kind: status, answer: null, pending: null, calculationCount: 0 });
+      version: 1, kind: status, answer: null, pending: null, calculationCount: 0,
+      trace: { kind: 'available', steps: [], metrics: null, reason: '原因未识别，未展示原始内容' } });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -194,7 +195,7 @@ describe('首条会话消息的独立HTTP契约', () => {
     expect(result.answer?.citations.map(item => item.quote)).toEqual([LONG_QUOTE, secondQuote,
       payload.run.result.citations[2].quote]);
     expect(Object.keys(result).sort()).toEqual([
-      'answer', 'calculationCount', 'conversationId', 'kind', 'pending', 'requestId', 'version',
+      'answer', 'calculationCount', 'conversationId', 'kind', 'pending', 'requestId', 'trace', 'version',
     ]);
     for (const [, options] of fetchMock.mock.calls) {
       expect(options?.credentials).toBe('same-origin');

@@ -11,6 +11,7 @@ import {
   completedReply, abstainedReply, waitingReply, billingWaitingReply, failedReply,
   CONDITION_REQUEST_ID, MONTH_REQUEST_ID, conditionReply,
   EXECUTION_REQUEST_ID, billingExecutionReply,
+  tracedReply, publicTraceStep,
 } from './conversation-test-fixtures';
 
 const RESTORE = '/api/v1/auth/web/session';
@@ -138,6 +139,129 @@ async function supplement(value: string) {
   await act(async () => { fireEvent.change(screen.getByRole('textbox', { name: /^补充/ }), { target: { value } }); });
   await click(screen.getByRole('button', { name: '提交补充条件' }));
 }
+
+describe('首条消息工具轨迹只读展示', () => {
+  async function start() { render(<App />); await openConversation(); await create(); await send(); }
+  async function expand() { await click(screen.getByText('查看本轮处理过程')); }
+
+  it('默认折叠，展开与收起不发请求；步骤记录和实际执行统计分开显示', async () => {
+    const requests = installApi(request => pathOf(request) === MESSAGES_PATH ? jsonResponse(tracedReply()) : undefined);
+    await start();
+    const details = document.querySelector('details')!;
+    expect(details.open).toBe(false);
+    const before = requests.length;
+    await expand();
+    expect(details.open).toBe(true);
+    const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('步骤 1 · 原文数值算术 · 错误');
+    expect(trace.textContent).toContain('工具参数未通过校验，未进入执行');
+    expect(trace.textContent).toContain('步骤 2 · 知识库检索 · 成功');
+    expect(trace.textContent).toContain('步骤 3 · 结束并形成回复 · 成功');
+    expect(trace.textContent).toContain('决策次数：3；实际进入工具执行：1 次');
+    expect(trace.textContent).toContain('75.0 毫秒');
+    expect(trace.textContent).toContain('证据 1：导出说明.md · 文本块 1');
+    expect(trace.textContent).toContain('证据 2：保留说明.md · 文本块 2');
+    expect(trace.textContent).toContain('不等于模型请求数');
+    expect(trace.textContent).toContain('步骤成功不等于答案正确或业务任务完成');
+    expect(trace.textContent).not.toContain(ANSWER);
+    expectNoPrivateOutput();
+    await expand();
+    expect(details.open).toBe(false);
+    expect(requests).toHaveLength(before);
+    expect(messagePosts(requests)).toHaveLength(1);
+  });
+
+  it('全部来源核对前没有轨迹入口，最后一个未引用候选也必须核对', async () => {
+    const pending = deferred<Response>();
+    const payload = tracedReply(); payload.run.result.citations = [payload.run.result.citations[0]];
+    const requests = installApi(request => {
+      if (pathOf(request) === MESSAGES_PATH) return jsonResponse(payload);
+      if (pathOf(request) === OTHER_DOCUMENT_PATH) return pending.promise;
+    });
+    await start();
+    expect(screen.queryByText('查看本轮处理过程')).toBeNull();
+    expectNoResult();
+    expect(sourceReads(requests)).toHaveLength(2);
+    await resolveResponse(pending, jsonResponse(documentResponse(OTHER_DOCUMENT_ID)));
+    await expand();
+    expect(screen.getByRole('region', { name: '首条消息处理过程' }).textContent).toContain('保留说明.md · 文本块 2');
+  });
+
+  it('步骤格式错误只显示轨迹未确认，不丢弃已核对的答案', async () => {
+    const payload = tracedReply(); payload.run.steps[1].evidence_ids = [99];
+    installApi(request => pathOf(request) === MESSAGES_PATH ? jsonResponse(payload) : undefined);
+    await start(); await expand();
+    expect(document.body.textContent).toContain(ANSWER);
+    const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('处理过程格式未确认');
+    expect(trace.querySelector('ol')).toBeNull();
+    expectNoPrivateOutput();
+  });
+
+  it('旧轮次缺统计保持未记录，空步骤不冒充未执行', async () => {
+    installApi(); await start(); await expand();
+    const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('该轮未记录运行统计');
+    expect(trace.textContent).toContain('不能据此断言工具未执行');
+    expect(trace.textContent).not.toContain('实际进入工具执行：0');
+  });
+
+  it('准备规则步骤成功仍显示首轮等待补充，补充失败后不保留受保护轨迹', async () => {
+    const base = billingWaitingReply();
+    const payload = { ...base, run: { ...base.run, steps: [{ ...publicTraceStep(), tool_name: 'prepare_billing', evidence_ids: [] }],
+      metrics: { total_ms: 25, decision_count: 1, tool_execution_count: 1 } } };
+    let posts = 0;
+    const requests = installApi(request => pathOf(request) === MESSAGES_PATH
+      ? ++posts === 1 ? jsonResponse(payload) : jsonResponse({ detail: PRIVATE }, 502) : undefined);
+    await start(); await expand();
+    const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('准备标准计费规则 · 成功');
+    expect(trace.textContent).toContain('首条消息运行状态：等待补充条件');
+    await supplement('3');
+    expect(screen.queryByText('查看本轮处理过程')).toBeNull();
+    expect(messagePosts(requests)).toHaveLength(2);
+    expectNoPrivateOutput();
+  });
+
+  it('前一步检索成功但结束生成失败，轨迹和结果都不冒充本轮完成', async () => {
+    const base = failedReply();
+    const payload = { ...base, run: { ...base.run, stop_reason: 'generation_error', evidence: completedReply().run.evidence,
+      steps: [publicTraceStep(), { ...publicTraceStep(2), action: 'finish', tool_name: null, status: 'error',
+        error_code: 'generation_error', evidence_ids: [] }],
+      metrics: { total_ms: 50, decision_count: 2, tool_execution_count: 1 } } };
+    installApi(request => pathOf(request) === MESSAGES_PATH ? jsonResponse(payload) : undefined);
+    await start(); await expand();
+    expect(screen.getByRole('heading', { name: '本轮运行失败' })).toBeTruthy();
+    const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('知识库检索 · 成功');
+    expect(trace.textContent).toContain('结束并形成回复 · 错误');
+    expect(trace.textContent).toContain('回答生成失败');
+    expect(trace.textContent).toContain('首条消息运行状态：运行失败');
+    expectNoResult(); expectNoPrivateOutput();
+  });
+
+  it.each([401, 404])('轨迹候选来源%s失败不展示答案、轨迹或私有信息', async status => {
+    installApi(request => pathOf(request) === MESSAGES_PATH ? jsonResponse(tracedReply())
+      : pathOf(request) === OTHER_DOCUMENT_PATH ? jsonResponse({ detail: PRIVATE }, status) : undefined);
+    await start();
+    expect(screen.queryByText('查看本轮处理过程')).toBeNull();
+    expectNoResult(); expectNoPrivateOutput();
+    if (status === 401) expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
+  it.each(['back', 'logout', 'expiry', '404'])('%s清理或隐藏已展开轨迹', async action => {
+    installApi(request => pathOf(request) === MESSAGES_PATH ? jsonResponse(tracedReply())
+      : pathOf(request) === CONVERSATION_PATH ? jsonResponse({ detail: PRIVATE }, 404) : undefined);
+    await start(); await expand();
+    if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else if (action === 'expiry') await advance(1_800_000);
+    else await click(screen.getByRole('button', { name: '读取当前会话状态' }));
+    expect(screen.queryByText('查看本轮处理过程')).toBeNull();
+    expect(document.body.textContent).not.toContain('知识库检索 · 成功');
+    expectNoPrivateOutput();
+  });
+});
 
 describe('逐项补充条件页面', () => {
   function setup(response?: () => Response | Promise<Response>, sourceFailure?: () => Response | Promise<Response> | undefined) {
