@@ -11,6 +11,8 @@
 
 2026-10-17 后续网页小步见[独立引用问答页](frontend/frontend-answers.md)，
 该模块的实现、验证与教学状态单独记录；此前真实检索仍暂缓。
+随后小步见[显式创建会话与首条消息](frontend/frontend-conversations.md)，
+与引用问答分别记录参与程度和验证范围。
 
 ## 按用途查找
 

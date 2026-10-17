@@ -129,7 +129,7 @@ function uuid(value: unknown): string {
   return value.toLowerCase();
 }
 
-function strictUuid(value: unknown): string {
+export function strictUuid(value: unknown): string {
   const normalized = uuid(value);
   if (normalized.length !== 36) throw new ApiError(INVALID_RESPONSE);
   return normalized;
@@ -140,7 +140,7 @@ function isDocumentStatus(value: unknown): value is DocumentStatus {
     || value === "ready" || value === "failed";
 }
 
-function webRequestOptions(options: RequestInit, signal: AbortSignal): RequestInit {
+export function webRequestOptions(options: RequestInit, signal: AbortSignal): RequestInit {
   return {
     ...options,
     mode: "same-origin",
@@ -628,7 +628,7 @@ export async function searchKnowledgeBase(
   }
 }
 
-function parseKnowledgeAnswer(payload: unknown): KnowledgeAnswerResult {
+export function parseKnowledgeAnswer(payload: unknown): KnowledgeAnswerResult {
   if (!isObject(payload) || typeof payload.answer !== "string" || !payload.answer.trim()
       || typeof payload.abstained !== "boolean" || !Array.isArray(payload.citations)
       || payload.citations.length > 20
