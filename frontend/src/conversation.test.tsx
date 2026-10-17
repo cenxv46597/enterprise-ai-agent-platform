@@ -362,6 +362,8 @@ describe('网页显式创建会话与首条消息', () => {
     await create();
     await send();
     const result = screen.getByRole('region', { name: '本轮会话结果' });
+    expect(result.textContent).toContain('上门次数（当前待补）');
+    expect(result.textContent).not.toContain('计费月数（当前待补）');
     expect(screen.getByRole('heading', { name: '等待补充条件' })).toBeTruthy();
     for (const value of [RULE, '上门次数', '计费月数', '次', '个月', '9999', '12']) {
       expect(result.textContent).toContain(value);

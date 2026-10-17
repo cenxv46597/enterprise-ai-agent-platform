@@ -62,7 +62,8 @@ function FirstReply({ result }: { result: FirstConversationReply }) {
         <blockquote className="answer-quote" key={quote}>{quote}</blockquote>,
       )}
       <ul>{pending.requirements.map(item => <li key={item.fieldName}>
-        {item.label}：{item.minValue} 到 {item.maxValue}，单位：{item.unit}
+        {item.label}{item.fieldName === pending.current.fieldName ? '（当前待补）' : ''}：
+        {item.minValue} 到 {item.maxValue}，单位：{item.unit}
       </li>)}</ul>
       {pending.kind === 'billing' && <p>上门次数与计费月份需要分别确认，不会根据“全年”自动填写12个月。</p>}
       <p className="session-note">规则来源：{pending.sources.filter(source => ruleSourceIds.has(source.evidenceId)).map(source =>
