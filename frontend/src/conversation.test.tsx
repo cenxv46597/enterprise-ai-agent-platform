@@ -225,7 +225,7 @@ describe('首条消息工具轨迹只读展示', () => {
 
   it('前一步检索成功但结束生成失败，轨迹和结果都不冒充本轮完成', async () => {
     const base = failedReply();
-    const payload = { ...base, run: { ...base.run, stop_reason: 'generation_error', evidence: completedReply().run.evidence,
+    const payload = { ...base, run: { ...base.run, stop_reason: PRIVATE, evidence: completedReply().run.evidence,
       steps: [publicTraceStep(), { ...publicTraceStep(2), action: 'finish', tool_name: null, status: 'error',
         error_code: 'generation_error', evidence_ids: [] }],
       metrics: { total_ms: 50, decision_count: 2, tool_execution_count: 1 } } };
@@ -233,6 +233,7 @@ describe('首条消息工具轨迹只读展示', () => {
     await start(); await expand();
     expect(screen.getByRole('heading', { name: '本轮运行失败' })).toBeTruthy();
     const trace = screen.getByRole('region', { name: '首条消息处理过程' });
+    expect(trace.textContent).toContain('运行结束原因：原因未识别，未展示原始内容');
     expect(trace.textContent).toContain('知识库检索 · 成功');
     expect(trace.textContent).toContain('结束并形成回复 · 错误');
     expect(trace.textContent).toContain('回答生成失败');
