@@ -43,6 +43,20 @@ export type KnowledgeSearchResult = {
   dimensions: 1024 | null;
   hits: SearchHit[];
 };
+export type AnswerCitation = {
+  chunkId: string;
+  documentId: string;
+  documentName: string;
+  chunkIndex: number;
+  quote: string;
+  startChar: number;
+  endChar: number;
+};
+export type KnowledgeAnswerResult = {
+  answer: string;
+  abstained: boolean;
+  citations: AnswerCitation[];
+};
 export type Session = { user: User; expiresAt: number };
 
 export class ApiError extends Error {
@@ -88,6 +102,15 @@ export class SearchUnconfirmedError extends ApiError {
   constructor(status: number | null = null) {
     super(SEARCH_UNCONFIRMED_MESSAGE, status);
     this.name = "SearchUnconfirmedError";
+  }
+}
+
+export const ANSWER_UNCONFIRMED_MESSAGE = "问答结果未确认；本次可能已调用向量或生成服务，未自动重试。";
+
+export class AnswerUnconfirmedError extends ApiError {
+  constructor(status: number | null = null) {
+    super(ANSWER_UNCONFIRMED_MESSAGE, status);
+    this.name = "AnswerUnconfirmedError";
   }
 }
 
@@ -602,6 +625,134 @@ export async function searchKnowledgeBase(
     if (signal.aborted) throw new SearchUnconfirmedError();
     if (failure instanceof ApiError && failure.status === 401) throw failure;
     throw new SearchUnconfirmedError(failure instanceof ApiError ? failure.status : null);
+  }
+}
+
+function parseKnowledgeAnswer(payload: unknown): KnowledgeAnswerResult {
+  if (!isObject(payload) || typeof payload.answer !== "string" || !payload.answer.trim()
+      || typeof payload.abstained !== "boolean" || !Array.isArray(payload.citations)
+      || payload.citations.length > 20
+      || (payload.abstained && payload.citations.length !== 0)
+      || (!payload.abstained && payload.citations.length === 0)
+      || (payload.reranking !== undefined && payload.reranking !== null)) {
+    throw new AnswerUnconfirmedError();
+  }
+  let answerLength = 0;
+  for (const _character of payload.answer) {
+    answerLength += 1;
+    if (answerLength > 4000) throw new AnswerUnconfirmedError();
+  }
+  const documents = new Map<string, string>();
+  const chunks = new Map<string, { documentId: string; chunkIndex: number; quotes: Set<string> }>();
+  const citations = payload.citations.map((item: unknown): AnswerCitation => {
+    if (!isObject(item) || typeof item.document_name !== "string"
+        || Array.from(item.document_name).length < 1 || Array.from(item.document_name).length > 255
+        || !Number.isSafeInteger(item.chunk_index) || (item.chunk_index as number) < 1
+        || typeof item.quote !== "string" || !item.quote.trim()
+        || !Number.isSafeInteger(item.start_char) || !Number.isSafeInteger(item.end_char)) {
+      throw new AnswerUnconfirmedError();
+    }
+    const chunkId = strictUuid(item.chunk_id);
+    const documentId = strictUuid(item.document_id);
+    const chunkIndex = item.chunk_index as number;
+    const startChar = item.start_char as number;
+    const endChar = item.end_char as number;
+    if (startChar < 0 || endChar <= startChar
+        || (documents.has(documentId) && documents.get(documentId) !== item.document_name)) {
+      throw new AnswerUnconfirmedError();
+    }
+    let quoteLength = 0;
+    for (const _character of item.quote) {
+      quoteLength += 1;
+      if (quoteLength > 1000) throw new AnswerUnconfirmedError();
+    }
+    if (endChar - startChar !== quoteLength) throw new AnswerUnconfirmedError();
+    const previous = chunks.get(chunkId);
+    if (previous && (previous.documentId !== documentId || previous.chunkIndex !== chunkIndex
+        || previous.quotes.has(item.quote))) {
+      throw new AnswerUnconfirmedError();
+    }
+    if (previous) previous.quotes.add(item.quote);
+    else chunks.set(chunkId, { documentId, chunkIndex, quotes: new Set([item.quote]) });
+    documents.set(documentId, item.document_name);
+    return { chunkId, documentId, documentName: item.document_name, chunkIndex,
+      quote: item.quote, startChar, endChar };
+  });
+  return { answer: payload.answer, abstained: payload.abstained, citations };
+}
+
+export async function answerKnowledgeBase(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  question: string,
+  signal: AbortSignal,
+): Promise<KnowledgeAnswerResult> {
+  const normalizedWorkspaceId = strictUuid(workspaceId);
+  const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  const normalizedQuestion = question.trim();
+  let questionLength = 0;
+  for (const _character of normalizedQuestion) {
+    questionLength += 1;
+    if (questionLength > 2000) break;
+  }
+  if (questionLength < 1 || questionLength > 2000) throw new ApiError("请输入 1 到 2000 字符的问答问题。");
+  if (signal.aborted) throw new AnswerUnconfirmedError();
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 630_000);
+  let result: KnowledgeAnswerResult;
+  try {
+    const response = await fetch(
+      `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/answers`,
+      webRequestOptions({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: normalizedQuestion, top_k: 3, strategy: "vector", rerank: false }),
+      }, controller.signal),
+    );
+    if (controller.signal.aborted) throw new AnswerUnconfirmedError();
+    const rejectionMessages: Record<number, string> = {
+      401: SESSION_EXPIRED,
+      403: "问答请求被拒绝，请检查登录与浏览器来源。",
+      404: "该知识库不存在或你已无权访问，请返回知识库列表。",
+      409: "当前知识库向量模型配置不一致，无法完成本次问答；本响应不能确认是否已产生费用。",
+      422: "请核对问答问题、请求参数与上下文预算；本响应不能确认是否已产生费用。",
+    };
+    if (Object.hasOwn(rejectionMessages, response.status)) {
+      throw new ApiError(rejectionMessages[response.status], response.status);
+    }
+    if (response.status !== 200) throw new AnswerUnconfirmedError(response.status);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted) throw new AnswerUnconfirmedError();
+    try {
+      result = parseKnowledgeAnswer(payload);
+    } catch {
+      throw new AnswerUnconfirmedError();
+    }
+  } catch (failure) {
+    if (failure instanceof ApiError) throw failure;
+    throw new AnswerUnconfirmedError();
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
+  try {
+    const documents = new Map(result.citations.map((citation) => [citation.documentId, citation.documentName]));
+    for (const [documentId, documentName] of documents) {
+      if (signal.aborted) throw new AnswerUnconfirmedError();
+      const document = await getDocument(normalizedWorkspaceId, normalizedKnowledgeBaseId, documentId, signal);
+      if (signal.aborted) throw new AnswerUnconfirmedError();
+      if (document.originalFilename !== documentName || document.status !== "ready") {
+        throw new AnswerUnconfirmedError();
+      }
+    }
+    if (signal.aborted) throw new AnswerUnconfirmedError();
+    return result;
+  } catch (failure) {
+    if (signal.aborted) throw new AnswerUnconfirmedError();
+    if (failure instanceof ApiError && failure.status === 401) throw failure;
+    throw new AnswerUnconfirmedError(failure instanceof ApiError ? failure.status : null);
   }
 }
 

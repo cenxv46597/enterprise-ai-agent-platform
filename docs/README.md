@@ -9,6 +9,9 @@
 3. [新对话提示词](handoff/new-chat-prompt.md)：可复制模板，填入本机路径后使用。
 4. [路线图](progress/roadmap.md)与[学习记录](progress/learning-progress.md)：整体方向和历史参与记录。
 
+2026-10-17 后续网页小步见[独立引用问答页](frontend/frontend-answers.md)，
+该模块的实现、验证与教学状态单独记录；此前真实检索仍暂缓。
+
 ## 按用途查找
 
 - [交接与提示词](handoff/)：当前接续入口；旧阶段交接放入历史归档。

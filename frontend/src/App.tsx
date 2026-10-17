@@ -4,15 +4,17 @@ import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, log
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
   createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
   searchKnowledgeBase, SearchUnconfirmedError, SEARCH_UNCONFIRMED_MESSAGE,
+  answerKnowledgeBase, AnswerUnconfirmedError, ANSWER_UNCONFIRMED_MESSAGE,
   type DocumentChunk, type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
 import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
 import KnowledgeSearch, { type SearchOutcome } from './KnowledgeSearch';
+import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
-  | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'logout' | null;
+  | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -33,6 +35,8 @@ export default function App() {
   const [embeddingOutcome, setEmbeddingOutcome] = useState<EmbeddingOutcome | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchOutcome, setSearchOutcome] = useState<SearchOutcome | null>(null);
+  const [answerOpen, setAnswerOpen] = useState(false);
+  const [answerOutcome, setAnswerOutcome] = useState<AnswerOutcome | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -57,6 +61,8 @@ export default function App() {
     setEmbeddingOutcome(null);
     setSearchOpen(false);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -126,6 +132,8 @@ export default function App() {
     setEmbeddingOutcome(null);
     setSearchOpen(false);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -156,6 +164,8 @@ export default function App() {
     setEmbeddingOutcome(null);
     setSearchOpen(false);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -185,6 +195,8 @@ export default function App() {
     setEmbeddingOutcome(null);
     setSearchOpen(false);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     void refresh();
   }
 
@@ -200,6 +212,8 @@ export default function App() {
     setEmbeddingOutcome(null);
     setSearchOpen(false);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     setBusy('documents');
     setError('');
     try {
@@ -267,6 +281,8 @@ export default function App() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setSearchOpen(true);
     setSearchOutcome(null);
+    setAnswerOpen(false);
+    setAnswerOutcome(null);
     setUploadOutcome(null);
     setError('');
   }
@@ -301,6 +317,48 @@ export default function App() {
     pending.current = null;
     setBusy(null);
     setSearchOutcome({ kind: 'unconfirmed', message: SEARCH_UNCONFIRMED_MESSAGE });
+  }
+
+  function openAnswer() {
+    if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
+    setAnswerOpen(true);
+    setAnswerOutcome(null);
+    setSearchOpen(false);
+    setSearchOutcome(null);
+    setUploadOutcome(null);
+    setError('');
+  }
+
+  async function answer(question: string) {
+    if (!answerOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const workspaceId = selectedWorkspace.id;
+    const knowledgeBaseId = selectedKnowledgeBase.id;
+    const submittedQuestion = question.trim();
+    const { id, controller } = beginRequest();
+    setBusy('answer');
+    setError('');
+    setAnswerOutcome(null);
+    try {
+      const result = await answerKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuestion, controller.signal);
+      if (isCurrent(id, controller)) setAnswerOutcome({ kind: 'confirmed', question: submittedQuestion, result });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setAnswerOutcome(failure instanceof AnswerUnconfirmedError || !(failure instanceof ApiError)
+        ? { kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE }
+        : { kind: 'rejected', message: failure.message });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForAnswer() {
+    if (busy !== 'answer') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setAnswerOutcome({ kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE });
   }
 
   async function chunkDocument() {
@@ -453,6 +511,9 @@ export default function App() {
   }
 
   async function exit() {
+    if (busy === 'answer') {
+      setAnswerOutcome({ kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE });
+    }
     if (busy === 'search') {
       setSearchOutcome({ kind: 'unconfirmed', message: SEARCH_UNCONFIRMED_MESSAGE });
     }
@@ -557,7 +618,13 @@ export default function App() {
           </form>
           {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
           <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
-        </section> : selectedWorkspace && selectedKnowledgeBase && searchOpen ? <KnowledgeSearch
+        </section> : selectedWorkspace && selectedKnowledgeBase && answerOpen ? <KnowledgeAnswer
+          key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
+          workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+          activity={busy === 'answer' ? 'answering' : busy === 'logout' ? 'logout' : 'idle'}
+          outcome={answerOutcome} error={error} onAnswer={question => void answer(question)}
+          onCancel={stopWaitingForAnswer} onBack={backToDocuments}
+        /> : selectedWorkspace && selectedKnowledgeBase && searchOpen ? <KnowledgeSearch
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'search' ? 'searching' : busy === 'logout' ? 'logout' : 'idle'}
@@ -583,6 +650,7 @@ export default function App() {
             : busy === 'upload' ? 'uploading' : 'idle'}
           onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
           onSearch={openSearch}
+          onAnswer={openAnswer}
           onOpenDocument={openDocument}
         >
           <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
