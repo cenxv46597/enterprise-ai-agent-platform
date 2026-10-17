@@ -45,12 +45,14 @@ function documentRow(id = DOCUMENT_A, filename = FILENAME_A, knowledgeBaseId = K
 
 function citation(index = 0) {
   const quote = [LONG_QUOTE, SECOND_QUOTE, THIRD_QUOTE][index];
-  const start = [100, 600, 0][index];
+  const start = [100, 460, 0][index];
   return {
-    chunk_id: `00000000-0000-0000-0000-${(0x501 + index).toString(16).padStart(12, '0')}`,
+    chunk_id: index === 2
+      ? '00000000-0000-0000-0000-000000000503'
+      : '00000000-0000-0000-0000-000000000501',
     document_id: index === 2 ? DOCUMENT_B : DOCUMENT_A,
     document_name: index === 2 ? FILENAME_B : FILENAME_A,
-    chunk_index: index === 2 ? 1 : index + 1,
+    chunk_index: 1,
     quote, start_char: start, end_char: start + Array.from(quote).length,
   };
 }
@@ -262,6 +264,7 @@ describe('知识库独立引用问答页', () => {
     expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
     await act(async () => { secondSource.resolve(json(documentRow(DOCUMENT_B, FILENAME_B))); await vi.advanceTimersByTimeAsync(0); });
     const result = screen.getByRole('region', { name: '本次问答结果' });
+    expect(result.querySelectorAll('blockquote')).toHaveLength(3);
     for (const value of [QUESTION, ANSWER, FILENAME_A, FILENAME_B, LONG_QUOTE, SECOND_QUOTE, THIRD_QUOTE]) {
       expect(result.textContent).toContain(value);
     }
