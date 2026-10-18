@@ -2,6 +2,7 @@
 
 从仓库根目录用 .venv 中的 Python 执行，可用 --docker-exe 指定 Desktop 自带 CLI。
 仅管理原项目容器内的 eaap_test，测试数据位于本次角色拥有的随机 schema。
+默认验证工作流记录；--suite readiness 仅验证数据库就绪探测。
 """
 
 import argparse
@@ -92,7 +93,12 @@ class Results:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--docker-exe", default=shutil.which("docker") or "docker")
+    parser.add_argument("--suite", choices=("workflow-history", "readiness"), default="workflow-history")
     arguments = parser.parse_args()
+    test_file, expected_count = {
+        "workflow-history": ("test_answer_workflow_listing_db.py", 14),
+        "readiness": ("test_readiness_db.py", 3),
+    }[arguments.suite]
     role = f"eaap_check_{uuid4().hex}"
     password = secrets.token_hex(32)
     buffer = StringIO()
@@ -108,11 +114,12 @@ def main() -> int:
         reserved = True
         expires = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
         verifier = scram_verifier(password)
+        privileges = "CONNECT, CREATE" if arguments.suite == "workflow-history" else "CONNECT"
         admin_sql(arguments.docker_exe, "BEGIN; "
                   f'CREATE ROLE "{role}" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE '
                   f"NOREPLICATION NOBYPASSRLS NOINHERIT CONNECTION LIMIT 4 PASSWORD '{verifier}' "
                   f"VALID UNTIL '{expires}'; "
-                  f'GRANT CONNECT, CREATE ON DATABASE eaap_test TO "{role}"; COMMIT;')
+                  f'GRANT {privileges} ON DATABASE eaap_test TO "{role}"; COMMIT;')
         print("目标已确认：本机独立 eaap_test，临时测试身份；不读取已有凭据。")
         # Only this process receives its temporary URL. Nothing is saved to a credential file.
         for name in list(os.environ):
@@ -135,9 +142,9 @@ def main() -> int:
         with redirect_stdout(buffer), redirect_stderr(buffer):
             result = int(pytest.main([
                 "-q", "-p", "no:cacheprovider", "--tb=short",
-                str(ROOT / "backend/tests/test_answer_workflow_listing_db.py"),
+                str(ROOT / "backend/tests" / test_file),
             ], plugins=[audit]))
-        if audit.collected != 14 or audit.passed != audit.collected or audit.skipped:
+        if audit.collected != expected_count or audit.passed != audit.collected or audit.skipped:
             result = 1
     except (Exception, KeyboardInterrupt) as failure:
         print(f"验证未完成（{type(failure).__name__}）；未输出连接字符串或管理SQL。")

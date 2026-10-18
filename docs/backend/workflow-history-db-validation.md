@@ -32,7 +32,9 @@
   格式依据[PostgreSQL17](https://www.postgresql.org/docs/17/catalog-pg-authid.html)，密钥派生依据
   [RFC5802第3节](https://www.rfc-editor.org/rfc/rfc5802.html#section-3)及SCRAM-SHA-256算法。
 - 当前进程只得到本次loopback eaap_test URL；清除继承的EAAP配置，禁用.env及pytest额外选项/插件自动加载，
-  固定运行新文件并要求收集/通过恰为14项、无跳过，避免以未运行数据库用例冒充完成。
+  默认固定运行新文件并要求收集/通过恰为14项、无跳过，避免以未运行数据库用例冒充完成。
+  后续[数据库就绪检查](database-readiness.md)增加固定 `--suite readiness` 三项入口；默认14项不变，
+  同时复核14项通过（16.07秒）及清理成功。此为后续脚本兼容性复核，不替换下述历史成绩或相加。
 - 每个fixture先验证URL为本机eaap_test且无query，再通过SQL确认实际库；创建随机 `eaap_test_<uuid>` schema及所需六表。
   六表包括用户、空间、成员、知识库、工作流与执行回执；没有切块/vector表，不使用日常数据。
 - finally禁用本次身份登录，只终止该身份在eaap_test中的连接，核对schema同时属于该身份且符合完整随机命名，

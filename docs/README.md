@@ -33,6 +33,8 @@
 手动读取当前知识库最近20条创建记录，点选vector任务查看状态与保存答案；历史页只读，不执行或恢复。
 接续[独立数据库集成验证](backend/workflow-history-db-validation.md)：
 启动原数据库容器，在独立eaap_test随机schema验证真实SQL与持久化，不读取既有密码、不调用模型。
+再接[应用数据库就绪检查](backend/database-readiness.md)：保留 `/health`，新增 `/ready`，
+用独立只读连接区分进程响应和数据库连通性；不据此宣称迁移或完整业务已验收。
 
 ## 按用途查找
 
