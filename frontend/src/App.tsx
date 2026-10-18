@@ -15,7 +15,7 @@ import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
 import { createAnswerWorkflow, executeAnswerWorkflow, readAnswerWorkflow, WorkflowUnconfirmedError,
-  resumeAnswerWorkflow, canResumeWorkflow, sameWorkflowMeta,
+  resumeAnswerWorkflow, canResumeWorkflow, sameWorkflowMeta, canReadSavedWorkflowAnswer, readSavedWorkflowAnswer,
   WORKFLOW_NOTICES, type WorkflowCreation, type WorkflowExecution, type WorkflowResume } from './workflow-api';
 import {
   createConversation, sendFirstConversationMessage, getConversationSnapshot, ConversationUnconfirmedError,
@@ -28,7 +28,8 @@ import {
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
   | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer'
   | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-execute'
-  | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read' | 'logout' | null;
+  | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read'
+  | 'workflow-answer-read' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -574,7 +575,7 @@ export default function App() {
     setConversationView(null); setUploadOutcome(null); setError('');
     setWorkflowView({ creation: null, created: null, createNotice: '', execution: null, receipt: null,
       executeNotice: '', snapshot: null, readNotice: '', blocked: false,
-      resumeRequest: null, resumeReceipt: null, resumeNotice: '' });
+      resumeRequest: null, resumeReceipt: null, resumeNotice: '', savedAnswer: null, savedAnswerNotice: '' });
   }
 
   async function createWorkflow(question: string) {
@@ -604,7 +605,8 @@ export default function App() {
     const execution: WorkflowExecution = { requestId: crypto.randomUUID(), expectedVersion: 0 };
     const { id, controller } = beginRequest();
     setBusy('workflow-execute'); setError('');
-    setWorkflowView(view => view && { ...view, execution, receipt: null, executeNotice: '', snapshot: null, readNotice: '' });
+    setWorkflowView(view => view && { ...view, execution, receipt: null, executeNotice: '', snapshot: null, readNotice: '',
+      savedAnswer: null, savedAnswerNotice: '' });
     try {
       const receipt = await executeAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, created, execution, controller.signal);
       if (isCurrent(id, controller)) setWorkflowView(view => view && { ...view, receipt, blocked: true });
@@ -623,7 +625,7 @@ export default function App() {
     const created = workflowView.created;
     const { id, controller } = beginRequest();
     setBusy('workflow-read'); setError('');
-    setWorkflowView(view => view && { ...view, snapshot: null, readNotice: '' });
+    setWorkflowView(view => view && { ...view, snapshot: null, readNotice: '', savedAnswer: null, savedAnswerNotice: '' });
     try {
       const snapshot = await readAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, created, controller.signal);
       if (isCurrent(id, controller)) setWorkflowView(view => {
@@ -650,6 +652,30 @@ export default function App() {
     }
   }
 
+  async function readWorkflowAnswer() {
+    if (!workflowView?.created || !workflowView.snapshot || !canReadSavedWorkflowAnswer(workflowView.snapshot)
+        || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const created = workflowView.created, snapshot = workflowView.snapshot;
+    const { id, controller } = beginRequest();
+    setBusy('workflow-answer-read'); setError('');
+    // A fresh source check replaces previously displayed bodies as one unit.
+    setWorkflowView(view => view && { ...view, savedAnswer: null, savedAnswerNotice: '',
+      receipt: null, resumeReceipt: null, blocked: true });
+    try {
+      const savedAnswer = await readSavedWorkflowAnswer(selectedWorkspace.id, selectedKnowledgeBase.id,
+        created, snapshot, controller.signal);
+      if (isCurrent(id, controller)) setWorkflowView(view => view && { ...view, savedAnswer });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setWorkflowView(view => view && { ...view, snapshot: null, savedAnswer: null, savedAnswerNotice:
+        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError)
+          ? failure.message : WORKFLOW_NOTICES['answer-read'] });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
   async function resumeWorkflow() {
     if (!workflowView?.created || !workflowView.receipt || !workflowView.snapshot || workflowView.resumeRequest
         || workflowView.readNotice || !canResumeWorkflow(workflowView.receipt, workflowView.snapshot)
@@ -659,7 +685,7 @@ export default function App() {
     const { id, controller } = beginRequest();
     setBusy('workflow-resume'); setError('');
     setWorkflowView(view => view && { ...view, resumeRequest: submitted, resumeReceipt: null,
-      resumeNotice: '', snapshot: null, readNotice: '' });
+      resumeNotice: '', snapshot: null, readNotice: '', savedAnswer: null, savedAnswerNotice: '' });
     try {
       const resumeReceipt = await resumeAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id,
         failure, current, submitted, controller.signal);
@@ -676,17 +702,22 @@ export default function App() {
 
   function markWorkflowInterrupted(activity: Busy) {
     const stage = activity === 'workflow-create' ? 'create' : activity === 'workflow-execute' ? 'execute'
-      : activity === 'workflow-resume' ? 'resume' : activity === 'workflow-read' ? 'read' : null;
+      : activity === 'workflow-resume' ? 'resume' : activity === 'workflow-read' ? 'read'
+        : activity === 'workflow-answer-read' ? 'answer-read' : null;
     if (!stage) return;
-    setWorkflowView(view => view && { ...view, blocked: view.blocked || stage !== 'read',
+    setWorkflowView(view => view && { ...view, blocked: view.blocked || (stage !== 'read' && stage !== 'answer-read'),
       createNotice: stage === 'create' ? WORKFLOW_NOTICES.create : view.createNotice,
       executeNotice: stage === 'execute' ? WORKFLOW_NOTICES.execute : view.executeNotice,
       resumeNotice: stage === 'resume' ? WORKFLOW_NOTICES.resume : view.resumeNotice,
-      readNotice: stage === 'read' ? WORKFLOW_NOTICES.read : view.readNotice });
+      readNotice: stage === 'read' ? WORKFLOW_NOTICES.read : view.readNotice,
+      savedAnswer: stage === 'answer-read' ? null : view.savedAnswer,
+      snapshot: stage === 'answer-read' ? null : view.snapshot,
+      savedAnswerNotice: stage === 'answer-read' ? WORKFLOW_NOTICES['answer-read'] : view.savedAnswerNotice });
   }
 
   function stopWaitingForWorkflow() {
-    if (busy !== 'workflow-create' && busy !== 'workflow-execute' && busy !== 'workflow-read' && busy !== 'workflow-resume') return;
+    if (busy !== 'workflow-create' && busy !== 'workflow-execute' && busy !== 'workflow-read'
+        && busy !== 'workflow-resume' && busy !== 'workflow-answer-read') return;
     generation.current += 1; pending.current?.abort(); pending.current = null;
     markWorkflowInterrupted(busy); setBusy(null);
   }
@@ -954,10 +985,11 @@ export default function App() {
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'workflow-create' ? 'creating' : busy === 'workflow-execute' ? 'executing'
-            : busy === 'workflow-resume' ? 'resuming' : busy === 'workflow-read' ? 'reading' : busy === 'logout' ? 'logout' : 'idle'}
+            : busy === 'workflow-resume' ? 'resuming' : busy === 'workflow-read' ? 'reading'
+              : busy === 'workflow-answer-read' ? 'answer-reading' : busy === 'logout' ? 'logout' : 'idle'}
           view={workflowView} error={error} onCreate={question => void createWorkflow(question)}
           onExecute={() => void executeWorkflow()} onRead={() => void readWorkflow()}
-          onResume={() => void resumeWorkflow()}
+          onResume={() => void resumeWorkflow()} onReadAnswer={() => void readWorkflowAnswer()}
           onCancel={stopWaitingForWorkflow} onBack={backToDocuments}
         /> : selectedWorkspace && selectedKnowledgeBase && conversationView ? <KnowledgeConversation
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}

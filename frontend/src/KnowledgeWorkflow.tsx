@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { KnowledgeAnswerResult } from './api';
-import { canResumeWorkflow, type WorkflowCreation, type WorkflowMeta, type WorkflowReceipt, type WorkflowResume } from './workflow-api';
+import { canReadSavedWorkflowAnswer, canResumeWorkflow, type WorkflowCreation, type WorkflowMeta, type WorkflowReceipt, type WorkflowResume, type WorkflowSavedAnswer } from './workflow-api';
 
 export type WorkflowView = {
   creation: WorkflowCreation | null;
@@ -15,17 +15,20 @@ export type WorkflowView = {
   resumeRequest: WorkflowResume | null;
   resumeReceipt: WorkflowReceipt | null;
   resumeNotice: string;
+  savedAnswer: WorkflowSavedAnswer | null;
+  savedAnswerNotice: string;
 };
 
 type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
-  activity: 'idle' | 'creating' | 'executing' | 'resuming' | 'reading' | 'logout';
+  activity: 'idle' | 'creating' | 'executing' | 'resuming' | 'reading' | 'answer-reading' | 'logout';
   view: WorkflowView;
   error: string;
   onCreate: (question: string) => void;
   onExecute: () => void;
   onRead: () => void;
+  onReadAnswer: () => void;
   onResume: () => void;
   onCancel: () => void;
   onBack: () => void;
@@ -100,7 +103,7 @@ function Answer({ answer }: { answer: KnowledgeAnswerResult }) {
 }
 
 export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, activity,
-  view, error, onCreate, onExecute, onRead, onResume, onCancel, onBack }: Props) {
+  view, error, onCreate, onExecute, onRead, onReadAnswer, onResume, onCancel, onBack }: Props) {
   const [question, setQuestion] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
@@ -108,6 +111,7 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
   const canExecute = !busy && !view.blocked && !!view.created && !view.execution
     && !view.receipt && view.created.status === 'pending' && view.created.version === 0;
   const canResume = !busy && !view.resumeRequest && !view.readNotice && canResumeWorkflow(view.receipt, view.snapshot);
+  const canReadAnswer = !busy && canReadSavedWorkflowAnswer(view.snapshot);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -223,8 +227,29 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
         {activity === 'reading' && <p role="status">正在读取当前工作流状态…</p>}
         {view.readNotice && <p className="message error" role="alert">{view.readNotice}</p>}
         {view.snapshot ? <Metadata workflow={view.snapshot} /> : <p>尚无本次有效读取记录。</p>}
-        <p className="session-note">这里只读取状态元数据，不恢复答案、引文或本次执行回执。
+        <p className="session-note">读取状态本身只展示元数据；确认已完成后，可单独点击下方按钮查看已保存答案与引文。
           即使记录仍未变化，原请求也可能在处理；不能据此直接重发。</p>
+      </section>}
+      {view.created && <section className="answer-results" aria-labelledby="workflow-saved-answer-title"
+        aria-busy={activity === 'answer-reading'}>
+        <h2 id="workflow-saved-answer-title">已保存答案（只读）</h2>
+        <p>请先读取当前工作流状态，确认已完成后，再查看该任务已经保存的问题、答案和完整引用。</p>
+        <div className="processing-actions">
+          <button className="button secondary" disabled={!canReadAnswer}
+            onClick={() => { if (canReadAnswer) onReadAnswer(); }}>
+            {activity === 'answer-reading' ? '正在核对已保存答案…' : '查看已保存答案'}</button>
+          {activity === 'answer-reading' && <button className="button secondary" onClick={onCancel}>停止查看答案</button>}
+        </div>
+        {activity === 'answer-reading' && <p role="status">正在读取已保存结果并核对全部选中来源的原文块…</p>}
+        {view.savedAnswerNotice && <p className="message error" role="alert">{view.savedAnswerNotice}</p>}
+        {view.savedAnswer && <>
+          <p className="submitted-query">已保存的问题：<strong>{view.savedAnswer.workflow.question}</strong></p>
+          <Metadata workflow={view.savedAnswer.workflow} />
+          <Answer answer={view.savedAnswer.answer} />
+        </>}
+        <p className="session-note">这里展示当前任务保存的记录，不能据此确认先前超时请求的执行回执。
+          查看只读取已保存结果与来源资料，不会提交执行或恢复请求。</p>
+        {activity === 'answer-reading' && <p className="session-note">停止查看仅取消浏览器等待与核对，不会删除已保存的答案。</p>}
       </section>}
     </>}
   </section>;

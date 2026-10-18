@@ -27,6 +27,8 @@
 独立页创建、手动首次执行与读取元数据；失败恢复另分小步。
 接续见[保留检查点的生成失败恢复](frontend/frontend-workflow-recovery.md)：
 核对本页失败回执与当前状态，明确允许新调用后恢复一次，不接管执行中或结果未知的任务。
+再接[显式查看已保存答案](frontend/frontend-workflow-saved-answer.md)：
+先读completed状态，再单独GET保存结果并核对全部来源原文块，不重执行或补造未知请求回执。
 
 ## 按用途查找
 

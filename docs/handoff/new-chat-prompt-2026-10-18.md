@@ -21,15 +21,22 @@ ADR0030与Git核对；日期新交接和实际代码优先，旧段落仅对应�
 同一期间规则确认与标准估算、首轮折叠工具轨迹、独立固定问答工作流及有限生成失败恢复。
 七个新增模块见docs/frontend/frontend-answers.md、frontend-conversations.md、
 frontend-conversation-conditions.md、frontend-conversation-billing.md、frontend-conversation-trace.md、
-frontend-workflows.md、frontend-workflow-recovery.md。
+frontend-workflows.md、frontend-workflow-recovery.md；其后本日新增
+docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总结停点。
+
+已按我确认的A方案接入“先读completed状态，再单独查看已保存答案”：
+重新GET同一任务匹配保存快照，再核对全部选中来源文档及完整块身份/编号/正文/范围。
+这是已保存结果只读查看，不是未知请求的精确执行回执，不发POST或解锁重发；
+只有本页仍保留任务指针可用，不接任务列表、任意UUID或刷新恢复。
+本模块验证与学习状态以对应模块文档为准，新的小实践/逐题讨论尚待；上一恢复题仍跳过未作答。
 
 恢复仅限本页可信首次生成失败并保留检查点，手动GET核对同一快照后勾选可能新调用，
 以新请求编号/当前版本/recover_interrupted=false手动恢复一次。
 不接未知结果、检索失败、running接管、自动重试、任务列表或刷新恢复。
 后端仍复核当前来源，复用检查点不代表不生成或费用恰好一次；GET不恢复未知答案。
 
-最新开发时前端24文件598项模拟通过（16.98秒），TypeScript及生产构建通过；
-之后总结没有重新测试，不相加或当作当前后端全量回归/真实网页语义验收。
+本日最新只读查看模块前端26文件691项模拟通过、无跳过（20.29秒），TypeScript及生产构建通过；
+不与历史598项或专项相加，不当作当前后端全量回归/真实网页语义验收。
 刷新、Chrome重开、退出后刷新，上传解析与切块5块已有反馈；
 向量化仅确认已有5块/1024维复用，不作新生成或费用证据。
 CLI历史8块和单题引用回答不作网页证据。
@@ -53,6 +60,6 @@ docs/local-database-credentials.md因自动审批限制暂留原位，未经明�
 以下六份原有未提交删改随目录迁移保留，不恢复、不覆盖、不混入新提交：
 docs/architecture/architecture.md、docs/cli/demo-browse.md、docs/handoff/handoff-current.md、
 docs/progress/learning-progress.md、docs/handoff/new-chat-prompt.md、docs/progress/roadmap.md。
-2026-10-18我要求总结并上传19条累计提交与本次总结；是否已推送以当前Git和远端核对为准，
-不要把总结准备记录当成功证明。未来推送需另行授权，不强推或重置历史。
+2026-10-18总结与19条累计提交已普通推送并核对main为ccac1c3；随后新小步只提交本地，
+当前位置仍须读取当前Git确认。未来推送需另行授权，不强推或重置历史。
 按影响范围验证并提交本地Git。现在先简短核对当前位置与待办，再按我的新指示继续。

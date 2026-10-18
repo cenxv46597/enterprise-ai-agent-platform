@@ -1,4 +1,4 @@
-import { ApiError, getDocument, parseKnowledgeAnswer, strictUuid, webRequestOptions,
+import { ApiError, getDocument, listDocumentChunks, parseKnowledgeAnswer, strictUuid, webRequestOptions,
   type KnowledgeAnswerResult } from './api';
 
 export type WorkflowCreation = { requestId: string; question: string };
@@ -14,12 +14,14 @@ export type WorkflowReceipt = {
   requestId: string; attemptNumber: number; status: 'completed' | 'failed'; workflow: WorkflowMeta;
   answer: KnowledgeAnswerResult | null;
 };
-type Stage = 'create' | 'execute' | 'read' | 'resume';
+export type WorkflowSavedAnswer = { workflow: WorkflowMeta; answer: KnowledgeAnswerResult };
+type Stage = 'create' | 'execute' | 'read' | 'resume' | 'answer-read';
 export const WORKFLOW_NOTICES: Record<Stage, string> = {
   create: '工作流创建结果未确认；可能已保存任务，不自动再次创建。',
   execute: '工作流执行结果未确认；可能已调用外部服务或保存检查点，不自动重试或恢复。',
   read: '工作流当前状态未确认；可按需重新读取，不会自动执行。',
   resume: '生成恢复结果未确认；可能已调用生成服务或保存结果，本页不自动重试或再次恢复。',
+  'answer-read': '已保存答案尚未核对通过；本次只读查看不会执行工作流或重新生成，请先重新读取当前状态。',
 };
 export class WorkflowUnconfirmedError extends ApiError {
   readonly stage: Stage;
@@ -33,12 +35,15 @@ const ERRORS = new Set(['embedding_timeout', 'embedding_error', 'retrieval_confl
 const RETRYABLE = new Set(['embedding_timeout', 'embedding_error', 'generation_configuration',
   'generation_timeout', 'generation_error', 'service_error', 'execution_interrupted']);
 type Hit = { chunkId: string; documentId: string; documentName: string; chunkIndex: number;
-  content: string; startChar: number; endChar: number };
+  content: string; startChar: number; endChar: number; distance: number;
+  fusionScore: number | null; lexicalScore: number | null; vectorRank: number | null;
+  lexicalRank: number | null; retrievalRank: number | null; rerankRank: number | null };
 type Parsed = { meta: WorkflowMeta; hits: Hit[]; answer: KnowledgeAnswerResult | null };
 // Keep verified checkpoint provenance private and in memory. Metadata GET never manufactures it.
-type CheckpointProvenance = { workspace: string; knowledgeBase: string; hits: Hit[] };
+type CheckpointProvenance = { workspace: string; knowledgeBase: string; hits: readonly Hit[] };
 const receiptCheckpoints = new WeakMap<WorkflowReceipt, CheckpointProvenance & { meta: WorkflowMeta; requestId: string }>();
-const readSnapshots = new WeakMap<WorkflowMeta, CheckpointProvenance>();
+type ReadSnapshot = CheckpointProvenance & { meta: WorkflowMeta; answer: string | null };
+const readSnapshots = new WeakMap<WorkflowMeta, ReadSnapshot>();
 export function sameWorkflowMeta(left: WorkflowMeta, right: WorkflowMeta): boolean {
   return left.id === right.id && left.question === right.question && left.maxContextCharacters === right.maxContextCharacters
     && left.status === right.status && left.nextStep === right.nextStep && left.version === right.version
@@ -53,8 +58,15 @@ export function canResumeWorkflow(failure: WorkflowReceipt | null, current: Work
     && JSON.stringify(snapshot.hits) === JSON.stringify(saved.hits)
     && saved.requestId === failure.requestId && failure.status === 'failed' && failure.attemptNumber === 1
     && sameWorkflowMeta(failure.workflow, saved.meta) && sameWorkflowMeta(current, saved.meta)
+    && sameWorkflowMeta(current, snapshot.meta)
     && current.status === 'failed' && current.nextStep === 'generate' && current.retryable
     && current.checkpointCount !== null && current.attemptCount === 1 && current.version <= 28;
+}
+export function canReadSavedWorkflowAnswer(current: WorkflowMeta | null): boolean {
+  if (!current) return false;
+  const snapshot = readSnapshots.get(current);
+  return !!snapshot && snapshot.meta.status === 'completed' && snapshot.answer !== null
+    && sameWorkflowMeta(current, snapshot.meta);
 }
 function invalid(): never { throw new Error('Invalid public workflow'); }
 function object(value: unknown): value is Record<string, unknown> {
@@ -131,7 +143,13 @@ function parseCheckpoint(raw: unknown, workspace: string, knowledgeBase: string,
       if (item[field] !== null && item[field] !== undefined) integer(item[field], 1);
     }
     chunks.add(chunkId); documents.set(documentId, documentName);
-    return { chunkId, documentId, documentName, content, chunkIndex: integer(item.chunk_index, 1), startChar, endChar };
+    return { chunkId, documentId, documentName, content, chunkIndex: integer(item.chunk_index, 1), startChar, endChar,
+      distance: item.distance as number, fusionScore: (item.fusion_score as number | undefined) ?? null,
+      lexicalScore: (item.lexical_score as number | undefined) ?? null,
+      vectorRank: (item.vector_rank as number | undefined) ?? null,
+      lexicalRank: (item.lexical_rank as number | undefined) ?? null,
+      retrievalRank: (item.retrieval_rank as number | undefined) ?? null,
+      rerankRank: (item.rerank_rank as number | undefined) ?? null };
   });
 }
 
@@ -208,7 +226,7 @@ export async function executeAnswerWorkflow(workspaceId: string, knowledgeBaseId
 }
 
 async function confirmExecution(payload: unknown, workspace: string, knowledgeBase: string, previous: WorkflowMeta,
-  requestId: string, signal: AbortSignal, stage: 'execute' | 'resume', originalHits?: Hit[]): Promise<WorkflowReceipt> {
+  requestId: string, signal: AbortSignal, stage: 'execute' | 'resume', originalHits?: readonly Hit[]): Promise<WorkflowReceipt> {
   try {
     const expectedAttempt = stage === 'execute' ? 1 : previous.attemptCount + 1;
     if (signal.aborted || !object(payload) || payload.request_id !== requestId || payload.attempt_number !== expectedAttempt
@@ -266,7 +284,49 @@ export async function readAnswerWorkflow(workspaceId: string, knowledgeBaseId: s
     if (signal.aborted) return invalid();
     // Deliberately project metadata only: GET cannot confirm this page's execution request.
     const parsed = parseState(payload, workspace, knowledgeBase, created.question, created);
-    readSnapshots.set(parsed.meta, { workspace, knowledgeBase, hits: parsed.hits });
+    // No public object aliases these immutable copies. A later metadata mutation cannot grant access.
+    readSnapshots.set(parsed.meta, { workspace, knowledgeBase, meta: Object.freeze({ ...parsed.meta }),
+      hits: Object.freeze(parsed.hits.map(hit => Object.freeze({ ...hit }))),
+      answer: parsed.answer === null ? null : JSON.stringify(parsed.answer) });
     return parsed.meta;
   } catch { throw new WorkflowUnconfirmedError('read'); }
+}
+
+export async function readSavedWorkflowAnswer(workspaceId: string, knowledgeBaseId: string,
+  created: WorkflowMeta, current: WorkflowMeta, signal: AbortSignal): Promise<WorkflowSavedAnswer> {
+  const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
+  const snapshot = readSnapshots.get(current);
+  const matchesCreation = () => snapshot && created.id === snapshot.meta.id
+    && created.question === snapshot.meta.question && created.maxContextCharacters === snapshot.meta.maxContextCharacters;
+  if (!canReadSavedWorkflowAnswer(current) || !snapshot || snapshot.workspace !== workspace
+      || snapshot.knowledgeBase !== knowledgeBase || !matchesCreation()) {
+    throw new ApiError('请先手动读取本页任务的当前状态，确认已完成后再查看已保存答案。');
+  }
+  const payload = await request(`${path(workspace, knowledgeBase)}/${snapshot.meta.id}`, 'answer-read', 200, signal);
+  try {
+    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesCreation()) return invalid();
+    const parsed = parseState(payload, workspace, knowledgeBase, snapshot.meta.question, snapshot.meta);
+    if (!sameWorkflowMeta(parsed.meta, snapshot.meta) || parsed.answer === null
+        || JSON.stringify(parsed.hits) !== JSON.stringify(snapshot.hits)
+        || JSON.stringify(parsed.answer) !== snapshot.answer) return invalid();
+    for (const [documentId, documentName] of new Map(parsed.hits.map(hit => [hit.documentId, hit.documentName]))) {
+      if (signal.aborted) return invalid();
+      const document = await getDocument(workspace, knowledgeBase, documentId, signal);
+      if (signal.aborted || document.originalFilename !== documentName || document.status !== 'ready') return invalid();
+      const chunks = await listDocumentChunks(workspace, knowledgeBase, documentId, signal);
+      if (signal.aborted) return invalid();
+      const byId = new Map(chunks.map(chunk => [chunk.id, chunk]));
+      for (const hit of parsed.hits.filter(hit => hit.documentId === documentId)) {
+        const chunk = byId.get(hit.chunkId);
+        if (!chunk || chunk.documentId !== hit.documentId || chunk.chunkIndex !== hit.chunkIndex
+            || chunk.content !== hit.content || chunk.startChar !== hit.startChar || chunk.endChar !== hit.endChar) return invalid();
+      }
+    }
+    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesCreation()) return invalid();
+    // This GET projection is not an execution receipt and grants no write or resume permission.
+    return { workflow: parsed.meta, answer: parsed.answer };
+  } catch (failure) {
+    if (!signal.aborted && failure instanceof ApiError && (failure.status === 401 || failure.status === 404)) throw failure;
+    throw new WorkflowUnconfirmedError('answer-read', failure instanceof ApiError ? failure.status : null);
+  }
 }
