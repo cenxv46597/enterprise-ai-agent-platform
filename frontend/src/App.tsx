@@ -14,6 +14,8 @@ import KnowledgeSearch, { type SearchOutcome } from './KnowledgeSearch';
 import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
+import WorkflowHistory, { type WorkflowHistoryView } from './WorkflowHistory';
+import { listAnswerWorkflows, type WorkflowHistoryItem } from './workflow-history-api';
 import { createAnswerWorkflow, executeAnswerWorkflow, readAnswerWorkflow, WorkflowUnconfirmedError,
   resumeAnswerWorkflow, canResumeWorkflow, sameWorkflowMeta, canReadSavedWorkflowAnswer, readSavedWorkflowAnswer,
   WORKFLOW_NOTICES, type WorkflowCreation, type WorkflowExecution, type WorkflowResume } from './workflow-api';
@@ -29,7 +31,7 @@ type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents'
   | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer'
   | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-execute'
   | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read'
-  | 'workflow-answer-read' | 'logout' | null;
+  | 'workflow-answer-read' | 'workflow-history-list' | 'workflow-history-read' | 'workflow-history-answer' | 'logout' | null;
 type Phase = 'restoring' | 'restore-error' | 'login' | 'workspace';
 
 export default function App() {
@@ -54,6 +56,7 @@ export default function App() {
   const [answerOutcome, setAnswerOutcome] = useState<AnswerOutcome | null>(null);
   const [conversationView, setConversationView] = useState<ConversationView | null>(null);
   const [workflowView, setWorkflowView] = useState<WorkflowView | null>(null);
+  const [workflowHistoryView, setWorkflowHistoryView] = useState<WorkflowHistoryView | null>(null);
   const [busy, setBusy] = useState<Busy>('restore');
   const [error, setError] = useState('');
   const generation = useRef(0);
@@ -82,6 +85,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setPassword('');
     setBusy(null);
     setError(message);
@@ -155,6 +159,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     try {
       const restored = await restoreSession(controller.signal);
       if (!isCurrent(id, controller)) return;
@@ -189,6 +194,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setBusy('knowledge-bases');
     setError('');
     try {
@@ -222,6 +228,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     void refresh();
   }
 
@@ -241,6 +248,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setBusy('documents');
     setError('');
     try {
@@ -312,6 +320,7 @@ export default function App() {
     setAnswerOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setUploadOutcome(null);
     setError('');
   }
@@ -356,6 +365,7 @@ export default function App() {
     setSearchOutcome(null);
     setConversationView(null);
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setUploadOutcome(null);
     setError('');
   }
@@ -395,6 +405,7 @@ export default function App() {
   function openConversation() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setWorkflowView(null);
+    setWorkflowHistoryView(null);
     setConversationView({ createAttempted: false, created: null, createOutcome: null,
       request: null, messageOutcome: null, snapshot: null, readError: '',
       conditions: null, conditionRequest: null, conditionNotice: '',
@@ -569,10 +580,94 @@ export default function App() {
     }
   }
 
+  function openWorkflowHistory() {
+    if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
+    setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
+    setConversationView(null); setWorkflowView(null); setUploadOutcome(null); setError('');
+    setWorkflowHistoryView({ items: null, listNotice: '', selected: null, snapshot: null, readNotice: '',
+      savedAnswer: null, savedAnswerNotice: '' });
+  }
+
+  async function listWorkflowHistory() {
+    if (!workflowHistoryView || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const { id, controller } = beginRequest();
+    setBusy('workflow-history-list'); setError('');
+    setWorkflowHistoryView({ items: null, listNotice: '', selected: null, snapshot: null, readNotice: '',
+      savedAnswer: null, savedAnswerNotice: '' });
+    try {
+      const items = await listAnswerWorkflows(selectedWorkspace.id, selectedKnowledgeBase.id, controller.signal);
+      if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, items });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setWorkflowHistoryView(view => view && { ...view, listNotice:
+        failure instanceof ApiError ? failure.message : '工作流记录读取未确认，请按需重新读取。' });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  async function readHistoryWorkflow(item: WorkflowHistoryItem) {
+    if (!workflowHistoryView?.items?.includes(item) || item.strategy !== 'vector'
+        || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const { id, controller } = beginRequest();
+    setBusy('workflow-history-read'); setError('');
+    setWorkflowHistoryView(view => view && { ...view, selected: item, snapshot: null, readNotice: '',
+      savedAnswer: null, savedAnswerNotice: '' });
+    try {
+      const snapshot = await readAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, item, controller.signal);
+      if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, snapshot });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setWorkflowHistoryView(view => view && { ...view, readNotice:
+        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError) ? failure.message : WORKFLOW_NOTICES.read });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  async function readHistoryAnswer() {
+    if (!workflowHistoryView?.selected || !workflowHistoryView.snapshot
+        || !canReadSavedWorkflowAnswer(workflowHistoryView.snapshot)
+        || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+    const selected = workflowHistoryView.selected, snapshot = workflowHistoryView.snapshot;
+    const { id, controller } = beginRequest();
+    setBusy('workflow-history-answer'); setError('');
+    setWorkflowHistoryView(view => view && { ...view, savedAnswer: null, savedAnswerNotice: '' });
+    try {
+      const savedAnswer = await readSavedWorkflowAnswer(selectedWorkspace.id, selectedKnowledgeBase.id,
+        selected, snapshot, controller.signal);
+      if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, savedAnswer });
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null, savedAnswerNotice:
+        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError)
+          ? failure.message : WORKFLOW_NOTICES['answer-read'] });
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function markHistoryInterrupted(activity: Busy) {
+    if (activity !== 'workflow-history-list' && activity !== 'workflow-history-read' && activity !== 'workflow-history-answer') return;
+    setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null,
+      listNotice: activity === 'workflow-history-list' ? '工作流记录读取已停止，请按需重新读取。' : view.listNotice,
+      readNotice: activity === 'workflow-history-read' ? WORKFLOW_NOTICES.read : view.readNotice,
+      savedAnswerNotice: activity === 'workflow-history-answer' ? WORKFLOW_NOTICES['answer-read'] : view.savedAnswerNotice });
+  }
+
+  function stopWaitingForHistory() {
+    if (busy !== 'workflow-history-list' && busy !== 'workflow-history-read' && busy !== 'workflow-history-answer') return;
+    generation.current += 1; pending.current?.abort(); pending.current = null;
+    markHistoryInterrupted(busy); setBusy(null);
+  }
+
   function openWorkflow() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
-    setConversationView(null); setUploadOutcome(null); setError('');
+    setConversationView(null); setWorkflowHistoryView(null); setUploadOutcome(null); setError('');
     setWorkflowView({ creation: null, created: null, createNotice: '', execution: null, receipt: null,
       executeNotice: '', snapshot: null, readNotice: '', blocked: false,
       resumeRequest: null, resumeReceipt: null, resumeNotice: '', savedAnswer: null, savedAnswerNotice: '' });
@@ -874,6 +969,7 @@ export default function App() {
   async function exit() {
     markConversationInterrupted(busy);
     markWorkflowInterrupted(busy);
+    markHistoryInterrupted(busy);
     if (busy === 'answer') {
       setAnswerOutcome({ kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE });
     }
@@ -981,7 +1077,15 @@ export default function App() {
           </form>
           {error && busy !== 'login' && <button className="button secondary" onClick={() => void restore()}>恢复已有登录</button>}
           <p className="session-note">登录后最多保持 30 分钟，刷新或重新打开网页不会延长有效期。请在共用设备上主动退出。</p>
-        </section> : selectedWorkspace && selectedKnowledgeBase && workflowView ? <KnowledgeWorkflow
+        </section> : selectedWorkspace && selectedKnowledgeBase && workflowHistoryView ? <WorkflowHistory
+          workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
+          activity={busy === 'workflow-history-list' ? 'listing' : busy === 'workflow-history-read' ? 'reading'
+            : busy === 'workflow-history-answer' ? 'answer-reading' : busy === 'logout' ? 'logout' : 'idle'}
+          view={workflowHistoryView} error={error} onList={() => void listWorkflowHistory()}
+          onSelect={item => void readHistoryWorkflow(item)}
+          onRead={() => { if (workflowHistoryView.selected) void readHistoryWorkflow(workflowHistoryView.selected); }}
+          onReadAnswer={() => void readHistoryAnswer()} onCancel={stopWaitingForHistory} onBack={backToDocuments}
+        /> : selectedWorkspace && selectedKnowledgeBase && workflowView ? <KnowledgeWorkflow
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'workflow-create' ? 'creating' : busy === 'workflow-execute' ? 'executing'
@@ -1037,6 +1141,7 @@ export default function App() {
           onAnswer={openAnswer}
           onConversation={openConversation}
           onWorkflow={openWorkflow}
+          onWorkflowHistory={openWorkflowHistory}
           onOpenDocument={openDocument}
         >
           <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}

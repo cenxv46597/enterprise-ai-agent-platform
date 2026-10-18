@@ -113,6 +113,49 @@ class WorkflowAnswer(AnswerRead):
         return self
 
 
+class WorkflowListItem(BaseModel):
+    """只读历史摘要，不携带或推断检查点、答案和执行请求。"""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+    workflow_id: UUID
+    workspace_id: UUID
+    knowledge_base_id: UUID
+    question: str = Field(min_length=1, max_length=2000)
+    strategy: SearchStrategy
+    max_context_characters: int = Field(ge=1, le=MAX_CHECKPOINT_CHARACTERS)
+    status: WorkflowStatus
+    next_step: WorkflowStep
+    version: int = Field(ge=0, le=MAX_WORKFLOW_VERSION)
+    attempt_count: int = Field(ge=0, le=MAX_WORKFLOW_ATTEMPTS)
+    error_code: WorkflowErrorCode | None
+    retryable: bool
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+
+    @model_validator(mode="after")
+    def consistent_summary(self) -> Self:
+        # 摘要只校验已选字段；完成状态不是对结果正文或当前原文的验证。
+        if not self.question.strip():
+            raise ValueError("问题不能为空白")
+        if self.created_at > self.updated_at:
+            raise ValueError("更新时间早于创建时间")
+        if (self.status == "completed") != (self.next_step == "done"):
+            raise ValueError("完成步骤不一致")
+        if (self.status == "failed") != (self.error_code is not None):
+            raise ValueError("失败状态不一致")
+        if self.status == "pending" and (
+            self.next_step != "retrieve" or self.attempt_count != 0 or self.version != 0
+        ):
+            raise ValueError("初始状态无效")
+        if self.status != "pending" and (self.attempt_count == 0 or self.version == 0):
+            raise ValueError("执行状态缺少尝试记录")
+        expected_retryable = (self.status == "failed" and self.error_code in RETRYABLE_ERRORS
+                              and self.attempt_count < MAX_WORKFLOW_ATTEMPTS)
+        if self.retryable != expected_retryable:
+            raise ValueError("重试标记不一致")
+        return self
+
+
 class WorkflowRead(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
     workflow_id: UUID

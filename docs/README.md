@@ -29,6 +29,8 @@
 核对本页失败回执与当前状态，明确允许新调用后恢复一次，不接管执行中或结果未知的任务。
 再接[显式查看已保存答案](frontend/frontend-workflow-saved-answer.md)：
 先读completed状态，再单独GET保存结果并核对全部来源原文块，不重执行或补造未知请求回执。
+随后见[独立工作流记录页](frontend/frontend-workflow-history.md)：
+手动读取当前知识库最近20条创建记录，点选vector任务查看状态与保存答案；历史页只读，不执行或恢复。
 
 ## 按用途查找
 

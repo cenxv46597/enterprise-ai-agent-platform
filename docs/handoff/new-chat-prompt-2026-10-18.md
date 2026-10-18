@@ -24,6 +24,13 @@ frontend-conversation-conditions.md、frontend-conversation-billing.md、fronten
 frontend-workflows.md、frontend-workflow-recovery.md；其后本日新增
 docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总结停点。
 
+其后新增docs/frontend/frontend-workflow-history.md：我确认A独立“工作流记录”页，
+从文档列表进入，手动读取当前知识库最近创建20条（创建时间及UUID降序），
+点击vector任务GET详情，再单独查看保存答案并核对全部来源。hybrid保留可见，暂不支持打开。
+新增后端轻量GET摘要列表，不读取checkpoint/result或执行内部信息，沿用成员共享权限，不称“我的任务”。
+本页只读，无执行/恢复、翻页、自动轮询或URL指针；刷新后可重新进入列表手动找任务。
+本模块小阅读实践及逐题讨论尚待；前一保存答案模块已收尾，不重复已完成练习。
+
 已按我确认的A方案接入“先读completed状态，再单独查看已保存答案”：
 重新GET同一任务匹配保存快照，再核对全部选中来源文档及完整块身份/编号/正文/范围。
 这是已保存结果只读查看，不是未知请求的精确执行回执，不发POST或解锁重发；
@@ -37,8 +44,9 @@ docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总
 不接未知结果、检索失败、running接管、自动重试、任务列表或刷新恢复。
 后端仍复核当前来源，复用检查点不代表不生成或费用恰好一次；GET不恢复未知答案。
 
-本日最新只读查看模块前端26文件691项模拟通过、无跳过（20.29秒），TypeScript及生产构建通过；
-不与历史598项或专项相加，不当作当前后端全量回归/真实网页语义验收。
+本日最新历史记录模块前端28文件790项模拟通过、无跳过（20.52秒），TypeScript及生产构建通过；
+后端定向124项通过、无跳过/警告（10.86秒），为新增列表68项及既有纯契约56项，未连接数据库。
+不与历史691/598项或专项相加，不当作当前后端全量回归/PostgreSQL集成/真实网页语义验收。
 刷新、Chrome重开、退出后刷新，上传解析与切块5块已有反馈；
 向量化仅确认已有5块/1024维复用，不作新生成或费用证据。
 CLI历史8块和单题引用回答不作网页证据。

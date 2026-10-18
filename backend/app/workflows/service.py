@@ -26,7 +26,7 @@ from app.workflows.contracts import (
     MAX_CHECKPOINT_BYTES, MAX_CHECKPOINT_CHARACTERS, MAX_WORKFLOW_ATTEMPTS, MAX_WORKFLOW_VERSION,
     RETRYABLE_ERRORS, WORKFLOW_LEASE_SECONDS, WorkflowAnswer, WorkflowCheckpoint, WorkflowConflictError,
     WorkflowCreate, WorkflowErrorCode, WorkflowEvidence, WorkflowExecute, WorkflowExecutionRead,
-    WorkflowNotFoundError, WorkflowRead, WorkflowStateError,
+    WorkflowListItem, WorkflowNotFoundError, WorkflowRead, WorkflowStateError,
 )
 
 
@@ -89,6 +89,30 @@ def read_workflow(session: Session, workspace_id: UUID, knowledge_base_id: UUID,
                   workflow_id: UUID) -> WorkflowRead:
     with session.begin():
         return _view(_workflow(session, workspace_id, knowledge_base_id, workflow_id), workspace_id)
+
+
+def list_workflows(session: Session, workspace_id: UUID, knowledge_base_id: UUID,
+                   limit: int = 20, offset: int = 0) -> list[WorkflowListItem]:
+    # 不加载 ORM 实体，避免为历史列表读取大段检查点、答案或内部请求信息。
+    statement = select(
+        AnswerWorkflow.id.label("workflow_id"), AnswerWorkflow.knowledge_base_id,
+        AnswerWorkflow.question, AnswerWorkflow.strategy, AnswerWorkflow.max_context_characters,
+        AnswerWorkflow.status, AnswerWorkflow.next_step, AnswerWorkflow.version,
+        AnswerWorkflow.attempt_count, AnswerWorkflow.error_code,
+        AnswerWorkflow.created_at, AnswerWorkflow.updated_at,
+    ).where(AnswerWorkflow.knowledge_base_id == knowledge_base_id).order_by(
+        AnswerWorkflow.created_at.desc(), AnswerWorkflow.id.desc(),
+    ).limit(limit).offset(offset)
+    with session.begin():
+        _scope(session, workspace_id, knowledge_base_id)
+        try:
+            return [WorkflowListItem(
+                **row, workspace_id=workspace_id,
+                retryable=(row["status"] == "failed" and row["error_code"] in RETRYABLE_ERRORS
+                           and row["attempt_count"] < MAX_WORKFLOW_ATTEMPTS),
+            ) for row in session.execute(statement).mappings()]
+        except (TypeError, ValueError):
+            raise WorkflowConflictError("工作流保存状态无效，请重新读取") from None
 
 
 def create_workflow(session: Session, workspace_id: UUID, knowledge_base_id: UUID,

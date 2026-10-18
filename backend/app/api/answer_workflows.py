@@ -1,8 +1,9 @@
 """显式创建、读取与执行固定知识问答工作流；不改动既有问答/Agent/会话入口。"""
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -11,9 +12,9 @@ from app.api.documents import EmbeddingDep
 from app.api.workspaces import DbSession
 from app.workflows.contracts import (
     WorkflowConflictError, WorkflowCreate, WorkflowExecute, WorkflowExecutionRead,
-    WorkflowNotFoundError, WorkflowRead,
+    WorkflowListItem, WorkflowNotFoundError, WorkflowRead,
 )
-from app.workflows.service import create_workflow, execute_workflow, read_workflow
+from app.workflows.service import create_workflow, execute_workflow, list_workflows, read_workflow
 
 
 router = APIRouter(prefix="/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}/answer-workflows",
@@ -37,6 +38,13 @@ def _call(operation, *args):
 def create(workspace_id: UUID, knowledge_base_id: UUID, payload: WorkflowCreate,
            session: DbSession) -> WorkflowRead:
     return _call(create_workflow, session, workspace_id, knowledge_base_id, payload)
+
+
+@router.get("", response_model=list[WorkflowListItem])
+def list_recent(workspace_id: UUID, knowledge_base_id: UUID, session: DbSession,
+                limit: Annotated[int, Query(ge=1, le=100)] = 20,
+                offset: Annotated[int, Query(ge=0, le=2**63 - 1)] = 0) -> list[WorkflowListItem]:
+    return _call(list_workflows, session, workspace_id, knowledge_base_id, limit, offset)
 
 
 @router.get("/{workflow_id}", response_model=WorkflowRead)

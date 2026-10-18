@@ -10,6 +10,8 @@ export type WorkflowMeta = {
   version: number; attemptCount: number; checkpointCount: number | null;
   errorCode: string | null; retryable: boolean;
 };
+// A history selection identifies what to read; it is not a newly created task or an execution receipt.
+export type WorkflowReadTarget = Pick<WorkflowMeta, 'id' | 'question' | 'maxContextCharacters'>;
 export type WorkflowReceipt = {
   requestId: string; attemptNumber: number; status: 'completed' | 'failed'; workflow: WorkflowMeta;
   answer: KnowledgeAnswerResult | null;
@@ -154,7 +156,7 @@ function parseCheckpoint(raw: unknown, workspace: string, knowledgeBase: string,
 }
 
 function parseState(raw: unknown, workspace: string, knowledgeBase: string, question: string,
-  previous?: WorkflowMeta): Parsed {
+  previous?: WorkflowReadTarget): Parsed {
   if (!object(raw) || raw.workspace_id !== workspace || raw.knowledge_base_id !== knowledgeBase
       || raw.question !== question || raw.strategy !== 'vector') return invalid();
   const id = strictUuid(raw.workflow_id);
@@ -277,13 +279,13 @@ export async function resumeAnswerWorkflow(workspaceId: string, knowledgeBaseId:
 }
 
 export async function readAnswerWorkflow(workspaceId: string, knowledgeBaseId: string,
-  created: WorkflowMeta, signal: AbortSignal): Promise<WorkflowMeta> {
+  target: WorkflowReadTarget, signal: AbortSignal): Promise<WorkflowMeta> {
   const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
-  const payload = await request(`${path(workspace, knowledgeBase)}/${strictUuid(created.id)}`, 'read', 200, signal);
+  const payload = await request(`${path(workspace, knowledgeBase)}/${strictUuid(target.id)}`, 'read', 200, signal);
   try {
     if (signal.aborted) return invalid();
     // Deliberately project metadata only: GET cannot confirm this page's execution request.
-    const parsed = parseState(payload, workspace, knowledgeBase, created.question, created);
+    const parsed = parseState(payload, workspace, knowledgeBase, target.question, target);
     // No public object aliases these immutable copies. A later metadata mutation cannot grant access.
     readSnapshots.set(parsed.meta, { workspace, knowledgeBase, meta: Object.freeze({ ...parsed.meta }),
       hits: Object.freeze(parsed.hits.map(hit => Object.freeze({ ...hit }))),
@@ -293,18 +295,18 @@ export async function readAnswerWorkflow(workspaceId: string, knowledgeBaseId: s
 }
 
 export async function readSavedWorkflowAnswer(workspaceId: string, knowledgeBaseId: string,
-  created: WorkflowMeta, current: WorkflowMeta, signal: AbortSignal): Promise<WorkflowSavedAnswer> {
+  target: WorkflowReadTarget, current: WorkflowMeta, signal: AbortSignal): Promise<WorkflowSavedAnswer> {
   const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
   const snapshot = readSnapshots.get(current);
-  const matchesCreation = () => snapshot && created.id === snapshot.meta.id
-    && created.question === snapshot.meta.question && created.maxContextCharacters === snapshot.meta.maxContextCharacters;
+  const matchesTarget = () => snapshot && target.id === snapshot.meta.id
+    && target.question === snapshot.meta.question && target.maxContextCharacters === snapshot.meta.maxContextCharacters;
   if (!canReadSavedWorkflowAnswer(current) || !snapshot || snapshot.workspace !== workspace
-      || snapshot.knowledgeBase !== knowledgeBase || !matchesCreation()) {
+      || snapshot.knowledgeBase !== knowledgeBase || !matchesTarget()) {
     throw new ApiError('请先手动读取本页任务的当前状态，确认已完成后再查看已保存答案。');
   }
   const payload = await request(`${path(workspace, knowledgeBase)}/${snapshot.meta.id}`, 'answer-read', 200, signal);
   try {
-    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesCreation()) return invalid();
+    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesTarget()) return invalid();
     const parsed = parseState(payload, workspace, knowledgeBase, snapshot.meta.question, snapshot.meta);
     if (!sameWorkflowMeta(parsed.meta, snapshot.meta) || parsed.answer === null
         || JSON.stringify(parsed.hits) !== JSON.stringify(snapshot.hits)
@@ -322,7 +324,7 @@ export async function readSavedWorkflowAnswer(workspaceId: string, knowledgeBase
             || chunk.content !== hit.content || chunk.startChar !== hit.startChar || chunk.endChar !== hit.endChar) return invalid();
       }
     }
-    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesCreation()) return invalid();
+    if (signal.aborted || !sameWorkflowMeta(current, snapshot.meta) || !matchesTarget()) return invalid();
     // This GET projection is not an execution receipt and grants no write or resume permission.
     return { workflow: parsed.meta, answer: parsed.answer };
   } catch (failure) {

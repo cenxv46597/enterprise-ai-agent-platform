@@ -79,7 +79,7 @@ function Metadata({ workflow }: { workflow: WorkflowMeta }) {
   </>;
 }
 
-function Answer({ answer }: { answer: KnowledgeAnswerResult }) {
+export function Answer({ answer }: { answer: KnowledgeAnswerResult }) {
   if (answer.abstained) return <div className="empty-state">
     <h3>证据不足，本次弃答</h3>
     <p className="answer-text">{answer.answer}</p>
