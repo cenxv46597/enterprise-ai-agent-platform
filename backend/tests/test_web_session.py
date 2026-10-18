@@ -23,6 +23,7 @@ from app.auth.dependencies import get_current_user
 from app.core.config import Settings
 from app.db.models import User
 from app.db.session import get_session
+from app.observability.http import HttpTraceMiddleware, safe_unhandled_error
 
 
 ORIGIN = "http://127.0.0.1:5173"
@@ -70,7 +71,9 @@ def web(monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
     app.state.web_origin = ORIGIN
     app.state.web_cookie_secure = False
     app.middleware("http")(web_session.private_api_responses)
+    app.add_middleware(HttpTraceMiddleware)
     app.add_exception_handler(RequestValidationError, web_session.safe_web_validation)
+    app.add_exception_handler(Exception, safe_unhandled_error)
     app.include_router(auth.router)
     app.dependency_overrides[get_session] = lambda: state.session
 

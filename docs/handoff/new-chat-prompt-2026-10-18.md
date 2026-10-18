@@ -40,7 +40,14 @@ docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总
 本轮测试层阅读实践与三题已按实际程度讨论收尾：结论正确，隔离/迁移路径/清理整体结果的完整原因由导师补充，
 无本人代码修改或独立完整设计；清理失败是题目假设，实际清理成功。更早恢复题仍跳过。
 
-最新接续docs/backend/database-readiness.md：我确认A，保留/health进程存活检查，新增/ready数据库检查。
+最新接续docs/backend/http-request-trace.md及ADR0031：我选A，后端每HTTP新UUID，X-Trace-Id与一条安全摘要关联。
+忽略入站编号，不改业务request_id/幂等；纯ASGI+通用500handler，响应开始后出错保留已观察状态。
+仅记录方法白名单/模板路由/状态/耗时/outcome，不记录正文/真实URL/凭据/原始异常；README用no-access-log，
+但不保证既有业务日志或Uvicorn异常traceback已脱敏。completed只表示HTTP观察口径，不是工作流业务完成。
+84项定向联合通过、无跳过/警告（5.20秒），含实际app、并发/流式中断和新层下Cookie契约；无数据库/模型/浏览器或全量。
+仅确认选项，导师实现，无本人代码修改；本模块小阅读实践待答，逐题讨论尚待。只提交本地，push另行授权。
+
+此前docs/backend/database-readiness.md：我确认A，保留/health进程存活检查，新增/ready数据库检查。
 导师实现独立NullPool、只读SELECT1、连接/语句/锁超时及释放；成功200、失败固定503、no-store、不泄露内部错误。
 21项定向模拟/HTTP通过（3.93秒），3项真实eaap_test检查通过（3.66秒），临时身份清理核对成功。
 没有连接日常库、读取已有凭据、改迁移/账号或调用模型；不证明业务表、业务池、JWT/Cookie或整个平台正常。

@@ -20,6 +20,7 @@ from app.api.workspace_members import router as workspace_members_router
 from app.auth.workspace_access import require_workspace_member
 from app.auth.web_session import private_api_responses, safe_web_validation
 from app.core.config import Settings
+from app.observability.http import HttpTraceMiddleware, configure_http_logging, safe_unhandled_error
 
 
 def create_app() -> FastAPI:
@@ -39,7 +40,10 @@ def create_app() -> FastAPI:
     application.state.web_cookie_secure = settings.app_env == "production"
 
     application.middleware("http")(private_api_responses)
+    configure_http_logging()
+    application.add_middleware(HttpTraceMiddleware)
     application.add_exception_handler(RequestValidationError, safe_web_validation)
+    application.add_exception_handler(Exception, safe_unhandled_error)
 
     application.include_router(health_router)
     application.include_router(auth_router)

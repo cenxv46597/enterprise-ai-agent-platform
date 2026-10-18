@@ -35,6 +35,8 @@
 启动原数据库容器，在独立eaap_test随机schema验证真实SQL与持久化，不读取既有密码、不调用模型。
 再接[应用数据库就绪检查](backend/database-readiness.md)：保留 `/health`，新增 `/ready`，
 用独立只读连接区分进程响应和数据库连通性；不据此宣称迁移或完整业务已验收。
+随后[HTTP请求排错编号](backend/http-request-trace.md)：响应头与安全访问摘要关联一次HTTP调用，
+不替代会话/工作流的业务request_id，设计见[ADR0031](adr/0031-server-http-trace.md)。
 
 ## 按用途查找
 

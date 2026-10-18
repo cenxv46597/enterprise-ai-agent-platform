@@ -24,6 +24,8 @@
 真实SQL、成员范围及持久化通过，原数据库容器已启动并健康；身份来源为测试替身，无模型调用，不与前述成绩相加。
 随后新增[应用数据库就绪检查](docs/backend/database-readiness.md)：保留 `/health`，独立 `/ready` 检查只读连接，
 21项定向模拟/HTTP测试及3项真实独立测试库检查分别通过，不证明迁移、业务连接池或真实登录已通过。
+再接[HTTP请求排错编号](docs/backend/http-request-trace.md)：每次HTTP新UUID，响应头与安全摘要关联，
+不替代业务request_id；84项联合定向通过（5.20秒），不连接数据库/模型，非后端全量或真实网页验收。
 本日新增只读模块没有调用真实模型。新增问答/会话/恢复/保存答案及历史查看尚无真实网页端到端验收，
 既有真实检索任务及实际等待登录到期继续暂缓。不能据此宣称质量、费用或生产交付已验收。
 主体实现由导师完成，学习者有跟随提示的小实践和逐题讨论；恢复模块的新阅读题按要求跳过，
@@ -152,10 +154,12 @@ if not exist .env (
 )
 docker compose -f compose.yaml up -d --wait db
 python -m alembic -c backend/alembic.ini upgrade head
-python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000 --no-access-log
 ```
 
 打开 `http://127.0.0.1:8000/health` 查看进程健康状态，打开 `http://127.0.0.1:8000/docs` 查看自动生成的接口文档。
+`/ready`另检查数据库连通性。响应头 `X-Trace-Id` 可对应后端一行访问摘要；
+`--no-access-log`关闭默认原始URL访问日志，不关闭异常traceback，详见[排错编号边界](docs/backend/http-request-trace.md)。
 
 首次初始化会生成独立数据库口令和令牌签名密钥，写入被 Git 忽略的 `.env`，不会显示真实值。已有 `.env` 不会被覆盖：请确认其中已有非空的 `EAAP_POSTGRES_PASSWORD`，并让数据库与测试库连接地址使用同一口令。若旧 `.env` 尚未设置 `EAAP_JWT_SECRET_KEY`，本地应用每次启动会随机生成临时密钥；重启后需要重新登录。生产环境必须在私有配置中提供至少 32 字符的密钥，否则应用拒绝启动。
 
