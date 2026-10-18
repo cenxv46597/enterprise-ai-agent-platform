@@ -31,6 +31,8 @@
 先读completed状态，再单独GET保存结果并核对全部来源原文块，不重执行或补造未知请求回执。
 随后见[独立工作流记录页](frontend/frontend-workflow-history.md)：
 手动读取当前知识库最近20条创建记录，点选vector任务查看状态与保存答案；历史页只读，不执行或恢复。
+接续[独立数据库集成验证](backend/workflow-history-db-validation.md)：
+启动原数据库容器，在独立eaap_test随机schema验证真实SQL与持久化，不读取既有密码、不调用模型。
 
 ## 按用途查找
 

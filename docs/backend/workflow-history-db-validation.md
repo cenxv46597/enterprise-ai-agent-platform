@@ -1,0 +1,81 @@
+# 工作流记录：独立 PostgreSQL 集成验证
+
+2026-10-18，起点 `5c72d3d`。接续[工作流记录页](../frontend/frontend-workflow-history.md)。
+学习者独立注意到Docker数据库未启动，并询问为什么近期开发没有使用数据库。
+本步补齐上一模块的真实SQL验证，不新增业务接口、模型、迁移或页面。
+
+## 为什么前面的测试不需要数据库
+
+真实应用的用户、成员、知识库、文档、会话和工作流均依赖PostgreSQL；数据库不是可选项。
+前端Vitest模拟fetch，后端此前列表专项用FakeSession/SQL编译及HTTP依赖替身，
+这些测试可以验证页面状态、请求格式、输入及边界处理，但没有真的执行数据库SQL。
+数据库关闭时它们仍能通过，不代表真实登录、数据持久化或网页链路已经可用。
+此前文档已明确未作PostgreSQL集成；本轮按学习者提出的实际缺口先补验证，不继续只增加页面。
+
+本步使用TestClient在进程内调用真实router、成员guard与SQLAlchemy Session，Session通过TCP连接真实PostgreSQL。
+认证用户来源仍为测试替身；JWT/Cookie、Vite代理、浏览器点击及真实模型不在本次范围。
+因此“数据库真实”与“模型真实”分别判断，连接数据库不要求发向量或生成请求。
+
+## 本机运行与测试身份
+
+初次沙箱Docker管道访问被拒，不能据此认定引擎停止。
+改用Docker Desktop自带CLI核对，引擎28.3.2可用，本项目原容器 `enterprise_ai_agent_platform-db-1` 停止。
+本轮只启动此原容器，复用原数据卷；随后running/healthy，独立eaap_test可达，服务端PostgreSQL17.11。
+未重建容器/卷、修改日常账号/owner、运行日常库迁移或测试；日常库既有0010继续沿用。
+
+新增可重跑入口 `backend/scripts/check_workflow_listing_db.py`：
+
+- 不读取.env、现有密码/账号配置或容器环境变量；所有管理psql连接固定eaap_test，经容器本地socket使用现有管理身份。
+- 先核对current_database，在内存生成随机临时测试登录身份与口令，非管理权限、连接数4、口令有效期1小时。
+  临时角色是PostgreSQL集群对象，测试结束删除；既有角色不修改。
+- 用SCRAM verifier设置本次临时口令，管理SQL不携带明文口令；口令/测试URL不落文件、不回显。
+  格式依据[PostgreSQL17](https://www.postgresql.org/docs/17/catalog-pg-authid.html)，密钥派生依据
+  [RFC5802第3节](https://www.rfc-editor.org/rfc/rfc5802.html#section-3)及SCRAM-SHA-256算法。
+- 当前进程只得到本次loopback eaap_test URL；清除继承的EAAP配置，禁用.env及pytest额外选项/插件自动加载，
+  固定运行新文件并要求收集/通过恰为14项、无跳过，避免以未运行数据库用例冒充完成。
+- 每个fixture先验证URL为本机eaap_test且无query，再通过SQL确认实际库；创建随机 `eaap_test_<uuid>` schema及所需六表。
+  六表包括用户、空间、成员、知识库、工作流与执行回执；没有切块/vector表，不使用日常数据。
+- finally禁用本次身份登录，只终止该身份在eaap_test中的连接，核对schema同时属于该身份且符合完整随机命名，
+  再清理允许的schema、撤销本次授权并删除该角色，核对角色不存在。未知归属或依赖残留时报告失败，不扩大删除范围。
+
+runner中管理SQL另有10秒语句/5秒锁等待，CLI等待30秒。强杀、断电或Docker断联仍可能使清理未确认，
+不能承诺finally在任何情况下都成功；口令到期不会自动删除角色。失败时只报告本次非敏感临时角色名供核查。
+仅授予测试库权限不表示角色无法利用其他库的PUBLIC默认连接权限；本轮通过固定URL、实际库核验及固定管理连接确保只连接测试库。
+
+从仓库根目录使用CMD，指定本机已核对的Docker Desktop自带CLI路径：
+
+```bat
+.venv\Scripts\python.exe -X utf8 backend\scripts\check_workflow_listing_db.py --docker-exe "<Docker Desktop自带docker.exe的完整路径>"
+```
+
+不需要在聊天输入密码，不运行会展开现有秘密的compose config，不停止或删除其他项目容器。
+
+## 14项真实数据库覆盖
+
+新文件 `backend/tests/test_answer_workflow_listing_db.py` 覆盖：
+
+1. 现有空知识库与不存在知识库的区别。
+2. 真实创建时间/UUID稳定倒序、更新时间不提升旧记录、默认20条及offset分页尾页。
+3. SQL先按知识库过滤再截断，同空间另一库和跨空间记录不能混入。
+4. owner/member共享结果、非成员拒绝、错误空间父级、详情不能跨知识库。
+5. completed摘要不含答案/检查点/内部执行信息，多次读取不改变任务或产生执行回执。
+6. 通过创建接口保存pending后，后续请求/新Session及同库成员仍能读取，尝试数保持0；未发送execute。
+7. 人工更新虚构记录模拟其他成员完成后，后续详情读到completed，旧列表响应仍为原failed。
+
+fixture禁止构造模型提供方、检索、生成及execute；配置用固定测试stub。
+完成/弃答示例通过虚构数据库记录构造，不能移作真实生成或恢复成功证据。
+数据库DDL来自当前ORM六表，不验证Alembic0010迁移、pgvector检索或完整RAG事务链路。
+
+## 本次结果与学习边界
+
+本次真实运行 **14项通过，无跳过（21.94秒）**，runner退出码0。
+临时测试身份和测试区域清理核对成功；之后容器仍running/healthy，临时角色前缀计数为0。
+只读复核曾有一条CMD引号语法错误，未执行SQL，修正后探测通过；不计为数据库用例失败。
+不与此前后端124替身/纯契约、前端790模拟项相加；本次没有重新跑前端、完整后端或生产构建。
+没有付费模型、真实网页登录/历史页人工验收、Cookie到期等待、真实检索或整体质量成绩。
+真实候选检索任务及其他历史暂缓事项继续保留，不因启动数据库自动执行。
+
+学习者提出数据库缺口，主体测试、runner与实际运行由导师完成，没有本人代码修改。
+本轮先讲清不同测试层的完成条件，新的小阅读实践及逐题讨论尚待，不记已经独立掌握集成测试设计。
+前一工作流记录模块的小阅读实践与三题已按实际程度收尾；更早恢复题仍跳过未作答。
+六份原有未提交删改保留，本轮只提交本地Git，不推送GitHub。
