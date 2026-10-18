@@ -40,7 +40,14 @@ docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总
 本轮测试层阅读实践与三题已按实际程度讨论收尾：结论正确，隔离/迁移路径/清理整体结果的完整原因由导师补充，
 无本人代码修改或独立完整设计；清理失败是题目假设，实际清理成功。更早恢复题仍跳过。
 
-最新接续docs/backend/http-request-trace.md及ADR0031：我选A，后端每HTTP新UUID，X-Trace-Id与一条安全摘要关联。
+最新接续docs/frontend/frontend-answer-trace.md：仅引用问答页在原安全失败提示旁显示实际响应头的合法UUID4，
+不信错误JSON、不前端生成/回送、不自动重试。POST失败用自身编号；来源元数据GET失败只用该GET编号，
+缺失时不回退成功POST/GET。200解析/身份/名称/ready语义失败、网络/取消/超时不补造；无response-envelope。
+不是工作流保存答案的全块核对；401仍清身份，新提交/返回/退出/过期及迟到响应有保护，退出失败不恢复旧失败编号。
+前端30文件851项模拟通过、无跳过（24.79秒），TypeScript/生产构建通过，无后端/数据库/模型/真实网页验证。
+导师实现，无本人代码修改；本模块小阅读待答、逐题企业面试讨论尚未开始。只提交本地，不推送。
+
+此前docs/backend/http-request-trace.md及ADR0031：我选A，后端每HTTP新UUID，X-Trace-Id与一条安全摘要关联。
 忽略入站编号，不改业务request_id/幂等；纯ASGI+通用500handler，响应开始后出错保留已观察状态。
 仅记录方法白名单/模板路由/状态/耗时/outcome，不记录正文/真实URL/凭据/原始异常；README用no-access-log，
 但不保证既有业务日志或Uvicorn异常traceback已脱敏。completed只表示HTTP观察口径，不是工作流业务完成。

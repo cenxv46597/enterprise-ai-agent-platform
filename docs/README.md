@@ -37,6 +37,8 @@
 用独立只读连接区分进程响应和数据库连通性；不据此宣称迁移或完整业务已验收。
 随后[HTTP请求排错编号](backend/http-request-trace.md)：响应头与安全访问摘要关联一次HTTP调用，
 不替代会话/工作流的业务request_id，设计见[ADR0031](adr/0031-server-http-trace.md)。
+再接[引用问答失败的排错编号](frontend/frontend-answer-trace.md)：仅展示实际失败响应的合法编号，
+来源GET与生成POST各自归属，不沿用成功请求的编号，不补造或自动重试。
 
 ## 按用途查找
 

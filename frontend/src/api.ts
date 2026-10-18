@@ -59,13 +59,30 @@ export type KnowledgeAnswerResult = {
 };
 export type Session = { user: User; expiresAt: number };
 
+function safeTraceId(value: unknown): string | null {
+  // The server contract is UUID4. Length also rejects JS $ matching before a final newline.
+  return typeof value === "string" && value.length === 36
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    ? value.toLowerCase() : null;
+}
+
+function responseTraceId(response: Response): string | null {
+  try {
+    return safeTraceId(response.headers.get("X-Trace-Id"));
+  } catch {
+    return null;
+  }
+}
+
 export class ApiError extends Error {
   readonly status: number | null;
+  readonly traceId: string | null;
 
-  constructor(message: string, status: number | null = null) {
+  constructor(message: string, status: number | null = null, traceId: unknown = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.traceId = safeTraceId(traceId);
   }
 }
 
@@ -108,8 +125,8 @@ export class SearchUnconfirmedError extends ApiError {
 export const ANSWER_UNCONFIRMED_MESSAGE = "问答结果未确认；本次可能已调用向量或生成服务，未自动重试。";
 
 export class AnswerUnconfirmedError extends ApiError {
-  constructor(status: number | null = null) {
-    super(ANSWER_UNCONFIRMED_MESSAGE, status);
+  constructor(status: number | null = null, traceId: unknown = null) {
+    super(ANSWER_UNCONFIRMED_MESSAGE, status, traceId);
     this.name = "AnswerUnconfirmedError";
   }
 }
@@ -184,13 +201,15 @@ async function request(
       const message = response.status === 401
         ? (isLogin ? "用户名或密码不正确。" : SESSION_EXPIRED)
         : "请求未完成，请稍后重试。";
-      throw new ApiError(message, response.status);
+      throw new ApiError(message, response.status, responseTraceId(response));
     }
     if (noContent) {
       if (response.status !== 204) throw new ApiError(INVALID_RESPONSE);
       return null;
     }
-    if (expectedStatus !== undefined && response.status !== expectedStatus) throw new ApiError(INVALID_RESPONSE);
+    if (expectedStatus !== undefined && response.status !== expectedStatus) {
+      throw new ApiError(INVALID_RESPONSE, null, responseTraceId(response));
+    }
     try {
       const payload: unknown = await response.json();
       if (controller.signal.aborted) throw interrupted();
@@ -720,9 +739,9 @@ export async function answerKnowledgeBase(
       422: "请核对问答问题、请求参数与上下文预算；本响应不能确认是否已产生费用。",
     };
     if (Object.hasOwn(rejectionMessages, response.status)) {
-      throw new ApiError(rejectionMessages[response.status], response.status);
+      throw new ApiError(rejectionMessages[response.status], response.status, responseTraceId(response));
     }
-    if (response.status !== 200) throw new AnswerUnconfirmedError(response.status);
+    if (response.status !== 200) throw new AnswerUnconfirmedError(response.status, responseTraceId(response));
     const payload: unknown = await response.json();
     if (controller.signal.aborted) throw new AnswerUnconfirmedError();
     try {
@@ -752,7 +771,8 @@ export async function answerKnowledgeBase(
   } catch (failure) {
     if (signal.aborted) throw new AnswerUnconfirmedError();
     if (failure instanceof ApiError && failure.status === 401) throw failure;
-    throw new AnswerUnconfirmedError(failure instanceof ApiError ? failure.status : null);
+    throw new AnswerUnconfirmedError(failure instanceof ApiError ? failure.status : null,
+      failure instanceof ApiError ? failure.traceId : null);
   }
 }
 

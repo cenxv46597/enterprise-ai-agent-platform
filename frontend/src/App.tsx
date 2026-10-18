@@ -386,8 +386,9 @@ export default function App() {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
       else setAnswerOutcome(failure instanceof AnswerUnconfirmedError || !(failure instanceof ApiError)
-        ? { kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE }
-        : { kind: 'rejected', message: failure.message });
+        ? { kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE,
+          traceId: failure instanceof ApiError ? failure.traceId : null }
+        : { kind: 'rejected', message: failure.message, traceId: failure.traceId });
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
@@ -967,6 +968,10 @@ export default function App() {
   }
 
   async function exit() {
+    if (answerOpen) {
+      setAnswerOutcome(outcome => outcome && outcome.kind !== 'confirmed'
+        ? { kind: outcome.kind, message: outcome.message } : outcome);
+    }
     markConversationInterrupted(busy);
     markWorkflowInterrupted(busy);
     markHistoryInterrupted(busy);

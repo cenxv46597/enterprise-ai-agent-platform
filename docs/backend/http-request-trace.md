@@ -17,7 +17,8 @@
 - 忽略入站同名头，包括重复或无效值；响应体、业务 `request_id` 和幂等逻辑不变。
 - 成功、认证拒绝、参数错误、ready失败、404/405和未捕获500均可关联到摘要。
 - 500保留 `Internal Server Error` 纯文本、补同编号与no-store，不返回异常原文。
-- 新层不签发Cookie，既有登录/恢复/退出仍按ADR0030；网页目前尚不展示编号。
+- 新层不签发Cookie，既有登录/恢复/退出仍按ADR0030；本后端阶段不接网页。
+  后续仅[引用问答页的HTTP失败](../frontend/frontend-answer-trace.md)接入编号，其它页面仍待分步接入。
 
 专用日志器 `eaap.http` 使用INFO、独立StreamHandler、propagate=false，仅配置一次，不修改root。
 一行JSON固定字段为event=http_request、trace_id、method、route、status_code、elapsed_ms、outcome。

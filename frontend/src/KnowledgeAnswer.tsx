@@ -3,7 +3,7 @@ import type { KnowledgeAnswerResult } from './api';
 
 export type AnswerOutcome =
   | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult }
-  | { kind: 'unconfirmed' | 'rejected'; message: string };
+  | { kind: 'unconfirmed' | 'rejected'; message: string; traceId?: string | null };
 
 type Props = {
   workspaceName: string;
@@ -93,7 +93,9 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
               </li>,
             )}</ol>
           </>}
-        </> : <p className="message error" role="alert">{outcome.message}</p>}
+        </> : <p className="message error" role="alert">{outcome.message}
+          {outcome.traceId && <><br /><span>排错编号：<code>{outcome.traceId}</code></span></>}
+        </p>}
       </section>}
     </>}
   </section>;
