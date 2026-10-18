@@ -5,9 +5,10 @@
 ## 继续开发
 
 1. [最新交接（2026-10-18）](handoff/handoff-2026-10-18.md)：当前位置、验证边界和剩余事项。
-2. [最新进度总结（2026-10-18）](progress/progress-2026-10-18.md)：已完成功能、本人参与和后续安排。
-3. [新对话提示词（2026-10-18）](handoff/new-chat-prompt-2026-10-18.md)：可复制模板，填入本机路径后使用。
-4. [路线图](progress/roadmap.md)与[学习记录](progress/learning-progress.md)：整体方向和历史参与记录。
+2. [当日完整汇总（2026-10-18）](progress/progress-2026-10-18-summary.md)：六个新增模块、分组证据、学习停点与后续安排。
+3. [分步进度记录（2026-10-18）](progress/progress-2026-10-18.md)：较早发布快照与随后接续记录。
+4. [新对话提示词（2026-10-18）](handoff/new-chat-prompt-2026-10-18.md)：可复制模板，填入本机路径后使用。
+5. [路线图](progress/roadmap.md)与[学习记录](progress/learning-progress.md)：整体方向和历史参与记录。
 
 原 `handoff-current.md`、`new-chat-prompt.md` 及上述路线/学习文档保留原有未提交删改；
 本次新增日期文件承接最新事实，不覆盖这些历史文件。2026-10-18 总结时跳过恢复阅读题，

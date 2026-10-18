@@ -11,7 +11,8 @@
 第一次完整要求：<本机原始需求附件路径>
 
 先完整阅读docs/README.md、docs/handoff/handoff-2026-10-18.md、
-docs/progress/progress-2026-10-18.md和本文件，再按当前任务读对应frontend文档及真实代码。
+docs/progress/progress-2026-10-18-summary.md、docs/progress/progress-2026-10-18.md和本文件，
+再按当前任务读对应frontend文档及真实代码。
 结合docs/progress/roadmap.md、learning-progress.md、docs/architecture/architecture.md、
 ADR0030与Git核对；日期新交接和实际代码优先，旧段落仅对应当时阶段。
 既有后端/CLI不重做。
@@ -45,7 +46,11 @@ docs/frontend/frontend-workflow-saved-answer.md，接续记录优先于上轮总
 缺失时不回退成功POST/GET。200解析/身份/名称/ready语义失败、网络/取消/超时不补造；无response-envelope。
 不是工作流保存答案的全块核对；401仍清身份，新提交/返回/退出/过期及迟到响应有保护，退出失败不恢复旧失败编号。
 前端30文件851项模拟通过、无跳过（24.79秒），TypeScript/生产构建通过，无后端/数据库/模型/真实网页验证。
-导师实现，无本人代码修改；本模块小阅读待答、逐题企业面试讨论尚未开始。只提交本地，不推送。
+导师实现，无本人代码修改；小实践曾误用回答/文件ID判断日志，经系统日志讲解和引导后能指出来源访问范围方向，
+route确定环节及具体核验项由导师补充；全局最近编号错配题由导师讲解，不记独立作答。
+第二题“3个后端实例怎样集中采集查询日志”未作答，我要求先总结，记暂停而非完成或永久跳过。
+最新完整进度与后续见docs/progress/progress-2026-10-18-summary.md，本次只文档，不重跑测试或推送。
+总结前功能HEAD c8d6eb8，本地比缓存origin/main领先10条；本次未查询实际GitHub，之后提交仍仅本地。
 
 此前docs/backend/http-request-trace.md及ADR0031：我选A，后端每HTTP新UUID，X-Trace-Id与一条安全摘要关联。
 忽略入站编号，不改业务request_id/幂等；纯ASGI+通用500handler，响应开始后出错保留已观察状态。
