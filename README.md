@@ -13,7 +13,9 @@
 随后[引用问答错误码关联](docs/backend/http-answer-error-code.md)：同条访问摘要按需增加固定error_code，
 区分已知问题向量化/生成等失败；最终121项后端定向通过（7.38秒），不连接数据库/模型，非全量或真实网页验收。
 最新接[工作流记录页读取编号](docs/frontend/frontend-workflow-history-trace.md)，只展示列表与任务状态GET失败的合法编号。
-当前前端30文件906项模拟通过（24.85秒），TypeScript与生产构建通过；旧851为前步记录，不相加，无新增真实网页验收。
+该步前端30文件906项模拟通过（24.85秒），TypeScript与生产构建通过；旧851为前步记录，不相加，无新增真实网页验收。
+最新接[历史页保存答案核验编号](docs/frontend/frontend-workflow-saved-answer-trace.md)，工作流/文档/块GET各自失败编号传递，
+全文仍全部核验。当前前端30文件963项模拟通过（23.80秒），TypeScript和构建通过；无后端重测或真实DB/模型/网页验收。
 
 ## 2026-10-18 网页进度快照
 

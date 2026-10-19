@@ -586,7 +586,7 @@ export default function App() {
     setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
     setConversationView(null); setWorkflowView(null); setUploadOutcome(null); setError('');
     setWorkflowHistoryView({ items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
-      savedAnswer: null, savedAnswerNotice: '' });
+      savedAnswer: null, savedAnswerNotice: null });
   }
 
   async function listWorkflowHistory() {
@@ -594,7 +594,7 @@ export default function App() {
     const { id, controller } = beginRequest();
     setBusy('workflow-history-list'); setError('');
     setWorkflowHistoryView({ items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
-      savedAnswer: null, savedAnswerNotice: '' });
+      savedAnswer: null, savedAnswerNotice: null });
     try {
       const items = await listAnswerWorkflows(selectedWorkspace.id, selectedKnowledgeBase.id, controller.signal);
       if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, items });
@@ -615,7 +615,7 @@ export default function App() {
     const { id, controller } = beginRequest();
     setBusy('workflow-history-read'); setError('');
     setWorkflowHistoryView(view => view && { ...view, selected: item, snapshot: null, readNotice: null,
-      savedAnswer: null, savedAnswerNotice: '' });
+      savedAnswer: null, savedAnswerNotice: null });
     try {
       const snapshot = await readAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, item, controller.signal);
       if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, snapshot });
@@ -637,7 +637,7 @@ export default function App() {
     const selected = workflowHistoryView.selected, snapshot = workflowHistoryView.snapshot;
     const { id, controller } = beginRequest();
     setBusy('workflow-history-answer'); setError('');
-    setWorkflowHistoryView(view => view && { ...view, savedAnswer: null, savedAnswerNotice: '' });
+    setWorkflowHistoryView(view => view && { ...view, savedAnswer: null, savedAnswerNotice: null });
     try {
       const savedAnswer = await readSavedWorkflowAnswer(selectedWorkspace.id, selectedKnowledgeBase.id,
         selected, snapshot, controller.signal);
@@ -645,9 +645,10 @@ export default function App() {
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
-      else setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null, savedAnswerNotice:
-        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError)
-          ? failure.message : WORKFLOW_NOTICES['answer-read'] });
+      else setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null, savedAnswerNotice: {
+        message: failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError)
+          ? failure.message : WORKFLOW_NOTICES['answer-read'],
+        traceId: failure instanceof ApiError ? failure.traceId : null } });
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
@@ -658,7 +659,8 @@ export default function App() {
     setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null,
       listNotice: activity === 'workflow-history-list' ? { message: '工作流记录读取已停止，请按需重新读取。', traceId: null } : view.listNotice,
       readNotice: activity === 'workflow-history-read' ? { message: WORKFLOW_NOTICES.read, traceId: null } : view.readNotice,
-      savedAnswerNotice: activity === 'workflow-history-answer' ? WORKFLOW_NOTICES['answer-read'] : view.savedAnswerNotice });
+      savedAnswerNotice: activity === 'workflow-history-answer'
+        ? { message: WORKFLOW_NOTICES['answer-read'], traceId: null } : view.savedAnswerNotice });
   }
 
   function stopWaitingForHistory() {
@@ -972,7 +974,8 @@ export default function App() {
   async function exit() {
     setWorkflowHistoryView(view => view && { ...view,
       listNotice: view.listNotice && { ...view.listNotice, traceId: null },
-      readNotice: view.readNotice && { ...view.readNotice, traceId: null } });
+      readNotice: view.readNotice && { ...view.readNotice, traceId: null },
+      savedAnswerNotice: view.savedAnswerNotice && { ...view.savedAnswerNotice, traceId: null } });
     if (answerOpen) {
       setAnswerOutcome(outcome => outcome && outcome.kind !== 'confirmed'
         ? { kind: outcome.kind, message: outcome.message } : outcome);

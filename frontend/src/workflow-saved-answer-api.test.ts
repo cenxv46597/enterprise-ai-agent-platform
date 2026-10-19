@@ -54,6 +54,119 @@ function success(state = savedState()) { fetchMock.mockResolvedValueOnce(jsonRes
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+const TRACE_A = 'a0e0b901-2b0d-4ae0-812a-bab2cf9e7b01';
+const TRACE_B = 'b1f1c012-3c1e-4bf1-923b-cbc3dfa08c12';
+function traced(payload: unknown, status = 200, trace?: string) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (trace !== undefined) headers.set('X-Trace-Id', trace);
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+function numberedChain() {
+  return [traced(savedState(), 200, TRACE_A), traced(documentResponse(), 200, TRACE_A),
+    traced(documentChunks(DOCUMENT_ID), 200, TRACE_A), traced(documentResponse(OTHER_DOCUMENT_ID), 200, TRACE_A),
+    traced(documentChunks(OTHER_DOCUMENT_ID), 200, TRACE_A)];
+}
+async function failedRead(created: WorkflowMeta, current: WorkflowMeta, parent = signal()) {
+  const error = await read(created, current, parent).catch(error => error);
+  expect(error).toBeInstanceOf(ApiError); expect(String(error)).not.toContain(PRIVATE);
+  for (const [, options] of fetchMock.mock.calls) {
+    expect(options?.method).toBe('GET'); expect(options?.body).toBeUndefined();
+    expect(new Headers(options?.headers).has('X-Trace-Id')).toBe(false);
+  }
+  return error as ApiError;
+}
+
+describe('已保存答案只读核验失败的响应编号', () => {
+  it.each([401, 404, 503, 201])('工作流GET非预期HTTP%s携带自身头编号，不读错误JSON或开始来源核验', async status => {
+    const { created, current } = await setup();
+    const response = traced({ detail: PRIVATE, trace_id: TRACE_A }, status, TRACE_B.toUpperCase());
+    const body = vi.spyOn(response, 'json'); fetchMock.mockResolvedValueOnce(response);
+    expect(await failedRead(created, current)).toMatchObject({ status, traceId: TRACE_B });
+    expect(body).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  for (const index of [1, 2, 3, 4]) it.each([401, 404, 503])(
+    `来源第${index}个GET的HTTP%s只用失败响应编号，不沿用之前成功请求`, async status => {
+      const { created, current } = await setup();
+      const responses = numberedChain();
+      for (const response of responses.slice(0, index)) fetchMock.mockResolvedValueOnce(response);
+      const failure = traced({ detail: PRIVATE, trace_id: TRACE_A }, status, TRACE_B);
+      const body = vi.spyOn(failure, 'json'); fetchMock.mockResolvedValueOnce(failure);
+      expect(await failedRead(created, current)).toMatchObject({ status, traceId: TRACE_B });
+      expect(body).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(index + 1);
+    });
+
+  for (const index of [0, 4]) it.each([undefined, 'not-a-uuid', TRACE_B.replace('-4bf1-', '-1bf1-'), `${TRACE_A}, ${TRACE_B}`])(
+    `第${index}个GET头%s无效时，不从成功头或错误JSON补编号`, async trace => {
+      const { created, current } = await setup();
+      for (const response of numberedChain().slice(0, index)) fetchMock.mockResolvedValueOnce(response);
+      fetchMock.mockResolvedValueOnce(traced({ detail: PRIVATE, trace_id: TRACE_B }, 503, trace));
+      expect(await failedRead(created, current)).toMatchObject({ traceId: null });
+      expect(fetchMock).toHaveBeenCalledTimes(index + 1);
+    });
+
+  it.each(['workflow', 'document', 'chunks'] as const)('200后%s快照/来源核验失败不使用成功头编号', async target => {
+    const { created, current } = await setup();
+    if (target === 'workflow') {
+      fetchMock.mockResolvedValueOnce(traced({ ...savedState(), version: 4 }, 200, TRACE_B));
+    } else {
+      fetchMock.mockResolvedValueOnce(traced(savedState(), 200, TRACE_A));
+      if (target === 'document') {
+        fetchMock.mockResolvedValueOnce(traced({ ...documentResponse(), original_filename: 'changed' }, 200, TRACE_B));
+      } else {
+        fetchMock.mockResolvedValueOnce(traced(documentResponse(), 200, TRACE_A));
+        const chunks = documentChunks(DOCUMENT_ID);
+        chunks[1].content = '变'.repeat(Array.from(chunks[1].content).length);
+        fetchMock.mockResolvedValueOnce(traced(chunks, 200, TRACE_B));
+      }
+    }
+    expect(await failedRead(created, current)).toMatchObject({ status: null, traceId: null });
+  });
+
+  it.each([0, 1, 2])('第%s个GET的200坏JSON不展示成功头编号', async index => {
+    const { created, current } = await setup();
+    for (const response of numberedChain().slice(0, index)) fetchMock.mockResolvedValueOnce(response);
+    fetchMock.mockResolvedValueOnce(new Response(PRIVATE, { headers: { 'X-Trace-Id': TRACE_B } }));
+    expect(await failedRead(created, current)).toMatchObject({ traceId: null });
+  });
+
+  it('来源201保留既有status=null语义，同时携带该响应编号', async () => {
+    const { created, current } = await setup();
+    fetchMock.mockResolvedValueOnce(traced(savedState(), 200, TRACE_A))
+      .mockResolvedValueOnce(traced(documentResponse(), 201, TRACE_B));
+    expect(await failedRead(created, current)).toMatchObject({ status: null, traceId: TRACE_B });
+  });
+
+  it.each([0, 4])('第%s个GET无响应时不从异常文本或之前成功请求取得编号', async index => {
+    const { created, current } = await setup();
+    for (const response of numberedChain().slice(0, index)) fetchMock.mockResolvedValueOnce(response);
+    fetchMock.mockRejectedValueOnce(new Error(`${PRIVATE} ${TRACE_B}`));
+    expect(await failedRead(created, current)).toMatchObject({ traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(index + 1);
+  });
+
+  it.each(['cancel', 'timeout'] as const)('末来源%s后迟到失败不会恢复编号或追加请求', async mode => {
+    const { created, current } = await setup(); vi.useFakeTimers();
+    for (const response of numberedChain().slice(0, 4)) fetchMock.mockResolvedValueOnce(response);
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+    const parent = new AbortController(), action = failedRead(created, current, parent.signal);
+    await vi.advanceTimersByTimeAsync(0); expect(fetchMock).toHaveBeenCalledTimes(5);
+    if (mode === 'cancel') parent.abort(); else await vi.advanceTimersByTimeAsync(10_000);
+    finish(traced({ detail: PRIVATE }, 503, TRACE_B));
+    expect(await action).toMatchObject({ traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(5); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('全部GET成功也不把任何响应编号投影为答案/任务字段', async () => {
+    const { created, current } = await setup();
+    for (const response of numberedChain()) fetchMock.mockResolvedValueOnce(response);
+    const result = await read(created, current);
+    expect(result.answer.answer).toBe(ANSWER); expect(JSON.stringify(result)).not.toContain(TRACE_A);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+});
+
 describe('显式只读查看已保存工作流答案', () => {
   it('元数据GET先不展示正文，单独查看时核对全部原文块且只发送GET，不制造执行回执', async () => {
     const { created, current } = await setup();

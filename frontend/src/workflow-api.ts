@@ -108,8 +108,9 @@ async function request(url: string, stage: Stage, status: number, signal: AbortS
       409: '工作流版本、状态或执行权冲突；请手动读取状态，本页不会自动重试或恢复。',
       422: '工作流请求参数或保存状态未被接受，本页不会自动重试。',
     };
-    // This step exposes only metadata-read HTTP failures, never a successful response's ID.
-    const traceId = stage === 'read' && response.status !== status ? responseTraceId(response) : null;
+    // Read failures retain their own response ID, never a successful response's ID.
+    const traceId = (stage === 'read' || stage === 'answer-read') && response.status !== status
+      ? responseTraceId(response) : null;
     if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status, traceId);
     if (response.status !== status) throw new WorkflowUnconfirmedError(stage, response.status, traceId);
     const payload: unknown = await response.json();
@@ -331,6 +332,7 @@ export async function readSavedWorkflowAnswer(workspaceId: string, knowledgeBase
     return { workflow: parsed.meta, answer: parsed.answer };
   } catch (failure) {
     if (!signal.aborted && failure instanceof ApiError && (failure.status === 401 || failure.status === 404)) throw failure;
-    throw new WorkflowUnconfirmedError('answer-read', failure instanceof ApiError ? failure.status : null);
+    throw new WorkflowUnconfirmedError('answer-read', failure instanceof ApiError ? failure.status : null,
+      !signal.aborted && failure instanceof ApiError ? failure.traceId : null);
   }
 }

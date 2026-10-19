@@ -10,7 +10,7 @@ export type WorkflowHistoryView = {
   snapshot: WorkflowMeta | null;
   readNotice: HistoryReadNotice | null;
   savedAnswer: WorkflowSavedAnswer | null;
-  savedAnswerNotice: string;
+  savedAnswerNotice: HistoryReadNotice | null;
 };
 
 type Props = {
@@ -152,7 +152,7 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
             {activity === 'answer-reading' && <button className="button secondary" onClick={onCancel}>停止查看答案</button>}
           </div>
           {activity === 'answer-reading' && <p role="status">正在读取已保存结果并核对全部选中来源的原文块…</p>}
-          {view.savedAnswerNotice && <p className="message error" role="alert">{view.savedAnswerNotice}</p>}
+          <ReadNotice notice={view.savedAnswerNotice} />
           {view.savedAnswer && <>
             <HistoryMetadata workflow={view.savedAnswer.workflow} />
             <Answer answer={view.savedAnswer.answer} />

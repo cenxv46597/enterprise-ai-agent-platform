@@ -6,11 +6,19 @@
 首次完整要求：<本机原始需求附件路径>
 
 先完整阅读docs/README.md、docs/handoff/handoff-2026-10-19.md、docs/progress/progress-2026-10-19.md、
-docs/frontend/frontend-workflow-history-trace.md、docs/backend/http-answer-error-code.md、docs/backend/http-log-metadata.md和本文件；
+docs/frontend/frontend-workflow-saved-answer-trace.md、docs/frontend/frontend-workflow-history-trace.md、
+docs/backend/http-answer-error-code.md、docs/backend/http-log-metadata.md和本文件；
 再按任务阅读2026-10-18完整汇总、ADR0030/0031、相关真实代码和Git。
 最新交接和实际代码优先，不从零重做既有后端/CLI。
 
-当前最新小步是历史列表/状态读取失败展示各自响应头排错编号，message/traceId同对象，
+当前最新小步是历史页查看保存答案的多来源GET编号：任务/文档/块失败用实际失败头，不兜底成功编号，
+200后原文/快照/状态核验失败、网络/取消/超时无编号；整份来源仍全部核验，历史页只读。
+创建工作流页的保存答案及写入阶段未接编号展示。最终前端30文件963项模拟通过（23.80秒）、TypeScript与构建通过，
+专项169包含在联合不相加，前步906和后端121不冒充本次新测；证据边界见当日进度，不自动调用DB/模型。
+主体导师实现，待我给末来源无效头参数化测试补一条UUID版本1输入，尚无保存反馈或验证；本步面试待逐题进行。
+前步文案小实践与三题已按实际程度收尾，不重复；更早集中采集题暂停，恢复阅读题跳过。
+
+前步是历史列表/状态读取失败展示各自响应头排错编号，message/traceId同对象，
 重读/切换/取消/退出/到期清旧、迟到响应隔离，历史页仍手动GET只读；保存答案与写入阶段未接展示。
 只有非预期HTTP状态且合法UUID4头才带编号，200后本地失败/网络/取消不补造、不回退旧编号。
 最终前端30文件906项模拟通过（24.85秒）、TypeScript和构建通过，两文件专项154包含在联合不相加。

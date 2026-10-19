@@ -388,11 +388,123 @@ describe('工作流列表与状态读取失败的排错编号', () => {
     expectNoTrace(); expectReadOnly(requests);
   });
 
-  it('本步不把已保存答案查看失败接成列表或状态错误编号', async () => {
+  it('保存答案查看失败编号只属于答案区，不混入成功列表或状态编号', async () => {
     let reads = 0;
     const requests = install(request => pathname(request) === WORKFLOW_PATH
       ? ++reads === 1 ? traced(savedWorkflow(), 200, TRACE_A) : tracedFailure(TRACE_B) : undefined);
-    await prepare(); expectNoTrace(); await readAnswer(); expectNoTrace();
+    await prepare(); expectNoTrace(); await readAnswer(); expectTrace(TRACE_B);
+    expect(savedRegion().textContent).toContain(TRACE_B);
+    expect(screen.getByRole('region', { name: '最近创建的工作流' }).textContent).not.toContain(TRACE_B);
+    expect(screen.getByRole('region', { name: '选中任务状态' }).textContent).not.toContain(TRACE_B);
+    expect(document.body.textContent).not.toContain(TRACE_A);
     expectNoAnswer(); expectReadOnly(requests);
+  });
+});
+
+function sourcePayload(path: string): unknown {
+  switch (path) {
+    case DOCUMENT_PATH: return documentResponse();
+    case CHUNKS_PATH: return savedChunks();
+    case OTHER_DOCUMENT_PATH: return documentResponse(OTHER_DOCUMENT_ID);
+    case OTHER_CHUNKS_PATH: return savedChunks(OTHER_DOCUMENT_ID);
+    default: return undefined;
+  }
+}
+
+describe('历史页已保存答案核验失败编号', () => {
+  it.each([WORKFLOW_PATH, DOCUMENT_PATH, CHUNKS_PATH, OTHER_DOCUMENT_PATH, OTHER_CHUNKS_PATH])(
+    '%s失败只在保存答案区显示自身编号，隐藏整份答案且不自动重读', async failedPath => {
+      let metadataReads = 0;
+      const requests = install(request => {
+        const path = pathname(request);
+        if (path === WORKFLOW_PATH) {
+          if (++metadataReads === 2 && path === failedPath) return tracedFailure(TRACE_B);
+          return traced(savedWorkflow(), 200, TRACE_A);
+        }
+        const payload = sourcePayload(path);
+        if (payload !== undefined) return path === failedPath ? tracedFailure(TRACE_B) : traced(payload, 200, TRACE_A);
+      });
+      await prepare(); expectNoTrace(); await readAnswer();
+      expectTrace(TRACE_B); expect(document.body.textContent).not.toContain(TRACE_A);
+      expect(savedRegion().textContent).toContain(TRACE_B); expectNoAnswer(); expectReadDisabled();
+      expect(screen.getByRole('region', { name: '选中任务状态' }).textContent).not.toContain(TRACE_B);
+      const count = requests.length; await advance(30_000); expect(requests).toHaveLength(count);
+      expectReadOnly(requests);
+      for (const request of requests) expect(request.headers.has('X-Trace-Id')).toBe(false);
+    });
+
+  it.each([undefined, 'not-a-uuid', `${TRACE_A}, ${TRACE_B}`])(
+    '末来源失败头%s无效时不回退成功任务或来源编号', async trace => {
+      const requests = install(request => {
+        const path = pathname(request);
+        if (path === WORKFLOW_PATH) return traced(savedWorkflow(), 200, TRACE_A);
+        if (path === OTHER_CHUNKS_PATH) return traced({ detail: PRIVATE, trace_id: TRACE_B }, 503, trace);
+        const payload = sourcePayload(path);
+        if (payload !== undefined) return traced(payload, 200, TRACE_A);
+      });
+      await prepare(); await readAnswer(); expectNoTrace(); expectNoAnswer(); expectReadDisabled(); expectReadOnly(requests);
+    });
+
+  it('末来源200但原文变化只显示未核验提示，不展示成功HTTP编号', async () => {
+    const changed = savedChunks(OTHER_DOCUMENT_ID);
+    changed[0].content = '变'.repeat(Array.from(changed[0].content).length);
+    const requests = install(request => {
+      const path = pathname(request);
+      if (path === WORKFLOW_PATH) return traced(savedWorkflow(), 200, TRACE_A);
+      if (path === OTHER_CHUNKS_PATH) return traced(changed, 200, TRACE_B);
+      const payload = sourcePayload(path); if (payload !== undefined) return traced(payload, 200, TRACE_A);
+    });
+    await prepare(); await readAnswer(); expectNoTrace(); expectNoAnswer(); expectReadDisabled(); expectReadOnly(requests);
+  });
+
+  it.each(['list', 'select', 'state'] as const)('%s操作清除旧保存答案错误及编号', async action => {
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? jsonResponse([summary(), summary(savedWorkflow(SECOND_QUESTION, SECOND_ID), 1)])
+      : pathname(request) === OTHER_CHUNKS_PATH ? tracedFailure() : undefined);
+    await prepare(); await readAnswer(); expectTrace(TRACE_A);
+    if (action === 'list') await list(); else if (action === 'select') await select(SECOND_QUESTION); else await readStatus();
+    expectNoTrace(); expectNoAnswer(); expectReadOnly(requests);
+  });
+
+  it('重新读状态后才可再次查看，旧编号不会进入新失败', async () => {
+    const pending = deferred(); let reads = 0;
+    const requests = install(request => pathname(request) === OTHER_CHUNKS_PATH
+      ? ++reads === 1 ? tracedFailure() : pending.promise : undefined);
+    await prepare(); await readAnswer(); expectTrace(TRACE_A); expectReadDisabled();
+    await readStatus(); expectNoTrace(); await readAnswer(); expectNoTrace();
+    await resolve(pending, tracedFailure(TRACE_B)); expectTrace(TRACE_B);
+    expect(document.body.textContent).not.toContain(TRACE_A); expectNoAnswer(); expectReadOnly(requests);
+  });
+
+  it.each(['cancel', 'back', 'logout-failed', 'expiry'] as const)('%s后末来源迟到失败不能恢复编号或正文', async action => {
+    const pending = deferred();
+    const requests = install(request => pathname(request) === OTHER_CHUNKS_PATH ? pending.promise
+      : pathname(request) === LOGOUT && action === 'logout-failed' ? tracedFailure(TRACE_A) : undefined);
+    await prepare(); await readAnswer(); expectNoAnswer();
+    if (action === 'cancel') await click(screen.getByRole('button', { name: '停止查看答案' }));
+    else if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout-failed') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    await resolve(pending, tracedFailure(TRACE_B)); expectNoTrace(); expectNoAnswer(); expectReadOnly(requests);
+    expect(requests.find(request => pathname(request) === OTHER_CHUNKS_PATH)?.signal.aborted).toBe(true);
+  });
+
+  it('已展示来源错误后退出失败，清除来源编号且不展示退出编号', async () => {
+    const requests = install(request => pathname(request) === OTHER_CHUNKS_PATH ? tracedFailure()
+      : pathname(request) === LOGOUT ? tracedFailure(TRACE_B) : undefined);
+    await prepare(); await readAnswer(); expectTrace(TRACE_A);
+    await click(screen.getByRole('button', { name: '退出登录' }));
+    expectNoTrace(); expectNoAnswer(); expect(document.body.textContent).toContain('退出尚未确认'); expectReadOnly(requests);
+  });
+
+  it.each([WORKFLOW_PATH, DOCUMENT_PATH, CHUNKS_PATH])('%s的401清身份，不在登录页面展示核验编号', async failedPath => {
+    let reads = 0;
+    const requests = install(request => {
+      const path = pathname(request);
+      if (path === WORKFLOW_PATH && ++reads === 1) return undefined;
+      if (path === failedPath) return tracedFailure(TRACE_B, 401);
+    });
+    await prepare(); await readAnswer(); expectNoTrace(); expectNoAnswer();
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy(); expectReadOnly(requests);
   });
 });
