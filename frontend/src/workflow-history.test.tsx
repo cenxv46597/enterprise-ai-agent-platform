@@ -433,7 +433,7 @@ describe('历史页已保存答案核验失败编号', () => {
       for (const request of requests) expect(request.headers.has('X-Trace-Id')).toBe(false);
     });
 
-  it.each([undefined, 'not-a-uuid', `${TRACE_A}, ${TRACE_B}`])(
+  it.each([undefined, 'not-a-uuid', 'b1f1c012-3c1e-1bf1-923b-cbc3dfa08c12', `${TRACE_A}, ${TRACE_B}`])(
     '末来源失败头%s无效时不回退成功任务或来源编号', async trace => {
       const requests = install(request => {
         const path = pathname(request);
