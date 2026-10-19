@@ -61,7 +61,7 @@ function displayTime(value: string) {
 function ReadNotice({ notice }: { notice: HistoryReadNotice | null }) {
   if (!notice) return null;
   return <p className="message error" role="alert">{notice.message}
-    {notice.traceId && <><br /><span>排错编号：<code>{notice.traceId}</code></span></>}
+    {notice.traceId && <><br /><span>排错编号：<code>{notice.traceId}</code>（反馈问题时请提供此编号）</span></>}
   </p>;
 }
 
