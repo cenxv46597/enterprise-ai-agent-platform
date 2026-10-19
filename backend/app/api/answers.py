@@ -1,11 +1,10 @@
 """基于指定知识库的证据问答接口。"""
 
 from collections.abc import Callable, Sequence
-import logging
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.api.documents import EmbeddingDep
@@ -35,9 +34,9 @@ from app.providers.generation import (
     GenerationTimeoutError,
 )
 from app.memory.contracts import AnswerDetail
+from app.observability.answer_errors import AnswerErrorCode
 
 
-logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/workspaces/{workspace_id}/knowledge-bases/{knowledge_base_id}",
     tags=["answers"],
@@ -130,6 +129,7 @@ class AnswerRead(BaseModel):
 def answer(
     workspace_id: UUID,
     knowledge_base_id: UUID,
+    request: Request,
     payload: AnswerRequest,
     session: DbSession,
     embedding_provider: EmbeddingDep,
@@ -144,25 +144,38 @@ def answer(
             rerank=payload.rerank, candidate_k=payload.candidate_k, rerank_provider=rerank_provider,
         )
     except RetrievalNotFoundError:
+        request.state.http_answer_error = AnswerErrorCode.KNOWLEDGE_BASE_NOT_FOUND
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="知识库不存在") from None
     except RetrievalConflictError:
+        request.state.http_answer_error = AnswerErrorCode.EMBEDDING_PROFILE_CONFLICT
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="查询模型与知识库向量配置不一致") from None
     except RetrievalCapacityError:
+        request.state.http_answer_error = AnswerErrorCode.RETRIEVAL_CAPACITY_EXCEEDED
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="当前混合检索支持最多 2000 个可检索文本块、100 万正文字符，请使用较小知识库或选择 vector 策略") from None
     except (RetrievalInputError, AnswerContextLimitError):
+        request.state.http_answer_error = AnswerErrorCode.INPUT_OR_CONTEXT_INVALID
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="问答参数无效或文本块超过上下文预算") from None
     except RerankInputError:
+        request.state.http_answer_error = AnswerErrorCode.RERANK_INPUT_INVALID
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="重排参数无效或候选正文超过 20000 字符；请减少候选数或关闭重排") from None
     except RerankConfigurationError:
+        request.state.http_answer_error = AnswerErrorCode.RERANK_CONFIGURATION_INVALID
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="当前重排基线复用生成服务，请检查生成服务及重排等待时间配置") from None
     except GenerationConfigurationError:
+        request.state.http_answer_error = AnswerErrorCode.GENERATION_CONFIGURATION_INVALID
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="请检查生成服务的接口地址、API 密钥和模型配置") from None
-    except (EmbeddingTimeoutError, GenerationTimeoutError):
-        logger.warning("问答模型请求超时，知识库 ID：%s", knowledge_base_id)
+    except EmbeddingTimeoutError:
+        request.state.http_answer_error = AnswerErrorCode.EMBEDDING_TIMEOUT
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="模型服务请求超时") from None
-    except (EmbeddingError, GenerationError) as exc:
-        logger.warning("问答模型调用或结果异常，知识库 ID：%s，错误类型：%s", knowledge_base_id, type(exc).__name__)
+    except GenerationTimeoutError:
+        request.state.http_answer_error = AnswerErrorCode.GENERATION_TIMEOUT
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="模型服务请求超时") from None
+    except EmbeddingError:
+        request.state.http_answer_error = AnswerErrorCode.EMBEDDING_FAILED
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="模型服务调用或返回结果异常") from None
+    except GenerationError:
+        request.state.http_answer_error = AnswerErrorCode.GENERATION_FAILED
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="模型服务调用或返回结果异常") from None
     except RetrievalStateError:
-        logger.error("问答检索数据异常，知识库 ID：%s", knowledge_base_id)
+        request.state.http_answer_error = AnswerErrorCode.RETRIEVAL_STATE_INVALID
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="知识库向量数据异常") from None

@@ -18,6 +18,9 @@
 2026-10-19追加：摘要补充recorded_at（记录时UTC毫秒Z）、固定service=eaap-api及environment。
 主应用注入已校验app_env，中间件实例独立保存；统一UTC便于汇总，耗时仍用perf_counter，
 不把环境放全局logger或信任请求头。时间采集也在日志故障保护内，详见[接续模块](../backend/http-log-metadata.md)。
+同日后续学习者选择在原摘要增加可选error_code，先接引用问答函数内已捕获失败。
+接口只标记固定枚举，中间件按白名单和观察状态核对后统一输出；不用额外业务日志事件，避免重复采集。
+详见[错误码模块](../backend/http-answer-error-code.md)，响应状态/正文和业务重试语义保持原样。
 不读取正文，不记录真实路径/查询参数、用户/资源ID、请求头、Cookie、Token或原始异常。
 无法匹配路由用固定标记，未知方法记OTHER。独立logger输出一行JSON到stderr，配置幂等，
 不修改root日志器；输出失败不改变业务响应，但可能丢失摘要，不保证日志持久化或送达。

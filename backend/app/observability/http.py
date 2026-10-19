@@ -12,6 +12,8 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from app.observability.answer_errors import answer_error_code
+
 
 logger = logging.getLogger("eaap.http")
 TRACE_HEADER = "X-Trace-Id"
@@ -59,6 +61,9 @@ def _write_summary(scope: Scope, trace_id: str, status_code: int | None,
             "elapsed_ms": elapsed_ms,
             "outcome": outcome,
         }
+        code = answer_error_code(scope, status_code)
+        if code is not None:
+            payload["error_code"] = code
         logger.info(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
     except Exception:
         # Summary delivery is best effort; no recursive logging or exception text.
