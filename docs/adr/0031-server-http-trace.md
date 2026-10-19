@@ -14,7 +14,10 @@
 方案B是校验后沿用调用方UUID，便于跨服务关联，但本轮不引入该信任边界。
 业务 `request_id`、请求体、幂等重放、数据库结构与模型执行策略保持原语义。
 
-摘要仅含event、trace_id、受限method、应用route模板、status_code、elapsed_ms及outcome。
+2026-10-18初始摘要含event、trace_id、受限method、应用route模板、status_code、elapsed_ms及outcome。
+2026-10-19追加：摘要补充recorded_at（记录时UTC毫秒Z）、固定service=eaap-api及environment。
+主应用注入已校验app_env，中间件实例独立保存；统一UTC便于汇总，耗时仍用perf_counter，
+不把环境放全局logger或信任请求头。时间采集也在日志故障保护内，详见[接续模块](../backend/http-log-metadata.md)。
 不读取正文，不记录真实路径/查询参数、用户/资源ID、请求头、Cookie、Token或原始异常。
 无法匹配路由用固定标记，未知方法记OTHER。独立logger输出一行JSON到stderr，配置幂等，
 不修改root日志器；输出失败不改变业务响应，但可能丢失摘要，不保证日志持久化或送达。

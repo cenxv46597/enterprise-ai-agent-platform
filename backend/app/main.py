@@ -41,7 +41,7 @@ def create_app() -> FastAPI:
 
     application.middleware("http")(private_api_responses)
     configure_http_logging()
-    application.add_middleware(HttpTraceMiddleware)
+    application.add_middleware(HttpTraceMiddleware, app_env=settings.app_env)
     application.add_exception_handler(RequestValidationError, safe_web_validation)
     application.add_exception_handler(Exception, safe_unhandled_error)
 

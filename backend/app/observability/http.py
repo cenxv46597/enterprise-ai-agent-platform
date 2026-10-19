@@ -2,8 +2,10 @@
 
 import json
 import logging
+from datetime import UTC, datetime
 from threading import Lock
 from time import perf_counter
+from typing import Literal
 from uuid import uuid4
 
 from starlette.requests import Request
@@ -16,6 +18,8 @@ TRACE_HEADER = "X-Trace-Id"
 _HEADER = b"x-trace-id"
 _METHODS = frozenset({"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT"})
 _CONFIGURATION_LOCK = Lock()
+_SERVICE = "eaap-api"
+_ENVIRONMENTS = frozenset({"local", "test", "production"})
 
 
 class _SafeStreamHandler(logging.StreamHandler):
@@ -36,21 +40,25 @@ def configure_http_logging() -> None:
 
 
 def _write_summary(scope: Scope, trace_id: str, status_code: int | None,
-                   elapsed_ms: float, outcome: str) -> None:
-    # Route templates are application-owned. Never fall back to the incoming URL.
-    route = scope.get("route")
-    template = getattr(route, "path", None) or "<unmatched>"
-    method = scope.get("method", "")
-    payload = {
-        "event": "http_request",
-        "trace_id": trace_id,
-        "method": method if method in _METHODS else "OTHER",
-        "route": template,
-        "status_code": status_code,
-        "elapsed_ms": elapsed_ms,
-        "outcome": outcome,
-    }
+                   elapsed_ms: float, outcome: str, app_env: str) -> None:
     try:
+        # Route templates are application-owned. Never fall back to the incoming URL.
+        route = scope.get("route")
+        template = getattr(route, "path", None) or "<unmatched>"
+        method = scope.get("method", "")
+        payload = {
+            # This is summary-recording time, not request arrival or business completion.
+            "recorded_at": datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z"),
+            "service": _SERVICE,
+            "environment": app_env,
+            "event": "http_request",
+            "trace_id": trace_id,
+            "method": method if method in _METHODS else "OTHER",
+            "route": template,
+            "status_code": status_code,
+            "elapsed_ms": elapsed_ms,
+            "outcome": outcome,
+        }
         logger.info(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
     except Exception:
         # Summary delivery is best effort; no recursive logging or exception text.
@@ -64,8 +72,12 @@ class HttpTraceMiddleware:
     this middleware with safe_unhandled_error to add the same ID to that response.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self, app: ASGIApp, *,
+                 app_env: Literal["local", "test", "production"] = "local") -> None:
+        if app_env not in _ENVIRONMENTS:
+            raise ValueError("Unsupported HTTP log environment")
         self.app = app
+        self.app_env = app_env
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -110,7 +122,7 @@ class HttpTraceMiddleware:
             raise
         finally:
             elapsed_ms = round(max(0, perf_counter() - started) * 1000, 2)
-            _write_summary(scope, trace_id, status_code, elapsed_ms, outcome)
+            _write_summary(scope, trace_id, status_code, elapsed_ms, outcome, self.app_env)
 
 
 async def safe_unhandled_error(request: Request, _exc: Exception) -> PlainTextResponse:

@@ -4,10 +4,10 @@
 
 ## 继续开发
 
-1. [最新交接（2026-10-18）](handoff/handoff-2026-10-18.md)：当前位置、验证边界和剩余事项。
-2. [当日完整汇总（2026-10-18）](progress/progress-2026-10-18-summary.md)：六个新增模块、分组证据、学习停点与后续安排。
-3. [分步进度记录（2026-10-18）](progress/progress-2026-10-18.md)：较早发布快照与随后接续记录。
-4. [新对话提示词（2026-10-18）](handoff/new-chat-prompt-2026-10-18.md)：可复制模板，填入本机路径后使用。
+1. [最新交接（2026-10-19）](handoff/handoff-2026-10-19.md)：当前位置、验证边界和剩余事项。
+2. [当日进度（2026-10-19）](progress/progress-2026-10-19.md)：日志时间与运行来源的小步实现、验证和学习停点。
+3. [上一日完整汇总（2026-10-18）](progress/progress-2026-10-18-summary.md)：六个模块、分组证据与后续安排；其中未推送状态已由最新交接更新。
+4. [新对话提示词（2026-10-19）](handoff/new-chat-prompt-2026-10-19.md)：可复制模板，填入本机路径后使用。
 5. [路线图](progress/roadmap.md)与[学习记录](progress/learning-progress.md)：整体方向和历史参与记录。
 
 原 `handoff-current.md`、`new-chat-prompt.md` 及上述路线/学习文档保留原有未提交删改；
@@ -40,6 +40,8 @@
 不替代会话/工作流的业务request_id，设计见[ADR0031](adr/0031-server-http-trace.md)。
 再接[引用问答失败的排错编号](frontend/frontend-answer-trace.md)：仅展示实际失败响应的合法编号，
 来源GET与生成POST各自归属，不沿用成功请求的编号，不补造或自动重试。
+随后[HTTP日志时间与运行来源](backend/http-log-metadata.md)：UTC记录时间、固定服务与每应用环境，
+耗时仍用单调时钟；不代表已有集中采集平台或同环境实例定位能力。
 
 ## 按用途查找
 

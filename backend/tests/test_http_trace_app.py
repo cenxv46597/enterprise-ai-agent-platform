@@ -77,6 +77,7 @@ def assert_correlated(application, response, *, status, method, route, outcome="
     assert identifier.version == 4
     assert len(application.records) == 1
     value = json.loads(application.records[0].getMessage())
+    assert value["service"] == "eaap-api" and value["environment"] == "test"
     assert {key: value[key] for key in ("trace_id", "method", "route", "status_code", "outcome")} == {
         "trace_id": str(identifier), "method": method, "route": route,
         "status_code": status, "outcome": outcome,

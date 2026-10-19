@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, HTTPException, Request
@@ -20,6 +21,7 @@ from app.observability.http import (
 
 TRACE_HEADER = "X-Trace-Id"
 LOG_FIELDS = {
+    "recorded_at", "service", "environment",
     "event", "trace_id", "method", "route", "status_code", "elapsed_ms", "outcome",
 }
 
@@ -78,6 +80,9 @@ def event(record: logging.LogRecord) -> dict:
     assert "\n" not in message and "\r" not in message
     value = json.loads(message)
     assert set(value) == LOG_FIELDS
+    assert value["service"] == "eaap-api" and value["environment"] == "local"
+    recorded = datetime.fromisoformat(value["recorded_at"])
+    assert recorded.utcoffset() == timedelta(0) and value["recorded_at"].endswith("Z")
     assert value["event"] == "http_request"
     identifier = UUID(value["trace_id"])
     assert identifier.version == 4 and str(identifier) == value["trace_id"]
