@@ -12,6 +12,8 @@
 本日接续[HTTP日志时间与运行来源](docs/backend/http-log-metadata.md)，只提交本地，不自动推送或恢复真实请求。
 随后[引用问答错误码关联](docs/backend/http-answer-error-code.md)：同条访问摘要按需增加固定error_code，
 区分已知问题向量化/生成等失败；最终121项后端定向通过（7.38秒），不连接数据库/模型，非全量或真实网页验收。
+最新接[工作流记录页读取编号](docs/frontend/frontend-workflow-history-trace.md)，只展示列表与任务状态GET失败的合法编号。
+当前前端30文件906项模拟通过（24.85秒），TypeScript与生产构建通过；旧851为前步记录，不相加，无新增真实网页验收。
 
 ## 2026-10-18 网页进度快照
 

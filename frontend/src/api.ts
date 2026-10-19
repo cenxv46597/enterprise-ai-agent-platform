@@ -66,7 +66,7 @@ function safeTraceId(value: unknown): string | null {
     ? value.toLowerCase() : null;
 }
 
-function responseTraceId(response: Response): string | null {
+export function responseTraceId(response: Response): string | null {
   try {
     return safeTraceId(response.headers.get("X-Trace-Id"));
   } catch {

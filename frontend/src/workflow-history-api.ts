@@ -1,4 +1,4 @@
-import { ApiError, strictUuid, webRequestOptions } from './api';
+import { ApiError, responseTraceId, strictUuid, webRequestOptions } from './api';
 import type { WorkflowMeta, WorkflowReadTarget } from './workflow-api';
 
 export type WorkflowHistoryItem = WorkflowReadTarget & {
@@ -92,8 +92,10 @@ export async function listAnswerWorkflows(workspaceId: string, knowledgeBaseId: 
       404: '该知识库不存在，或你已无权访问，请返回文档列表。',
       422: '工作流记录请求参数或保存状态未被接受，请手动重新读取。',
     };
-    if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status);
-    if (response.status !== 200) throw new ApiError(UNCONFIRMED, response.status);
+    if (Object.hasOwn(messages, response.status)) {
+      throw new ApiError(messages[response.status], response.status, responseTraceId(response));
+    }
+    if (response.status !== 200) throw new ApiError(UNCONFIRMED, response.status, responseTraceId(response));
     const payload: unknown = await response.json();
     if (controller.signal.aborted) return invalid();
     return parseList(payload, workspace, knowledgeBase);

@@ -235,3 +235,69 @@ describe('工作流历史列表的只读摘要契约', () => {
     expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true); expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+const TRACE_A = 'a0e0b901-2b0d-4ae0-812a-bab2cf9e7b01';
+const TRACE_B = 'b1f1c012-3c1e-4bf1-923b-cbc3dfa08c12';
+function tracedResponse(payload: unknown, status: number, trace?: string) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (trace !== undefined) headers.set('X-Trace-Id', trace);
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+
+for (const target of ['list', 'detail'] as const) describe(`${target}只读HTTP失败排错编号`, () => {
+  const call = (parent = signal()) => target === 'list' ? list(parent)
+    : readAnswerWorkflow(WORKSPACE_ID, KNOWLEDGE_BASE_ID,
+      { id: WORKFLOW_ID, question: QUESTION, maxContextCharacters: 12000 }, parent);
+
+  it.each([401, 403, 404, 409, 422, 503, 201])('HTTP %s只携带本次响应头编号，不读取错误正文或重试', async status => {
+    const response = tracedResponse({ detail: PRIVATE, trace_id: TRACE_B }, status, TRACE_A.toUpperCase());
+    const body = vi.spyOn(response, 'json'); fetchMock.mockResolvedValueOnce(response);
+    expect(await rejected(call())).toMatchObject({ status, traceId: TRACE_A });
+    expect(body).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]?.method).toBe('GET');
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('X-Trace-Id')).toBe(false);
+  });
+
+  it.each([undefined, 'not-a-uuid', TRACE_A.replace('-4ae0-', '-1ae0-'), `${TRACE_A}, ${TRACE_B}`])(
+    '缺失或非法头%s不从错误JSON补编号', async trace => {
+      fetchMock.mockResolvedValueOnce(tracedResponse({ detail: PRIVATE, trace_id: TRACE_B }, 503, trace));
+      expect(await rejected(call())).toMatchObject({ status: 503, traceId: null });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+  it.each(['invalid-json', 'invalid-contract'])('200的%s不冒充有失败响应编号', async problem => {
+    fetchMock.mockResolvedValueOnce(problem === 'invalid-json'
+      ? new Response(PRIVATE, { headers: { 'X-Trace-Id': TRACE_A } })
+      : tracedResponse({ private: PRIVATE }, 200, TRACE_A));
+    expect(await rejected(call())).toMatchObject({ status: null, traceId: null });
+  });
+
+  it('网络错误不从异常文本提取编号', async () => {
+    fetchMock.mockRejectedValueOnce(new Error(`${PRIVATE} ${TRACE_A}`));
+    expect(await rejected(call())).toMatchObject({ traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['cancel', 'timeout'])('%s后迟到的失败响应不恢复编号，且不重试', async mode => {
+    vi.useFakeTimers(); const parent = new AbortController();
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+    const action = rejected(call(parent.signal));
+    if (mode === 'cancel') parent.abort(); else await vi.advanceTimersByTimeAsync(10_000);
+    finish(tracedResponse({ detail: PRIVATE }, 503, TRACE_A));
+    expect(await action).toMatchObject({ traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('预先取消无HTTP请求，也没有编号', async () => {
+    const parent = new AbortController(); parent.abort();
+    expect(await rejected(call(parent.signal))).toMatchObject({ traceId: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('成功结果不投影响应头编号为工作流字段', async () => {
+    fetchMock.mockResolvedValueOnce(tracedResponse(target === 'list' ? [summary()] : createdWorkflow(), 200, TRACE_A));
+    const result = await call(); expect(JSON.stringify(result)).not.toContain(TRACE_A);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

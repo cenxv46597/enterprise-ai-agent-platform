@@ -272,3 +272,127 @@ describe('独立工作流记录页', () => {
     expect(get).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled(); expectReadOnly(requests);
   });
 });
+
+const TRACE_A = 'a0e0b901-2b0d-4ae0-812a-bab2cf9e7b01';
+const TRACE_B = 'b1f1c012-3c1e-4bf1-923b-cbc3dfa08c12';
+function traced(payload: unknown, status = 503, trace?: string) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (trace !== undefined) headers.set('X-Trace-Id', trace);
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+function tracedFailure(trace: string | undefined = TRACE_A, status = 503) {
+  return traced({ detail: PRIVATE, trace_id: TRACE_B }, status, trace);
+}
+function expectNoTrace() {
+  for (const value of ['排错编号：', TRACE_A, TRACE_B]) expect(document.body.textContent).not.toContain(value);
+}
+function expectTrace(value: string) {
+  expect(screen.getByText(value).tagName).toBe('CODE');
+  expect(document.body.textContent).not.toContain(PRIVATE);
+}
+
+describe('工作流列表与状态读取失败的排错编号', () => {
+  it.each(['list', 'detail'] as const)('%s错误在所属区域展示编号，不读取正文、不发写请求或自动重试', async target => {
+    const requests = install(request => pathname(request) === (target === 'list' ? WORKFLOWS_PATH : WORKFLOW_PATH)
+      ? tracedFailure() : undefined);
+    await open(); await list(); if (target === 'detail') await select();
+    expectTrace(TRACE_A); expectNoAnswer();
+    const region = screen.getByRole('region', { name: target === 'list' ? '最近创建的工作流' : '选中任务状态' });
+    expect(region.textContent).toContain(TRACE_A);
+    const count = requests.length; await advance(30_000); expect(requests).toHaveLength(count);
+    expectReadOnly(requests);
+    for (const request of requests) expect(request.headers.has('X-Trace-Id')).toBe(false);
+  });
+
+  it.each([undefined, 'not-a-uuid', TRACE_B.replace('-4bf1-', '-1bf1-'), `${TRACE_A}, ${TRACE_B}`])(
+    '详情失败头%s无效时不沿用成功列表的编号或错误正文编号', async trace => {
+      const requests = install(request => pathname(request) === WORKFLOWS_PATH ? traced([summary()], 200, TRACE_A)
+        : pathname(request) === WORKFLOW_PATH ? traced({ detail: PRIVATE, trace_id: TRACE_B }, 404, trace) : undefined);
+      await prepare(); expectNoTrace(); expectNoAnswer(); expectReadOnly(requests);
+      expect(screen.getAllByRole('alert').length).toBeGreaterThan(0);
+    });
+
+  it('有效详情失败只用该GET编号，不显示成功列表的编号', async () => {
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH ? traced([summary()], 200, TRACE_A)
+      : pathname(request) === WORKFLOW_PATH ? tracedFailure(TRACE_B, 404) : undefined);
+    await prepare(); expectTrace(TRACE_B); expect(document.body.textContent).not.toContain(TRACE_A);
+    expectReadOnly(requests);
+  });
+
+  it('重新读取列表立即清旧错误及编号，成功后不显示成功响应编号', async () => {
+    const pending = deferred(); let reads = 0;
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? ++reads === 1 ? tracedFailure() : pending.promise : undefined);
+    await open(); await list(); expectTrace(TRACE_A);
+    await list(); expectNoTrace();
+    await resolve(pending, traced([], 200, TRACE_B)); expectNoTrace();
+    expect(document.body.textContent).toContain('本次读取未发现工作流记录'); expectReadOnly(requests);
+  });
+
+  it('切换任务清除旧错误编号，随后错误属于新选中任务', async () => {
+    const pending = deferred();
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? jsonResponse([summary(), summary(savedWorkflow(SECOND_QUESTION, SECOND_ID), 1)])
+      : pathname(request) === WORKFLOW_PATH ? tracedFailure()
+        : pathname(request) === `${WORKFLOWS_PATH}/${SECOND_ID}` ? pending.promise : undefined);
+    await prepare(); expectTrace(TRACE_A);
+    await select(SECOND_QUESTION); expectNoTrace();
+    await resolve(pending, tracedFailure(TRACE_B)); expectTrace(TRACE_B);
+    expect(document.body.textContent).not.toContain(TRACE_A); expectReadOnly(requests);
+    expect(screen.getByRole('region', { name: '选中任务状态' }).textContent).toContain(SECOND_QUESTION);
+  });
+
+  it.each(['list', 'detail'] as const)('停止%s后重读，旧请求迟到编号不能覆盖新错误', async target => {
+    const old = deferred(); let reads = 0;
+    const requests = install(request => pathname(request) === (target === 'list' ? WORKFLOWS_PATH : WORKFLOW_PATH)
+      ? ++reads === 1 ? old.promise : tracedFailure() : undefined);
+    await open(); await list(); if (target === 'detail') await select();
+    await click(screen.getByRole('button', { name: target === 'list' ? '停止读取工作流记录' : '停止读取任务状态' }));
+    expectNoTrace();
+    if (target === 'list') await list(); else await readStatus();
+    expectTrace(TRACE_A);
+    await resolve(old, tracedFailure(TRACE_B)); expectTrace(TRACE_A);
+    expect(document.body.textContent).not.toContain(TRACE_B); expectReadOnly(requests);
+  });
+
+  it('重新读取状态清旧编号，200后本地校验失败不展示该成功HTTP编号', async () => {
+    let reads = 0;
+    const requests = install(request => pathname(request) === WORKFLOW_PATH
+      ? ++reads === 1 ? tracedFailure() : traced({ private: PRIVATE }, 200, TRACE_B) : undefined);
+    await prepare(); expectTrace(TRACE_A); await readStatus(); expectNoTrace();
+    expectReadDisabled(); expectReadOnly(requests); expectNoAnswer();
+  });
+
+  it.each(['list', 'detail'] as const)('%s失败后退出未确认，旧读取与退出编号都不显示', async target => {
+    const requests = install(request => pathname(request) === (target === 'list' ? WORKFLOWS_PATH : WORKFLOW_PATH)
+      ? tracedFailure() : pathname(request) === LOGOUT ? tracedFailure(TRACE_B) : undefined);
+    await open(); await list(); if (target === 'detail') await select(); expectTrace(TRACE_A);
+    await click(screen.getByRole('button', { name: '退出登录' })); expectNoTrace();
+    expect(document.body.textContent).toContain('退出尚未确认'); expectReadOnly(requests);
+  });
+
+  it.each(['list', 'detail'] as const)('%s的401不把编号带到登录页面', async target => {
+    const requests = install(request => pathname(request) === (target === 'list' ? WORKFLOWS_PATH : WORKFLOW_PATH)
+      ? tracedFailure(TRACE_A, 401) : undefined);
+    await open(); await list(); if (target === 'detail') await select();
+    expectNoTrace(); expect(screen.getByRole('button', { name: '登录' })).toBeTruthy(); expectReadOnly(requests);
+  });
+
+  it.each(['back', 'expiry'] as const)('%s清除旧错误及编号', async action => {
+    const requests = install(request => pathname(request) === WORKFLOW_PATH ? tracedFailure() : undefined);
+    await prepare(); expectTrace(TRACE_A);
+    if (action === 'back') {
+      await click(screen.getByRole('button', { name: '返回文档列表' }));
+      await click(screen.getByRole('button', { name: '工作流记录' }));
+    } else await advance(1_800_000);
+    expectNoTrace(); expectReadOnly(requests);
+  });
+
+  it('本步不把已保存答案查看失败接成列表或状态错误编号', async () => {
+    let reads = 0;
+    const requests = install(request => pathname(request) === WORKFLOW_PATH
+      ? ++reads === 1 ? traced(savedWorkflow(), 200, TRACE_A) : tracedFailure(TRACE_B) : undefined);
+    await prepare(); expectNoTrace(); await readAnswer(); expectNoTrace();
+    expectNoAnswer(); expectReadOnly(requests);
+  });
+});

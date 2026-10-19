@@ -1,4 +1,4 @@
-import { ApiError, getDocument, listDocumentChunks, parseKnowledgeAnswer, strictUuid, webRequestOptions,
+import { ApiError, getDocument, listDocumentChunks, parseKnowledgeAnswer, responseTraceId, strictUuid, webRequestOptions,
   type KnowledgeAnswerResult } from './api';
 
 export type WorkflowCreation = { requestId: string; question: string };
@@ -27,8 +27,8 @@ export const WORKFLOW_NOTICES: Record<Stage, string> = {
 };
 export class WorkflowUnconfirmedError extends ApiError {
   readonly stage: Stage;
-  constructor(stage: Stage, status: number | null = null) {
-    super(WORKFLOW_NOTICES[stage], status); this.name = 'WorkflowUnconfirmedError'; this.stage = stage;
+  constructor(stage: Stage, status: number | null = null, traceId: unknown = null) {
+    super(WORKFLOW_NOTICES[stage], status, traceId); this.name = 'WorkflowUnconfirmedError'; this.stage = stage;
   }
 }
 const ERRORS = new Set(['embedding_timeout', 'embedding_error', 'retrieval_conflict', 'retrieval_invalid',
@@ -108,8 +108,10 @@ async function request(url: string, stage: Stage, status: number, signal: AbortS
       409: '工作流版本、状态或执行权冲突；请手动读取状态，本页不会自动重试或恢复。',
       422: '工作流请求参数或保存状态未被接受，本页不会自动重试。',
     };
-    if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status);
-    if (response.status !== status) throw new WorkflowUnconfirmedError(stage, response.status);
+    // This step exposes only metadata-read HTTP failures, never a successful response's ID.
+    const traceId = stage === 'read' && response.status !== status ? responseTraceId(response) : null;
+    if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status, traceId);
+    if (response.status !== status) throw new WorkflowUnconfirmedError(stage, response.status, traceId);
     const payload: unknown = await response.json();
     if (controller.signal.aborted) throw new WorkflowUnconfirmedError(stage);
     return payload;

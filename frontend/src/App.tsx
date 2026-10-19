@@ -585,7 +585,7 @@ export default function App() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
     setConversationView(null); setWorkflowView(null); setUploadOutcome(null); setError('');
-    setWorkflowHistoryView({ items: null, listNotice: '', selected: null, snapshot: null, readNotice: '',
+    setWorkflowHistoryView({ items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
       savedAnswer: null, savedAnswerNotice: '' });
   }
 
@@ -593,7 +593,7 @@ export default function App() {
     if (!workflowHistoryView || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
     const { id, controller } = beginRequest();
     setBusy('workflow-history-list'); setError('');
-    setWorkflowHistoryView({ items: null, listNotice: '', selected: null, snapshot: null, readNotice: '',
+    setWorkflowHistoryView({ items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
       savedAnswer: null, savedAnswerNotice: '' });
     try {
       const items = await listAnswerWorkflows(selectedWorkspace.id, selectedKnowledgeBase.id, controller.signal);
@@ -601,8 +601,9 @@ export default function App() {
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
-      else setWorkflowHistoryView(view => view && { ...view, listNotice:
-        failure instanceof ApiError ? failure.message : '工作流记录读取未确认，请按需重新读取。' });
+      else setWorkflowHistoryView(view => view && { ...view, listNotice: {
+        message: failure instanceof ApiError ? failure.message : '工作流记录读取未确认，请按需重新读取。',
+        traceId: failure instanceof ApiError ? failure.traceId : null } });
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
@@ -613,7 +614,7 @@ export default function App() {
         || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
     const { id, controller } = beginRequest();
     setBusy('workflow-history-read'); setError('');
-    setWorkflowHistoryView(view => view && { ...view, selected: item, snapshot: null, readNotice: '',
+    setWorkflowHistoryView(view => view && { ...view, selected: item, snapshot: null, readNotice: null,
       savedAnswer: null, savedAnswerNotice: '' });
     try {
       const snapshot = await readAnswerWorkflow(selectedWorkspace.id, selectedKnowledgeBase.id, item, controller.signal);
@@ -621,8 +622,9 @@ export default function App() {
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
-      else setWorkflowHistoryView(view => view && { ...view, readNotice:
-        failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError) ? failure.message : WORKFLOW_NOTICES.read });
+      else setWorkflowHistoryView(view => view && { ...view, readNotice: {
+        message: failure instanceof ApiError && !(failure instanceof WorkflowUnconfirmedError) ? failure.message : WORKFLOW_NOTICES.read,
+        traceId: failure instanceof ApiError ? failure.traceId : null } });
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
@@ -654,8 +656,8 @@ export default function App() {
   function markHistoryInterrupted(activity: Busy) {
     if (activity !== 'workflow-history-list' && activity !== 'workflow-history-read' && activity !== 'workflow-history-answer') return;
     setWorkflowHistoryView(view => view && { ...view, snapshot: null, savedAnswer: null,
-      listNotice: activity === 'workflow-history-list' ? '工作流记录读取已停止，请按需重新读取。' : view.listNotice,
-      readNotice: activity === 'workflow-history-read' ? WORKFLOW_NOTICES.read : view.readNotice,
+      listNotice: activity === 'workflow-history-list' ? { message: '工作流记录读取已停止，请按需重新读取。', traceId: null } : view.listNotice,
+      readNotice: activity === 'workflow-history-read' ? { message: WORKFLOW_NOTICES.read, traceId: null } : view.readNotice,
       savedAnswerNotice: activity === 'workflow-history-answer' ? WORKFLOW_NOTICES['answer-read'] : view.savedAnswerNotice });
   }
 
@@ -968,6 +970,9 @@ export default function App() {
   }
 
   async function exit() {
+    setWorkflowHistoryView(view => view && { ...view,
+      listNotice: view.listNotice && { ...view.listNotice, traceId: null },
+      readNotice: view.readNotice && { ...view.readNotice, traceId: null } });
     if (answerOpen) {
       setAnswerOutcome(outcome => outcome && outcome.kind !== 'confirmed'
         ? { kind: outcome.kind, message: outcome.message } : outcome);

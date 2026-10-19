@@ -2,12 +2,13 @@ import { Answer } from './KnowledgeWorkflow';
 import { canReadSavedWorkflowAnswer, type WorkflowMeta, type WorkflowSavedAnswer } from './workflow-api';
 import type { WorkflowHistoryItem } from './workflow-history-api';
 
+export type HistoryReadNotice = { message: string; traceId: string | null };
 export type WorkflowHistoryView = {
   items: WorkflowHistoryItem[] | null;
-  listNotice: string;
+  listNotice: HistoryReadNotice | null;
   selected: WorkflowHistoryItem | null;
   snapshot: WorkflowMeta | null;
-  readNotice: string;
+  readNotice: HistoryReadNotice | null;
   savedAnswer: WorkflowSavedAnswer | null;
   savedAnswerNotice: string;
 };
@@ -57,6 +58,13 @@ function displayTime(value: string) {
   return Number.isNaN(time.getTime()) ? '时间未识别' : time.toLocaleString('zh-CN', { hour12: false });
 }
 
+function ReadNotice({ notice }: { notice: HistoryReadNotice | null }) {
+  if (!notice) return null;
+  return <p className="message error" role="alert">{notice.message}
+    {notice.traceId && <><br /><span>排错编号：<code>{notice.traceId}</code></span></>}
+  </p>;
+}
+
 function HistoryMetadata({ workflow }: { workflow: WorkflowMeta }) {
   return <>
     <p className="submitted-query">任务问题：<strong>{workflow.question}</strong></p>
@@ -99,7 +107,7 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
           {activity === 'listing' && <button className="button secondary" onClick={onCancel}>停止读取工作流记录</button>}
         </div>
         {activity === 'listing' && <p role="status">正在读取最近创建的工作流记录…</p>}
-        {view.listNotice && <p className="message error" role="alert">{view.listNotice}</p>}
+        <ReadNotice notice={view.listNotice} />
         {view.items === null ? <p>尚无本次有效列表读取记录。</p>
           : view.items.length === 0 ? <p className="empty-state">本次读取未发现工作流记录。</p>
             : <>
@@ -128,7 +136,7 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
             {activity === 'reading' && <button className="button secondary" onClick={onCancel}>停止读取任务状态</button>}
           </div>
           {activity === 'reading' && <p role="status">正在读取选中任务的当前状态…</p>}
-          {view.readNotice && <p className="message error" role="alert">{view.readNotice}</p>}
+          <ReadNotice notice={view.readNotice} />
           {view.snapshot ? <HistoryMetadata workflow={view.snapshot} /> : <p>尚无选中任务的有效状态读取记录。</p>}
           <p className="session-note">列表中的状态只是列表读取时的快照；详情以这次单独读取的结果为准。
             本页不自动轮询，也不根据失败状态发起恢复。</p>
