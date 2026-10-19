@@ -1,15 +1,16 @@
 # 文档导航
 
-最新小步：[Windows＋CMD 前端 CI](operations/frontend-ci.md)。配置和本地检查完成，首次远端运行待授权推送后核对；教学小实践与面试讨论待进行。
+当前接续以 [2026-10-19收尾交接](handoff/handoff-2026-10-19-summary.md) 和 [新对话提示词](handoff/new-chat-prompt-2026-10-19-summary.md) 为准。
+最新小步：[Windows＋CMD 前端 CI](operations/frontend-ci.md) 已完成教学及首次远端运行；累计12条提交已推送，远端3ca43de，CI运行39241917097成功。本次新交接文档只本地提交，未来推送另行授权。
 
 文档按用途分类；继续开发先读最新交接和真实代码，历史阶段中的“当前”“下一步”只描述当时状态。
 
 ## 继续开发
 
-1. [最新交接（2026-10-19）](handoff/handoff-2026-10-19.md)：当前位置、验证边界和剩余事项。
+1. [最新收尾交接（2026-10-19）](handoff/handoff-2026-10-19-summary.md)：全局当前位置、验证边界、学习停点和后续事项；[逐步交接](handoff/handoff-2026-10-19.md)保留历史过程。
 2. [当日进度（2026-10-19）](progress/progress-2026-10-19.md)：日志基础、问答错误码、历史读取/保存答案编号的实现、验证与学习停点。
 3. [上一日完整汇总（2026-10-18）](progress/progress-2026-10-18-summary.md)：六个模块、分组证据与后续安排；其中未推送状态已由最新交接更新。
-4. [新对话提示词（2026-10-19）](handoff/new-chat-prompt-2026-10-19.md)：可复制模板，填入本机路径后使用。
+4. [新对话提示词（2026-10-19收尾）](handoff/new-chat-prompt-2026-10-19-summary.md)：可直接复制，本机项目路径已填；原需求附件路径需按实际位置补充。
 5. [路线图](progress/roadmap.md)与[学习记录](progress/learning-progress.md)：整体方向和历史参与记录。
 
 原 `handoff-current.md`、`new-chat-prompt.md` 及上述路线/学习文档保留原有未提交删改；
