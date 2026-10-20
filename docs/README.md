@@ -1,7 +1,7 @@
 # 文档导航
 
 当前接续以 [2026-10-19收尾交接](handoff/handoff-2026-10-19-summary.md) 和 [新对话提示词](handoff/new-chat-prompt-2026-10-19-summary.md) 为准。
-当前小步：[后端隔离契约测试 CI](operations/backend-contract-ci.md)，补专用隔离入口及独立 Windows＋CMD 检查；本轮实现、验证与教学状态以该模块和当日进度为准。
+最新学习接续见[2026-10-20进度](progress/progress-2026-10-20.md)：[后端隔离契约测试 CI](operations/backend-contract-ci.md)实现及教学已按实际参与程度收尾；下一小步已确认创建页两类只读GET排错编号，尚未以此宣称实现完成。
 前步：[Windows＋CMD 前端 CI](operations/frontend-ci.md) 已完成教学及首次远端运行；累计12条提交已推送，远端3ca43de，CI运行39241917097成功。后续交接及新工作只本地提交，未来推送另行授权。
 
 文档按用途分类；继续开发先读最新交接和真实代码，历史阶段中的“当前”“下一步”只描述当时状态。
