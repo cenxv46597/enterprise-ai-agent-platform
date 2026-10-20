@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { ReadNotice, type WorkflowReadNotice } from './WorkflowReadNotice';
 import type { KnowledgeAnswerResult } from './api';
 import { canReadSavedWorkflowAnswer, canResumeWorkflow, type WorkflowCreation, type WorkflowMeta, type WorkflowReceipt, type WorkflowResume, type WorkflowSavedAnswer } from './workflow-api';
 
@@ -10,13 +11,13 @@ export type WorkflowView = {
   receipt: WorkflowReceipt | null;
   executeNotice: string;
   snapshot: WorkflowMeta | null;
-  readNotice: string;
+  readNotice: WorkflowReadNotice | null;
   blocked: boolean;
   resumeRequest: WorkflowResume | null;
   resumeReceipt: WorkflowReceipt | null;
   resumeNotice: string;
   savedAnswer: WorkflowSavedAnswer | null;
-  savedAnswerNotice: string;
+  savedAnswerNotice: WorkflowReadNotice | null;
 };
 
 type Props = {
@@ -225,7 +226,7 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
         <button className="button secondary" disabled={busy} onClick={onRead}>读取当前工作流状态</button>
         {activity === 'reading' && <button className="button secondary conversation-cancel" onClick={onCancel}>停止读取状态</button>}
         {activity === 'reading' && <p role="status">正在读取当前工作流状态…</p>}
-        {view.readNotice && <p className="message error" role="alert">{view.readNotice}</p>}
+        <ReadNotice notice={view.readNotice} />
         {view.snapshot ? <Metadata workflow={view.snapshot} /> : <p>尚无本次有效读取记录。</p>}
         <p className="session-note">读取状态本身只展示元数据；确认已完成后，可单独点击下方按钮查看已保存答案与引文。
           即使记录仍未变化，原请求也可能在处理；不能据此直接重发。</p>
@@ -241,7 +242,7 @@ export default function KnowledgeWorkflow({ workspaceName, knowledgeBaseName, ac
           {activity === 'answer-reading' && <button className="button secondary" onClick={onCancel}>停止查看答案</button>}
         </div>
         {activity === 'answer-reading' && <p role="status">正在读取已保存结果并核对全部选中来源的原文块…</p>}
-        {view.savedAnswerNotice && <p className="message error" role="alert">{view.savedAnswerNotice}</p>}
+        <ReadNotice notice={view.savedAnswerNotice} />
         {view.savedAnswer && <>
           <p className="submitted-query">已保存的问题：<strong>{view.savedAnswer.workflow.question}</strong></p>
           <Metadata workflow={view.savedAnswer.workflow} />

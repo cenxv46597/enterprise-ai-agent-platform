@@ -86,6 +86,28 @@ function expectNoAnswer() {
 }
 function expectReadDisabled() { expect((screen.getByRole('button', { name: '查看已保存答案' }) as HTMLButtonElement).disabled).toBe(true); }
 
+const TRACE_A = '11111111-1111-4111-8111-111111111111';
+const TRACE_B = '22222222-2222-4222-8222-222222222222';
+function traced(payload: unknown, status = 200, trace: string | null = TRACE_A) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (trace !== null) headers.set('X-Trace-Id', trace);
+  return new Response(JSON.stringify(payload), { status, headers });
+}
+function failed(trace: string | null = TRACE_B, status = 503) {
+  return traced({ detail: PRIVATE, trace_id: TRACE_A }, status, trace);
+}
+function stateRegion() { return screen.getByRole('region', { name: '当前工作流状态' }); }
+function expectTrace(region: HTMLElement, trace = TRACE_B) {
+  expect(within(region).getByText(trace, { selector: 'code' })).toBeTruthy();
+  expect(region.textContent).toContain('反馈问题时请提供此编号');
+  expect(document.body.textContent).not.toContain(PRIVATE);
+}
+function expectNoTrace() { expect(document.body.textContent).not.toContain('排错编号：'); }
+function expectOnlyReads(requests: Request[], start: number) {
+  expect(requests.slice(start).every(request => request.method === 'GET')).toBe(true);
+  expect(requests.every(request => !request.headers.has('X-Trace-Id'))).toBe(true);
+}
+
 beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
   vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce(CREATION_REQUEST_ID).mockReturnValue(WORKFLOW_EXECUTION_REQUEST_ID) });
@@ -244,5 +266,192 @@ describe('手动查看已保存工作流答案', () => {
     await prepare(); expect(document.body.textContent).toContain(ANSWER); await readAnswer(); expectNoAnswer();
     await resolve(pending, jsonResponse([], 200)); expectNoAnswer(); expectReadDisabled();
     expect(within(savedRegion()).queryByText(ANSWER)).toBeNull(); expect(posts(requests)).toHaveLength(1);
+  });
+});
+
+describe('创建页只读工作流排错编号', () => {
+  it.each([403, 404, 409, 422, 503, 201])('状态GET失败%s只展示自身编号且不补发写请求', async status => {
+    const requests = install(request => pathname(request) === WORKFLOW_PATH ? failed(TRACE_B, status) : undefined);
+    await open(); await create(); const start = requests.length; await readStatus();
+    expectTrace(stateRegion()); expect(savedRegion().textContent).not.toContain(TRACE_B);
+    expectOnlyReads(requests, start); expectNoAnswer(); expectReadDisabled();
+  });
+
+  it.each([null, '', 'bad-id', '11111111-1111-1111-8111-111111111111', `${TRACE_A}, ${TRACE_B}`])(
+    '状态失败头%s无效时不借用成功创建或错误正文编号', async trace => {
+      const requests = install(request => pathname(request) === WORKFLOWS_PATH ? traced(createdWorkflow(), 201)
+        : pathname(request) === WORKFLOW_PATH ? traced({ detail: PRIVATE, trace_id: TRACE_A }, 503, trace) : undefined);
+      await open(); await create(); const start = requests.length; await readStatus(); expectNoTrace(); expectNoAnswer();
+      expectOnlyReads(requests, start);
+    });
+
+  it('重读立即清旧编号，成功状态变化提示不使用成功响应编号', async () => {
+    const pending = deferred(); let reads = 0;
+    install(request => pathname(request) === WORKFLOW_PATH ? ++reads === 1 ? failed() : pending.promise : undefined);
+    await open(); await create(); await readStatus(); expectTrace(stateRegion());
+    await readStatus(); expectNoTrace();
+    await resolve(pending, traced(savedWorkflow())); expectNoTrace(); expectNoAnswer();
+    expect(stateRegion().textContent).toContain('当前任务记录已变化');
+  });
+
+  it('取消后的旧状态失败不覆盖下一次失败编号', async () => {
+    const old = deferred(); let reads = 0;
+    install(request => pathname(request) === WORKFLOW_PATH ? ++reads === 1 ? old.promise : failed() : undefined);
+    await open(); await create(); await readStatus();
+    await click(screen.getByRole('button', { name: '停止读取状态' })); expectNoTrace();
+    await readStatus(); expectTrace(stateRegion()); await resolve(old, failed(TRACE_A));
+    expectTrace(stateRegion()); expect(document.body.textContent).not.toContain(TRACE_A);
+  });
+
+  it('200后的状态校验失败不显示成功编号', async () => {
+    install(request => pathname(request) === WORKFLOW_PATH ? traced({ invalid: PRIVATE }) : undefined);
+    await open(); await create(); await readStatus(); expectNoTrace(); expectNoAnswer(); expectReadDisabled();
+  });
+
+  it.each(['network', 'timeout'] as const)('状态%s没有可用响应编号', async kind => {
+    install(request => {
+      if (pathname(request) !== WORKFLOW_PATH) return undefined;
+      if (kind === 'network') return Promise.reject(new TypeError('controlled network failure'));
+      return new Promise<Response>((_resolve, reject) => request.signal.addEventListener('abort',
+        () => reject(new DOMException('controlled cancellation', 'AbortError'))));
+    });
+    await open(); await create(); await readStatus(); if (kind === 'timeout') await advance(10_001);
+    expectNoTrace(); expectReadDisabled(); expect(stateRegion().textContent).toContain('工作流当前状态未确认');
+  });
+
+  it.each(['back', 'logout-failed', 'expiry'] as const)('%s清除已展示的状态编号', async action => {
+    install(request => pathname(request) === WORKFLOW_PATH ? failed()
+      : pathname(request) === LOGOUT ? failed(TRACE_A) : undefined);
+    await open(); await create(); await readStatus(); expectTrace(stateRegion());
+    if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout-failed') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    expectNoTrace(); expectNoAnswer();
+  });
+
+  it('状态401清会话，不投影认证失败编号', async () => {
+    install(request => pathname(request) === WORKFLOW_PATH ? failed(TRACE_B, 401) : undefined);
+    await open(); await create(); await readStatus(); expectNoTrace(); expectNoAnswer();
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
+  it.each(['cancel', 'back', 'logout-failed', 'expiry'] as const)('状态等待%s后迟到编号不复活', async action => {
+    const pending = deferred();
+    install(request => pathname(request) === WORKFLOW_PATH ? pending.promise
+      : pathname(request) === LOGOUT ? failed(TRACE_A) : undefined);
+    await open(); await create(); await readStatus();
+    if (action === 'cancel') await click(screen.getByRole('button', { name: '停止读取状态' }));
+    else if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout-failed') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    await resolve(pending, failed()); expectNoTrace(); expectNoAnswer();
+  });
+
+  it('读取失败阻止恢复，重读匹配成功清空提示后才重新开放确认', async () => {
+    let reads = 0;
+    const requests = install(request => pathname(request) === WORKFLOW_EXECUTE_PATH
+      ? jsonResponse(workflowExecution(failedWorkflow('generate')))
+      : pathname(request) === WORKFLOW_PATH ? ++reads === 1 ? failed() : traced(failedWorkflow('generate')) : undefined);
+    await open(); await create(); await click(screen.getByRole('button', { name: '执行工作流一次' }));
+    await readStatus(); expectTrace(stateRegion());
+    expect(screen.queryByRole('button', { name: '确认并恢复生成一次' })).toBeNull();
+    await readStatus(); expectNoTrace();
+    expect((screen.getByRole('button', { name: '确认并恢复生成一次' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByRole('checkbox')).toBeTruthy(); expect(posts(requests)).toHaveLength(1);
+  });
+
+  it.each([WORKFLOW_PATH, DOCUMENT_PATH, CHUNKS_PATH, OTHER_DOCUMENT_PATH, OTHER_CHUNKS_PATH])(
+    '保存答案%s失败只在答案区显示实际失败GET编号', async target => {
+      let workflowReads = 0;
+      const requests = install(request => {
+        const path = pathname(request);
+        if (path === WORKFLOW_PATH) return ++workflowReads === 1 || path !== target ? traced(savedWorkflow()) : failed();
+        if (path === target) return failed();
+        return undefined;
+      });
+      await prepare(); const start = requests.length; await readAnswer();
+      expectTrace(savedRegion()); expect(stateRegion().textContent).not.toContain(TRACE_B);
+      expect(document.body.textContent).not.toContain(TRACE_A); expectNoAnswer(); expectReadDisabled();
+      expectOnlyReads(requests, start);
+    });
+
+  it.each([null, '', 'bad-id', '11111111-1111-1111-8111-111111111111', `${TRACE_A}, ${TRACE_B}`])(
+    '保存答案末来源头%s无效时不借用成功任务编号', async trace => {
+      install(request => pathname(request) === WORKFLOW_PATH ? traced(savedWorkflow())
+        : pathname(request) === OTHER_CHUNKS_PATH ? traced({ detail: PRIVATE, trace_id: TRACE_A }, 503, trace) : undefined);
+      await prepare(); await readAnswer(); expectNoTrace(); expectNoAnswer(); expectReadDisabled();
+    });
+
+  it('全部GET成功时不展示编号；末来源200但原文不匹配时也不借用编号', async () => {
+    let chunkReads = 0;
+    install(request => pathname(request) === WORKFLOW_PATH ? traced(savedWorkflow())
+      : pathname(request) === OTHER_CHUNKS_PATH ? traced(++chunkReads === 1 ? savedChunks(OTHER_DOCUMENT_ID) : []) : undefined);
+    await prepare(); await readAnswer(); expect(savedRegion().textContent).toContain(ANSWER); expectNoTrace();
+    await readAnswer(); expectNoAnswer(); expectNoTrace(); expectReadDisabled();
+  });
+
+  it('保存答案工作流200坏JSON不展示该响应编号', async () => {
+    let reads = 0;
+    install(request => pathname(request) === WORKFLOW_PATH && ++reads === 2
+      ? new Response('{', { status: 200, headers: { 'X-Trace-Id': TRACE_A } }) : undefined);
+    await prepare(); await readAnswer(); expectNoAnswer(); expectNoTrace(); expectReadDisabled();
+  });
+
+  it('读取新状态立即清除来源旧编号，成功后需要单独再次查看答案', async () => {
+    let sourceReads = 0;
+    install(request => pathname(request) === OTHER_CHUNKS_PATH && ++sourceReads === 1 ? failed() : undefined);
+    await prepare(); await readAnswer(); expectTrace(savedRegion());
+    await readStatus(); expectNoTrace(); expectNoAnswer(); await readAnswer();
+    expect(savedRegion().textContent).toContain(ANSWER); expectNoTrace();
+  });
+
+  it.each(['network', 'timeout'] as const)('保存答案来源%s不补造编号', async kind => {
+    install(request => {
+      if (pathname(request) !== OTHER_CHUNKS_PATH) return undefined;
+      if (kind === 'network') return Promise.reject(new TypeError('controlled network failure'));
+      return new Promise<Response>((_resolve, reject) => request.signal.addEventListener('abort',
+        () => reject(new DOMException('controlled cancellation', 'AbortError'))));
+    });
+    await prepare(); await readAnswer(); if (kind === 'timeout') await advance(10_001);
+    expectNoTrace(); expectNoAnswer(); expectReadDisabled();
+    expect(savedRegion().textContent).toContain('已保存答案尚未核对通过');
+  });
+
+  it.each([WORKFLOW_PATH, OTHER_CHUNKS_PATH])('保存答案%s的401清会话及编号', async target => {
+    let reads = 0;
+    install(request => pathname(request) === WORKFLOW_PATH && ++reads === 2 && target === WORKFLOW_PATH
+      || pathname(request) === OTHER_CHUNKS_PATH && target === OTHER_CHUNKS_PATH ? failed(TRACE_B, 401) : undefined);
+    await prepare(); await readAnswer(); expectNoAnswer(); expectNoTrace();
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy();
+  });
+
+  it.each(['cancel', 'back', 'logout-failed', 'expiry'] as const)('%s使末来源迟到失败编号失效', async action => {
+    const pending = deferred();
+    const requests = install(request => pathname(request) === OTHER_CHUNKS_PATH ? pending.promise
+      : pathname(request) === LOGOUT ? failed(TRACE_A) : undefined);
+    await prepare(); await readAnswer();
+    if (action === 'cancel') await click(screen.getByRole('button', { name: '停止查看答案' }));
+    else if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout-failed') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(1_800_000);
+    await resolve(pending, failed()); expectNoTrace(); expectNoAnswer(); expect(posts(requests)).toHaveLength(1);
+  });
+
+  it('已显示来源错误时退出失败清旧编号，也不展示退出请求编号', async () => {
+    install(request => pathname(request) === OTHER_CHUNKS_PATH ? failed()
+      : pathname(request) === LOGOUT ? failed(TRACE_A) : undefined);
+    await prepare(); await readAnswer(); expectTrace(savedRegion());
+    await click(screen.getByRole('button', { name: '退出登录' })); expectNoTrace(); expectNoAnswer();
+  });
+
+  it('创建成功及执行失败响应不接入本轮只读编号展示', async () => {
+    install(request => pathname(request) === WORKFLOWS_PATH ? traced(createdWorkflow(), 201)
+      : pathname(request) === WORKFLOW_EXECUTE_PATH ? failed() : undefined);
+    await open(); await create(); await click(screen.getByRole('button', { name: '执行工作流一次' })); expectNoTrace();
+  });
+
+  it('创建失败响应也不通过只读提示展示编号', async () => {
+    install(request => pathname(request) === WORKFLOWS_PATH ? failed() : undefined);
+    await open(); await create(); expectNoTrace(); expectNoAnswer();
   });
 });

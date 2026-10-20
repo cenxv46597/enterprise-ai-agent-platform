@@ -1,8 +1,9 @@
 import { Answer } from './KnowledgeWorkflow';
 import { canReadSavedWorkflowAnswer, type WorkflowMeta, type WorkflowSavedAnswer } from './workflow-api';
 import type { WorkflowHistoryItem } from './workflow-history-api';
+import { ReadNotice, type WorkflowReadNotice } from './WorkflowReadNotice';
 
-export type HistoryReadNotice = { message: string; traceId: string | null };
+export type HistoryReadNotice = WorkflowReadNotice;
 export type WorkflowHistoryView = {
   items: WorkflowHistoryItem[] | null;
   listNotice: HistoryReadNotice | null;
@@ -56,13 +57,6 @@ const ERROR_TEXT: Record<string, string> = {
 function displayTime(value: string) {
   const time = new Date(value);
   return Number.isNaN(time.getTime()) ? '时间未识别' : time.toLocaleString('zh-CN', { hour12: false });
-}
-
-function ReadNotice({ notice }: { notice: HistoryReadNotice | null }) {
-  if (!notice) return null;
-  return <p className="message error" role="alert">{notice.message}
-    {notice.traceId && <><br /><span>排错编号：<code>{notice.traceId}</code>（反馈问题时请提供此编号）</span></>}
-  </p>;
 }
 
 function HistoryMetadata({ workflow }: { workflow: WorkflowMeta }) {
