@@ -148,6 +148,7 @@ def test_sqlalchemy_allows_only_the_same_target_including_readiness_wrong_passwo
     {"sslmode": "require"}, {"sslmode": None}, {"sslcert": "fixture-client-cert"},
     {"sslkey": "fixture-client-key"}, {"sslrootcert": "fixture-root-cert"},
     {"gssencmode": "require"},
+    {"dbname": "postgres"},
 ])
 def test_libpq_overrides_are_rejected_before_dispatch(class_method, changes, monkeypatch):
     dispatch = Mock(return_value=object())
