@@ -1,5 +1,7 @@
 # 文档导航
 
+2026-10-21最新接续见[当日进度](progress/progress-2026-10-21.md)：已按授权推送到`612650c`，同提交前后端CI均成功；现新增[独立PostgreSQL集成CI](operations/backend-postgres-ci.md)，固定17项真实SQL，首次新远端运行待未来授权推送。下文旧推送状态保留历史，实际Git与最新记录优先。创建页编号教学已开始，参与程度按当日记录，不记独立掌握。
+
 当前接续以 [2026-10-19收尾交接](handoff/handoff-2026-10-19-summary.md) 和 [新对话提示词](handoff/new-chat-prompt-2026-10-19-summary.md) 为准。
 最新接续见[2026-10-20进度](progress/progress-2026-10-20.md)：[后端隔离契约测试 CI](operations/backend-contract-ci.md)实现及教学已按实际程度收尾；[创建页两类只读GET排错编号](frontend/frontend-workflow-read-trace.md)已实现，本地前端30文件1013项模拟及类型/构建通过，教学与本人实践另待，不据此宣称真实网页验收。
 前步：[Windows＋CMD 前端 CI](operations/frontend-ci.md) 已完成教学及首次远端运行；累计12条提交已推送，远端3ca43de，CI运行39241917097成功。后续交接及新工作只本地提交，未来推送另行授权。

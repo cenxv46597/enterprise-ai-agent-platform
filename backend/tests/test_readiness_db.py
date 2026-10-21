@@ -23,7 +23,8 @@ def test_url(monkeypatch):
         pytest.skip("需要明确的独立测试库临时连接")
     url = make_url(value)
     if (url.drivername != "postgresql+psycopg" or url.host not in {"127.0.0.1", "localhost"}
-            or url.database != "eaap_test" or url.port != 5432 or url.query or not url.password
+            or url.database != "eaap_test" or not url.port or not 1 <= url.port <= 65535
+            or url.query or not url.password
             or not re.fullmatch(r"eaap_check_[0-9a-f]{32}", url.username or "")):
         pytest.fail("拒绝范围外数据库或非临时测试身份", pytrace=False)
     engine = create_engine(url, poolclass=NullPool, hide_parameters=True,
