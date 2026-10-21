@@ -1,6 +1,7 @@
 # Candidate constraints for CPython 3.13.7 / Linux x64 PostgreSQL CI.
 # Reuse the Windows runtime + dev version snapshot, excluding Windows-only pywin32.
-# This is not a verified complete Linux dependency closure; validate it in the new CI job.
+# Ubuntu 24.04 / Python 3.13.7 install passed in GitHub run 39565175267 (89828d9).
+# This remains a candidate constraint list, not a complete Linux lock or hash lock.
 # Install with: python -m pip install -c constraints-postgres-ci.txt .[dev]
 # Not a hash-verified lock; isolated build requirements are not constrained here.
 alembic==1.20.0

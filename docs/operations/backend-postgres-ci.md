@@ -1,5 +1,7 @@
 # 独立 PostgreSQL 集成 CI
 
+2026-10-21首次远端已通过：[GitHub运行39565175267](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39565175267)，对应89828d9、push、attempt1、completed/success。Ubuntu安装/pip check成功，日志实际入口119项/0.29秒、真实SQL17项/5.19秒，全通过、无skip/xfail/违规，临时身份/schema和服务容器清理成功；同SHA的前端/契约CI也成功。以下待授权/待远端等保留实现及教学时的历史，完整证据见[当日进度](../progress/progress-2026-10-21.md)顶部。
+
 2026-10-21 接续[后端隔离契约 CI](backend-contract-ci.md)。用户要求继续开发与学习，导师选择补齐已列出的独立数据库任务，先实现已有工作流记录和就绪探测的真实 SQL 检查。
 
 ## 业务目标和本轮边界
@@ -13,7 +15,7 @@
 - 保留原有 Windows＋CMD 前端 CI 和契约 CI。把数据库加入原契约入口会混淆“禁止数据库”和“必须连接数据库”的失败原因，因此新增独立工作流。
 - 新数据库任务采用 Ubuntu24.04 服务容器。GitHub 服务容器要求 Linux runner；Windows 原生 PostgreSQL 需要另行管理安装和扩展。云端步骤使用 Python 参数列表，本机操作继续 CMD。环境选择先按已说明的建议方案推进，随后本人通过异步选项明确确认采用Ubuntu临时服务容器；记录为本人选项确认，选型理由仍由导师解释。
 - 复用现有 PG17/pgvector 镜像基线并固定已核对的摘要；CI新建 `eaap_test`，不使用日常 Compose、持久卷、本机 `.env` 或个人 GitHub secrets。
-- [Linux候选约束](../../backend/constraints-postgres-ci.txt)沿用已有版本并移除 Windows 专属 `pywin32`。它不是已经验证的 Linux 完整依赖闭包，也不是带哈希锁文件；隔离构建依赖仍未固定。首次远端安装待授权推送后核对。
+- [Linux候选约束](../../backend/constraints-postgres-ci.txt)沿用已有版本并移除 Windows 专属 `pywin32`。本次Ubuntu24.04/Python3.13.7远端安装和pip check已通过；该清单仍不是完整Linux锁文件或带哈希锁文件，隔离构建依赖未固定，也不扩大为其他平台/版本已验证。
 
 ## 文件和执行顺序
 
