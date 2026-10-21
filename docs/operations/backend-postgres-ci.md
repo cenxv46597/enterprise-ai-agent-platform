@@ -71,6 +71,8 @@
 
 本模块小实践及两道讨论据此按实际程度收尾：本人按提示补一行拒绝案例并亲自运行119项；业务测试设计和模型依赖处理均经导师完整讲解后确认理解，不记独立实现或已独立掌握，不重复补考。下一步建议先授权推送后核对首次Ubuntu数据库CI的安装与执行，尚未获本轮新推送授权；真实检索、模型及Cookie到期等待继续暂停。
 
+随后本人询问“首次云端CI”及为何使用Ubuntu，导师区分本机Windows与GitHub临时运行机器、解释依赖安装和Linux服务容器。本人确认理解并明确授权执行推送与验证，同时要求以后每次执行结束后先讲清业务目的、做法、理由与实际结果，再进入提问；新术语先解释。本次远端结果以[当日进度](../progress/progress-2026-10-21.md)最新记录为准，以上“未授权/待运行”保留对应阶段历史。
+
 ## 官方依据
 
 - [GitHub PostgreSQL服务容器与Linux要求](https://docs.github.com/en/actions/tutorials/use-containerized-services/create-postgresql-service-containers)
