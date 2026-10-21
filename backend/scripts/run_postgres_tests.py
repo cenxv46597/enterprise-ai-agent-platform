@@ -33,7 +33,7 @@ from scripts.run_contract_tests import (
 ROLE_PATTERN = re.compile(r"eaap_check_[0-9a-f]{32}")
 SCHEMA_PATTERN = re.compile(r"eaap_test_[0-9a-f]{32}")
 DB_TEST_PATHS = tuple(BACKEND / "tests" / name for name in (
-    "test_answer_workflow_listing_db.py", "test_readiness_db.py",
+    "test_answer_workflow_listing_db.py", "test_readiness_db.py", "test_auth_upgrade_ci_db.py",
 ))
 EXPECTED_NODES = frozenset({
     "test_answer_workflow_listing_db.py::" + name for name in (
@@ -58,6 +58,8 @@ EXPECTED_NODES = frozenset({
         "test_real_query_timeout_becomes_unavailable",
         "test_real_authentication_failure_becomes_unavailable",
     )
+} | {
+    "test_auth_upgrade_ci_db.py::test_0009_to_0010_preserves_legacy_data_and_explicit_membership",
 })
 
 
@@ -195,6 +197,21 @@ class Admin:
         } for line in bindings):
             raise RuntimeError("Service port mapping does not match")
 
+    def ensure_vector_extension(self):
+        # This fixed database prerequisite is retained locally; never move or drop it.
+        namespace_query = (
+            "SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace "
+            "WHERE e.extname='vector';"
+        )
+        namespace = self.sql(namespace_query)
+        if namespace == "public":
+            return
+        if namespace:
+            raise RuntimeError("Test vector extension must be in public; no changes were made")
+        self.sql("CREATE EXTENSION vector WITH SCHEMA public;")
+        if self.sql(namespace_query) != "public":
+            raise RuntimeError("Test vector extension preparation was not confirmed")
+
     def create(self, role, password):
         if not ROLE_PATTERN.fullmatch(role):
             raise ValueError("Invalid temporary identity")
@@ -263,6 +280,7 @@ def run_database(docker, target):
     reserved, cleanup_ok, pytest_exit, final_exit = False, True, None, 1
     try:
         admin.confirm()
+        admin.ensure_vector_extension()
         if admin.sql(f"SELECT count(*) FROM pg_roles WHERE rolname='{role}';") != "0":
             raise RuntimeError("Temporary identity already exists")
         # Reserve before dispatch: DDL may commit even when its reply is interrupted.

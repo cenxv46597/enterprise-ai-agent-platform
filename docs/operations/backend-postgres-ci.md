@@ -1,5 +1,7 @@
 # 独立 PostgreSQL 集成 CI
 
+接续范围已扩为[固定0009→0010升级检查](../backend/auth-upgrade-ci-validation.md)：原17项加1项正式Alembic旧资料保留验证，共18项。测试库vector扩展由管理入口检查/按需预置，临时身份权限和随机schema清理范围不扩大。本次18项尚未推送，以下39565175267和39566111253等17项远端结果只证明上一版本；当前结果见最新进度。
+
 2026-10-21首次远端已通过：[GitHub运行39565175267](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39565175267)，对应89828d9、push、attempt1、completed/success。Ubuntu安装/pip check成功，日志实际入口119项/0.29秒、真实SQL17项/5.19秒，全通过、无skip/xfail/违规，临时身份/schema和服务容器清理成功；同SHA的前端/契约CI也成功。以下待授权/待远端等保留实现及教学时的历史，完整证据见[当日进度](../progress/progress-2026-10-21.md)顶部。
 
 2026-10-21 接续[后端隔离契约 CI](backend-contract-ci.md)。用户要求继续开发与学习，导师选择补齐已列出的独立数据库任务，先实现已有工作流记录和就绪探测的真实 SQL 检查。

@@ -35,20 +35,32 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def run_migrations_with_connection(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        version_table_schema=config.attributes.get("version_table_schema"),
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    # Programmatic callers can supply their already scoped connection. They own
+    # its transaction and lifetime; this path must not discover a second target.
+    connection = config.attributes.get("connection")
+    if connection is not None:
+        run_migrations_with_connection(connection)
+        return
+
     connectable = create_engine(get_database_url(), poolclass=pool.NullPool)
-
-    with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
-
-    connectable.dispose()
+    try:
+        with connectable.connect() as connection:
+            run_migrations_with_connection(connection)
+    finally:
+        connectable.dispose()
 
 
 if context.is_offline_mode():
