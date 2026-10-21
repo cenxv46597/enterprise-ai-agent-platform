@@ -91,7 +91,7 @@ def test_0009_to_0010_preserves_legacy_data_and_explicit_membership():
             ), {"id": workspace_id})
             connection.execute(text(
                 "INSERT INTO knowledge_bases (id, workspace_id, name) "
-                "VALUES (:id, :workspace, 'CI虚构旧知识库')"
+                "VALUES (:id, :workspace, 'CI 旧知识库（保留中文与空格）')"
             ), {"id": knowledge_base_id, "workspace": workspace_id})
             before = legacy_rows(connection)
 
