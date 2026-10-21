@@ -1,10 +1,11 @@
 import { Answer } from './KnowledgeWorkflow';
 import { canReadSavedWorkflowAnswer, type WorkflowMeta, type WorkflowSavedAnswer } from './workflow-api';
-import type { WorkflowHistoryItem } from './workflow-history-api';
+import { isWorkflowHistoryOffset, WORKFLOW_HISTORY_PAGE_SIZE, type WorkflowHistoryItem } from './workflow-history-api';
 import { ReadNotice, type WorkflowReadNotice } from './WorkflowReadNotice';
 
 export type HistoryReadNotice = WorkflowReadNotice;
 export type WorkflowHistoryView = {
+  offset: number;
   items: WorkflowHistoryItem[] | null;
   listNotice: HistoryReadNotice | null;
   selected: WorkflowHistoryItem | null;
@@ -20,7 +21,7 @@ type Props = {
   activity: 'idle' | 'listing' | 'reading' | 'answer-reading' | 'logout';
   view: WorkflowHistoryView;
   error: string;
-  onList: () => void;
+  onList: (offset: number) => void;
   onSelect: (item: WorkflowHistoryItem) => void;
   onRead: () => void;
   onReadAnswer: () => void;
@@ -79,6 +80,9 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
   view, error, onList, onSelect, onRead, onReadAnswer, onCancel, onBack }: Props) {
   const busy = activity !== 'idle';
   const canReadAnswer = !busy && canReadSavedWorkflowAnswer(view.snapshot);
+  const canGoBack = view.offset >= WORKFLOW_HISTORY_PAGE_SIZE;
+  const canGoNext = view.items?.length === WORKFLOW_HISTORY_PAGE_SIZE
+    && isWorkflowHistoryOffset(view.offset + WORKFLOW_HISTORY_PAGE_SIZE);
 
   return <section className="workflow-history" aria-labelledby="workflow-history-title">
     <button className="button secondary back-button" disabled={activity === 'logout'} onClick={onBack}>
@@ -92,18 +96,27 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
       {error && <p className="message error" role="alert">{error}</p>}
       <section className="search-form-panel" aria-labelledby="workflow-history-list-title"
         aria-busy={activity === 'listing'}>
-        <h2 id="workflow-history-list-title">最近创建的工作流</h2>
-        <p>读取当前知识库成员共享的任务记录，每次最多显示最近创建的 20 条。
-          这里按创建时间排列，不代表最近更新的任务，也不是全部历史记录。</p>
+        <h2 id="workflow-history-list-title">工作流历史列表</h2>
+        <p>读取当前知识库成员共享的任务记录，按创建时间从新到旧排列，每页最多 {WORKFLOW_HISTORY_PAGE_SIZE} 条。
+          这里按创建时间排列，不代表最近更新的任务。</p>
         <p className="session-note">进入本页不会自动读取；读取列表、状态和已保存答案均为只读操作，不调用模型。</p>
-        <div className="processing-actions">
-          <button className="button primary" disabled={busy} onClick={onList}>读取最近工作流</button>
+        <p className="session-note">浏览期间若有成员新增或删除记录，跨页可能出现重复或遗漏；可读取最近工作流重新浏览。</p>
+        <nav className="processing-actions" aria-label="工作流列表翻页">
+          <button className="button primary" disabled={busy} onClick={() => onList(0)}>读取最近工作流</button>
+          <button className="button secondary" disabled={busy || !canGoBack}
+            onClick={() => { if (!busy && canGoBack) onList(view.offset - WORKFLOW_HISTORY_PAGE_SIZE); }}>上一页</button>
+          <button className="button secondary" disabled={busy || !canGoNext}
+            onClick={() => { if (!busy && canGoNext) onList(view.offset + WORKFLOW_HISTORY_PAGE_SIZE); }}>下一页</button>
+          {view.offset > 0 && <button className="button secondary" disabled={busy}
+            onClick={() => onList(view.offset)}>重新读取本页</button>}
           {activity === 'listing' && <button className="button secondary" onClick={onCancel}>停止读取工作流记录</button>}
-        </div>
-        {activity === 'listing' && <p role="status">正在读取最近创建的工作流记录…</p>}
+        </nav>
+        <p className="page-caption">当前页：第 {view.offset / WORKFLOW_HISTORY_PAGE_SIZE + 1} 页，每页最多 {WORKFLOW_HISTORY_PAGE_SIZE} 条。</p>
+        {activity === 'listing' && <p role="status">正在读取当前页的工作流记录…</p>}
         <ReadNotice notice={view.listNotice} />
         {view.items === null ? <p>尚无本次有效列表读取记录。</p>
-          : view.items.length === 0 ? <p className="empty-state">本次读取未发现工作流记录。</p>
+          : view.items.length === 0 ? <p className="empty-state">本次读取未发现工作流记录。
+            {view.offset > 0 && '可返回上一页或读取最近工作流。'}</p>
             : <>
               <p className="page-caption">本次读取 · {view.items.length} 条工作流记录</p>
               <ul className="workspace-list">{view.items.map(item => <li className="workspace-card" key={item.id}>
@@ -117,7 +130,7 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
                     : <p className="session-note">本页暂不支持打开混合检索历史。</p>}
                 </div>
               </li>)}</ul>
-              {view.items.length === 20 && <p className="session-note">本次已读取 20 条，可能还有更早的记录；本版不提供翻页。</p>}
+              {view.items.length === WORKFLOW_HISTORY_PAGE_SIZE && <p className="session-note">本页已读取 {WORKFLOW_HISTORY_PAGE_SIZE} 条，可能还有更早的记录；下一页也可能为空。</p>}
             </>}
       </section>
       {view.selected && <>

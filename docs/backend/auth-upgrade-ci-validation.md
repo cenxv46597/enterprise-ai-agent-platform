@@ -1,5 +1,7 @@
 # 数据库升级回归：0009 → 0010 保留旧资料
 
+2026-10-21云端补证：本人再次明确授权，三条本地提交已普通推送到`e41be962534ca3ed535a9f3c59a317de053d7a39`，实际远端ref已核对。[PostgreSQL CI39591550657](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39591550657)在Ubuntu24.04/Python3.13.7、push/attempt1全部成功；日志实际入口132项/0.66秒、真实SQL18项/5.53秒，无skip/xfail/违规、退出0、cleanup_ok=True，临时身份/schema和容器清理成功。同一SHA前端与契约CI也成功。下文“未推送/未获授权”保留此前语境，不扩大本次授权到后续分页新开发。
+
 2026-10-21，起点`a0615a4`。用户大致理解CI/GitHub Actions/Docker关系后要求下一步，导师选择把已有身份迁移的代表性升级场景纳入独立数据库CI。本轮新增验证，不新增迁移版本，也不在日常数据库执行升级。
 
 ## 业务问题和基础概念

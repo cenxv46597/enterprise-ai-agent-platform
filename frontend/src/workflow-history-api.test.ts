@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api';
-import { listAnswerWorkflows } from './workflow-history-api';
+import { isWorkflowHistoryOffset, listAnswerWorkflows, WORKFLOW_HISTORY_PAGE_SIZE } from './workflow-history-api';
 import { canReadSavedWorkflowAnswer, canResumeWorkflow, readAnswerWorkflow,
   type WorkflowMeta, type WorkflowReadTarget } from './workflow-api';
 import { KNOWLEDGE_BASE_ID, OTHER_KNOWLEDGE_BASE_ID, PRIVATE, QUESTION, WORKSPACE_ID,
@@ -16,7 +16,7 @@ function summary(state = createdWorkflow()) {
   const { checkpoint: _checkpoint, result: _result, active_request_id: _request, lease_expires_at: _lease, ...rest } = state;
   return { ...rest, created_at: '2026-10-18T10:00:00.123456+08:00', updated_at: '2026-10-18T10:00:01+08:00' };
 }
-const list = (parent = signal()) => listAnswerWorkflows(WORKSPACE_ID, KNOWLEDGE_BASE_ID, parent);
+const list = (parent = signal(), offset?: number) => listAnswerWorkflows(WORKSPACE_ID, KNOWLEDGE_BASE_ID, parent, offset);
 async function rejected(action: Promise<unknown>) {
   const error = await action.catch(error => error);
   expect(error).toBeInstanceOf(ApiError); expect(String(error)).not.toContain(PRIVATE);
@@ -243,6 +243,68 @@ function tracedResponse(payload: unknown, status: number, trace?: string) {
   if (trace !== undefined) headers.set('X-Trace-Id', trace);
   return new Response(JSON.stringify(payload), { status, headers });
 }
+
+describe('工作流历史固定20条的分页偏移', () => {
+  it.each([0, 20, 40, 9_007_199_254_740_980])('偏移%s只读取指定一页，安全边界不取整或截断', async offset => {
+    expect(WORKFLOW_HISTORY_PAGE_SIZE).toBe(20);
+    expect(isWorkflowHistoryOffset(offset)).toBe(true);
+    fetchMock.mockResolvedValueOnce(jsonResponse([summary()]));
+    expect(await list(signal(), offset)).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${WORKFLOWS_PATH}?limit=20&offset=${offset}`);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'GET', cache: 'no-store' });
+    expect(fetchMock.mock.calls[0][1]?.body).toBeUndefined();
+  });
+
+  it.each([-20, -1, 1, 19, 21, 20.5, '20', '0', null, true, false,
+    NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER + 1,
+    9_007_199_254_741_000, {}, [], 20n].map(offset => ({ offset })))(
+    '非法偏移$offset在发请求前拒绝，不做隐式转换', async ({ offset }) => {
+    expect(isWorkflowHistoryOffset(offset)).toBe(false);
+    expect(await rejected(list(signal(), offset as number))).toMatchObject({ status: null, traceId: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('第二页仍整页核对归属、数量、重复与排序，不借用成功响应编号', async () => {
+    const newer = { ...summary(), workflow_id: OTHER_ID, created_at: '2026-10-18T10:00:00.123457+08:00' };
+    const payloads = [[{ ...summary(), knowledge_base_id: OTHER_KNOWLEDGE_BASE_ID }],
+      Array.from({ length: 21 }, () => summary()), [summary(), summary()], [summary(), newer]];
+    for (const payload of payloads) {
+      fetchMock.mockResolvedValueOnce(tracedResponse(payload, 200, TRACE_A));
+      expect(await rejected(list(signal(), 20))).toMatchObject({ status: null, traceId: null });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(payloads.length);
+    expect(fetchMock.mock.calls.every(([url, options]) => url === `${WORKFLOWS_PATH}?limit=20&offset=20`
+      && options?.method === 'GET')).toBe(true);
+  });
+
+  it('首请求成功后第二页HTTP失败仍只携带本次失败编号，不读正文或重试', async () => {
+    fetchMock.mockResolvedValueOnce(tracedResponse([summary()], 200, TRACE_A));
+    await list();
+    const response = tracedResponse({ detail: PRIVATE, trace_id: TRACE_A }, 503, TRACE_B);
+    const body = vi.spyOn(response, 'json'); fetchMock.mockResolvedValueOnce(response);
+    expect(await rejected(list(signal(), 20))).toMatchObject({ status: 503, traceId: TRACE_B });
+    expect(body).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([LIST_PATH, `${WORKFLOWS_PATH}?limit=20&offset=20`]);
+    expect(fetchMock.mock.calls.every(([, options]) => options?.method === 'GET'
+      && !new Headers(options?.headers).has('X-Trace-Id'))).toBe(true);
+  });
+
+  it.each(['cancel', 'timeout'])('第二页%s后迟到的错误编号不恢复，也不重试', async mode => {
+    vi.useFakeTimers(); const parent = new AbortController();
+    let finish!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise(done => { finish = done; }));
+    const action = rejected(list(parent.signal, 20));
+    if (mode === 'cancel') parent.abort(); else await vi.advanceTimersByTimeAsync(10_000);
+    finish(tracedResponse({ detail: PRIVATE }, 503, TRACE_B));
+    expect(await action).toMatchObject({ status: null, traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${WORKFLOWS_PATH}?limit=20&offset=20`);
+    expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
 
 for (const target of ['list', 'detail'] as const) describe(`${target}只读HTTP失败排错编号`, () => {
   const call = (parent = signal()) => target === 'list' ? list(parent)

@@ -42,6 +42,13 @@ function summary(value: ReturnType<typeof createdWorkflow> = savedWorkflow(), in
     created_at: new Date(Date.parse('2026-10-18T01:00:00Z') - index * 1000).toISOString(),
     updated_at: '2026-10-18T02:00:00Z' };
 }
+function historyPage(offset = 0, count = 20) {
+  return Array.from({ length: count }, (_, index) => {
+    const position = offset + index;
+    return position === 0 ? summary() : summary({ ...createdWorkflow(`分页历史问题${position + 1}`),
+      workflow_id: `11111111-1111-1111-1111-${String(position + 1).padStart(12, '0')}` }, position);
+  });
+}
 function install(route: Route = () => undefined) {
   const requests: Request[] = [];
   vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
@@ -82,6 +89,13 @@ async function readAnswer() { await click(screen.getByRole('button', { name: '�
 async function prepare() { await open(); await list(); await select(); }
 function sources(requests: Request[]) { return requests.filter(item => [DOCUMENT_PATH, OTHER_DOCUMENT_PATH, CHUNKS_PATH, OTHER_CHUNKS_PATH].includes(pathname(item))); }
 function historyRequests(requests: Request[]) { return requests.filter(item => pathname(item).startsWith(WORKFLOWS_PATH)); }
+function listQueries(requests: Request[]) {
+  return requests.filter(item => pathname(item) === WORKFLOWS_PATH)
+    .map(item => new URL(item.url).searchParams.toString());
+}
+function pageButton(name: '上一页' | '下一页' | '重新读取本页') {
+  return screen.getByRole('button', { name }) as HTMLButtonElement;
+}
 function savedRegion() { return screen.getByRole('region', { name: '历史任务已保存答案（只读）' }); }
 function expectNoAnswer() {
   for (const value of [ANSWER, LONG_QUOTE, OTHER_QUOTE, PRIVATE]) expect(document.body.textContent).not.toContain(value);
@@ -98,12 +112,12 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date('2030-01-01T00:
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('独立工作流记录页', () => {
-  it('入口不自动读取或写入，手动按固定第一页读取最近创建20条而非全部或最近更新', async () => {
+  it('入口不自动读取或写入，手动从最新20条开始并说明按创建时间排列的分页边界', async () => {
     const requests = install(); await open(); expect(historyRequests(requests)).toHaveLength(0);
     expect(screen.getByRole('heading', { name: '工作流记录' })).toBeTruthy();
     expect(document.body.textContent).toContain('知识库成员共享');
     expect(document.body.textContent).toContain('按创建时间排列');
-    expect(document.body.textContent).toContain('不是全部历史记录');
+    expect(document.body.textContent).toContain('跨页可能出现重复或遗漏');
     await list();
     const request = historyRequests(requests)[0];
     expect(new URL(request.url).searchParams.toString()).toBe('limit=20&offset=0');
@@ -139,13 +153,14 @@ describe('独立工作流记录页', () => {
     expect(screen.queryByRole('heading', { name: '选中任务状态' })).toBeNull(); expectReadOnly(requests);
   });
 
-  it('满20条提示可能有更早记录且本版不翻页', async () => {
+  it('满20条提示可能有更早记录，下一页必须由用户手动读取', async () => {
     const values = Array.from({ length: 20 }, (_, index) => summary({ ...createdWorkflow(`历史问题${index}`),
       workflow_id: `11111111-1111-1111-1111-${String(index + 1).padStart(12, '0')}` }, index));
     const requests = install(request => pathname(request) === WORKFLOWS_PATH ? jsonResponse(values) : undefined);
     await open(); await list(); expect(screen.getAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(20);
     expect(document.body.textContent).toContain('可能还有更早的记录');
-    expect(document.body.textContent).toContain('本版不提供翻页'); expectReadOnly(requests);
+    expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(historyRequests(requests)).toHaveLength(1); expectReadOnly(requests);
   });
 
   it('单独查看保存答案核对所有检查点来源，全部通过前不展示正文；双击不会重复读取', async () => {
@@ -297,7 +312,7 @@ describe('工作流列表与状态读取失败的排错编号', () => {
       ? tracedFailure() : undefined);
     await open(); await list(); if (target === 'detail') await select();
     expectTrace(TRACE_A); expectNoAnswer();
-    const region = screen.getByRole('region', { name: target === 'list' ? '最近创建的工作流' : '选中任务状态' });
+    const region = screen.getByRole('region', { name: target === 'list' ? '工作流历史列表' : '选中任务状态' });
     expect(region.textContent).toContain(TRACE_A);
     const count = requests.length; await advance(30_000); expect(requests).toHaveLength(count);
     expectReadOnly(requests);
@@ -394,7 +409,7 @@ describe('工作流列表与状态读取失败的排错编号', () => {
       ? ++reads === 1 ? traced(savedWorkflow(), 200, TRACE_A) : tracedFailure(TRACE_B) : undefined);
     await prepare(); expectNoTrace(); await readAnswer(); expectTrace(TRACE_B);
     expect(savedRegion().textContent).toContain(TRACE_B);
-    expect(screen.getByRole('region', { name: '最近创建的工作流' }).textContent).not.toContain(TRACE_B);
+    expect(screen.getByRole('region', { name: '工作流历史列表' }).textContent).not.toContain(TRACE_B);
     expect(screen.getByRole('region', { name: '选中任务状态' }).textContent).not.toContain(TRACE_B);
     expect(document.body.textContent).not.toContain(TRACE_A);
     expectNoAnswer(); expectReadOnly(requests);
@@ -506,5 +521,201 @@ describe('历史页已保存答案核验失败编号', () => {
     });
     await prepare(); await readAnswer(); expectNoTrace(); expectNoAnswer();
     expect(screen.getByRole('button', { name: '登录' })).toBeTruthy(); expectReadOnly(requests);
+  });
+});
+
+describe('工作流历史手动翻页', () => {
+  it('初次不翻页；按20条读取下一页与空尾页，再返回上一页或最新记录', async () => {
+    const requests = install(request => {
+      if (pathname(request) !== WORKFLOWS_PATH) return undefined;
+      const offset = Number(new URL(request.url).searchParams.get('offset'));
+      return jsonResponse(offset === 40 ? [] : historyPage(offset));
+    });
+    await open();
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(pageButton('下一页').disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '重新读取本页' })).toBeNull();
+    await click(pageButton('下一页')); expect(listQueries(requests)).toEqual([]);
+
+    await list();
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(pageButton('下一页').disabled).toBe(false);
+    await click(pageButton('下一页'));
+    expect(screen.getAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(20);
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: `查看工作流：${QUESTION}` })).toBeNull();
+    expect(pageButton('上一页').disabled).toBe(false);
+    expect(pageButton('下一页').disabled).toBe(false);
+    expect(pageButton('重新读取本页').disabled).toBe(false);
+
+    await click(pageButton('下一页'));
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    expect(pageButton('上一页').disabled).toBe(false);
+    expect(pageButton('下一页').disabled).toBe(true);
+    await click(pageButton('上一页'));
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    await list();
+    expect(screen.getByRole('button', { name: `查看工作流：${QUESTION}` })).toBeTruthy();
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '重新读取本页' })).toBeNull();
+    expect(listQueries(requests)).toEqual([
+      'limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=40',
+      'limit=20&offset=20', 'limit=20&offset=0',
+    ]);
+    const count = requests.length; await advance(30_000); expect(requests).toHaveLength(count);
+    expectReadOnly(requests);
+  });
+
+  it.each([0, 1, 19])('首页返回%s条时禁用下一页，不额外探测或猜测总数', async count => {
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? jsonResponse(historyPage(0, count)) : undefined);
+    await open(); await list();
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(count);
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(pageButton('下一页').disabled).toBe(true);
+    await click(pageButton('下一页'));
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0']); expectReadOnly(requests);
+  });
+
+  it('翻页开始立即清除旧列表、选中详情与已显示答案，等待期间不允许重复翻页', async () => {
+    const pending = deferred();
+    const requests = install(request => {
+      if (pathname(request) !== WORKFLOWS_PATH) return undefined;
+      return new URL(request.url).searchParams.get('offset') === '20'
+        ? pending.promise : jsonResponse(historyPage());
+    });
+    await prepare(); await readAnswer(); expect(savedRegion().textContent).toContain(ANSWER);
+    await click(pageButton('下一页'));
+    expectNoAnswer(); expectNoTrace();
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    expect(screen.queryByRole('heading', { name: '选中任务状态' })).toBeNull();
+    expect(screen.queryByRole('region', { name: '历史任务已保存答案（只读）' })).toBeNull();
+    for (const name of ['上一页', '下一页', '重新读取本页'] as const) {
+      expect(pageButton(name).disabled).toBe(true);
+      await click(pageButton(name));
+    }
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20']);
+    await resolve(pending, jsonResponse(historyPage(20, 1)));
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    expectNoAnswer(); expectReadOnly(requests);
+  });
+
+  it.each(['detail', 'saved-answer'] as const)('翻页清除旧%s失败编号，成功新页不展示成功响应编号', async target => {
+    const pending = deferred();
+    const requests = install(request => {
+      const path = pathname(request);
+      if (path === WORKFLOWS_PATH) return new URL(request.url).searchParams.get('offset') === '20'
+        ? pending.promise : jsonResponse(historyPage());
+      if ((target === 'detail' && path === WORKFLOW_PATH)
+          || (target === 'saved-answer' && path === OTHER_CHUNKS_PATH)) return tracedFailure(TRACE_A);
+    });
+    await prepare(); if (target === 'saved-answer') await readAnswer(); expectTrace(TRACE_A);
+    await click(pageButton('下一页')); expectNoTrace(); expectNoAnswer();
+    expect(screen.queryByRole('heading', { name: '选中任务状态' })).toBeNull();
+    await resolve(pending, traced(historyPage(20, 1), 200, TRACE_B));
+    expectNoTrace(); expectNoAnswer(); expectReadOnly(requests);
+  });
+
+  it('下一页失败保留目标页，可重读offset20且不自动返回首页，重读立即清旧编号', async () => {
+    const retry = deferred(); let pageReads = 0;
+    const requests = install(request => {
+      if (pathname(request) !== WORKFLOWS_PATH) return undefined;
+      if (new URL(request.url).searchParams.get('offset') === '20') {
+        return ++pageReads === 1 ? tracedFailure(TRACE_A) : retry.promise;
+      }
+      return jsonResponse(historyPage());
+    });
+    await open(); await list(); await click(pageButton('下一页')); expectTrace(TRACE_A);
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    expect(pageButton('上一页').disabled).toBe(false);
+    expect(pageButton('下一页').disabled).toBe(true);
+    expect(pageButton('重新读取本页').disabled).toBe(false);
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20']);
+    await click(pageButton('重新读取本页')); expectNoTrace();
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=20']);
+    await resolve(retry, traced(historyPage(20, 1), 200, TRACE_B));
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    expect(pageButton('下一页').disabled).toBe(true); expectNoTrace(); expectReadOnly(requests);
+  });
+
+  it.each(['success', 'failure'] as const)('取消后仍重读目标页，旧%s迟到不能覆盖随后offset40的错误', async late => {
+    const old = deferred(); let pageReads = 0;
+    const requests = install(request => {
+      if (pathname(request) !== WORKFLOWS_PATH) return undefined;
+      const offset = new URL(request.url).searchParams.get('offset');
+      if (offset === '20') return ++pageReads === 1 ? old.promise : jsonResponse(historyPage(20));
+      if (offset === '40') return tracedFailure(TRACE_A);
+      return jsonResponse(historyPage());
+    });
+    await open(); await list(); await click(pageButton('下一页'));
+    const cancelled = historyRequests(requests).at(-1)!;
+    await click(screen.getByRole('button', { name: '停止读取工作流记录' }));
+    expect(cancelled.signal.aborted).toBe(true);
+    expectNoTrace(); expectNoAnswer();
+    expect(pageButton('上一页').disabled).toBe(false);
+    expect(pageButton('重新读取本页').disabled).toBe(false);
+    await click(pageButton('重新读取本页'));
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    await click(pageButton('下一页')); expectTrace(TRACE_A);
+    await resolve(old, late === 'success' ? jsonResponse(historyPage(20)) : tracedFailure(TRACE_B));
+    expectTrace(TRACE_A); expect(document.body.textContent).not.toContain(TRACE_B);
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    expect(listQueries(requests)).toEqual([
+      'limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=20', 'limit=20&offset=40',
+    ]);
+    expectNoAnswer(); expectReadOnly(requests);
+  });
+
+  it('翻页等待中返回并重新进入从首页未读取状态开始，迟到页不能恢复旧编号', async () => {
+    const old = deferred();
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? new URL(request.url).searchParams.get('offset') === '20' ? old.promise : jsonResponse(historyPage()) : undefined);
+    await open(); await list(); await click(pageButton('下一页'));
+    await click(screen.getByRole('button', { name: '返回文档列表' }));
+    await click(screen.getByRole('button', { name: '工作流记录' }));
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(pageButton('下一页').disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: '重新读取本页' })).toBeNull();
+    await resolve(old, tracedFailure(TRACE_B)); expectNoTrace(); expectNoAnswer();
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    await list();
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=0']);
+    expectReadOnly(requests);
+  });
+
+  it('下一页401清会话与页码，重新挂载恢复登录后只从首页手动读取', async () => {
+    const requests = install(request => pathname(request) === WORKFLOWS_PATH
+      ? new URL(request.url).searchParams.get('offset') === '20' ? tracedFailure(TRACE_A, 401)
+        : jsonResponse(historyPage()) : undefined);
+    await open(); await list(); await click(pageButton('下一页'));
+    expect(screen.getByRole('button', { name: '登录' })).toBeTruthy(); expectNoTrace(); expectNoAnswer();
+    cleanup(); await open();
+    expect(pageButton('上一页').disabled).toBe(true);
+    expect(pageButton('下一页').disabled).toBe(true);
+    expect(listQueries(requests)).toHaveLength(2);
+    await list();
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=0']);
+    expectReadOnly(requests);
+  });
+
+  it('翻页中退出失败仍保留目标页，旧响应不复活且只重读本页', async () => {
+    const old = deferred(); let pageReads = 0;
+    const requests = install(request => {
+      if (pathname(request) === LOGOUT) return tracedFailure(TRACE_A);
+      if (pathname(request) !== WORKFLOWS_PATH) return undefined;
+      if (new URL(request.url).searchParams.get('offset') === '20') {
+        return ++pageReads === 1 ? old.promise : jsonResponse(historyPage(20, 1));
+      }
+      return jsonResponse(historyPage());
+    });
+    await open(); await list(); await click(pageButton('下一页'));
+    await click(screen.getByRole('button', { name: '退出登录' }));
+    expect(document.body.textContent).toContain('退出尚未确认'); expectNoTrace();
+    await resolve(old, tracedFailure(TRACE_B)); expectNoTrace(); expectNoAnswer();
+    expect(screen.queryAllByRole('button', { name: /^查看工作流：/ })).toHaveLength(0);
+    await click(pageButton('重新读取本页'));
+    expect(screen.getByRole('button', { name: '查看工作流：分页历史问题21' })).toBeTruthy();
+    expect(listQueries(requests)).toEqual(['limit=20&offset=0', 'limit=20&offset=20', 'limit=20&offset=20']);
+    expectReadOnly(requests);
   });
 });

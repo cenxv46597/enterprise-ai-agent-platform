@@ -1,6 +1,12 @@
 import { ApiError, responseTraceId, strictUuid, webRequestOptions } from './api';
 import type { WorkflowMeta, WorkflowReadTarget } from './workflow-api';
 
+export const WORKFLOW_HISTORY_PAGE_SIZE = 20;
+export function isWorkflowHistoryOffset(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value)
+    && value >= 0 && value % WORKFLOW_HISTORY_PAGE_SIZE === 0;
+}
+
 export type WorkflowHistoryItem = WorkflowReadTarget & {
   strategy: 'vector' | 'hybrid';
   status: WorkflowMeta['status']; nextStep: WorkflowMeta['nextStep'];
@@ -42,7 +48,7 @@ function timestamp(value: unknown): { text: string; instant: bigint } {
 }
 
 function parseList(payload: unknown, workspace: string, knowledgeBase: string): WorkflowHistoryItem[] {
-  if (!Array.isArray(payload) || payload.length > 20) return invalid();
+  if (!Array.isArray(payload) || payload.length > WORKFLOW_HISTORY_PAGE_SIZE) return invalid();
   const ids = new Set<string>();
   let previous: { id: string; created: bigint } | null = null;
   return payload.map((raw: unknown) => {
@@ -77,14 +83,14 @@ function parseList(payload: unknown, workspace: string, knowledgeBase: string): 
 }
 
 export async function listAnswerWorkflows(workspaceId: string, knowledgeBaseId: string,
-  signal: AbortSignal): Promise<WorkflowHistoryItem[]> {
+  signal: AbortSignal, offset = 0): Promise<WorkflowHistoryItem[]> {
   const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
-  if (signal.aborted) return invalid();
+  if (!isWorkflowHistoryOffset(offset) || signal.aborted) return invalid();
   const controller = new AbortController(), cancel = () => controller.abort();
   signal.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(cancel, 10_000);
   try {
-    const url = `/api/v1/workspaces/${workspace}/knowledge-bases/${knowledgeBase}/answer-workflows?limit=20&offset=0`;
+    const url = `/api/v1/workspaces/${workspace}/knowledge-bases/${knowledgeBase}/answer-workflows?limit=${WORKFLOW_HISTORY_PAGE_SIZE}&offset=${offset}`;
     const response = await fetch(url, webRequestOptions({ method: 'GET' }, controller.signal));
     if (controller.signal.aborted) return invalid();
     const messages: Record<number, string> = {
