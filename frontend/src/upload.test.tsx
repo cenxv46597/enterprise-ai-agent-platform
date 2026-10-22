@@ -18,6 +18,10 @@ const KNOWLEDGE_A = `${SPACES}/${SPACE_A}/knowledge-bases`;
 const KNOWLEDGE_B = `${SPACES}/${SPACE_B}/knowledge-bases`;
 const DOCUMENTS_A = `${KNOWLEDGE_A}/${KB_A}/documents`;
 const DOCUMENTS_B = `${KNOWLEDGE_B}/${KB_B}/documents`;
+const NEW_DOCUMENT_PATH = `${DOCUMENTS_A}/${NEW_DOCUMENT}`;
+const NEW_CHUNKS_PATH = `${NEW_DOCUMENT_PATH}/chunks`;
+const NEW_CHUNK = '00000000-0000-0000-0000-000000000499';
+const LATE_CHUNK_TEXT = '迟到文本块不得恢复到新页面。';
 const PRIVATE_RESPONSE = 'PRIVATE_UPLOAD_RESPONSE_MUST_NOT_BE_DISPLAYED';
 const UNCONFIRMED = '上传结果未确认；未自动重试。请先核对知识库中的文档记录，再决定是否再次上传。';
 const CONTENT = '仅供模拟测试的上传内容。\n';
@@ -58,6 +62,15 @@ function uploaded(status: 'parsed' | 'failed' = 'parsed', changes: Record<string
   };
 }
 
+function uploadedDetail(changes: Record<string, unknown> = {}) {
+  return { id: NEW_DOCUMENT, knowledge_base_id: KB_A, original_filename: FILENAME, status: 'parsed', ...changes };
+}
+
+function uploadedChunks() {
+  return [{ id: NEW_CHUNK, document_id: NEW_DOCUMENT, chunk_index: 1,
+    content: LATE_CHUNK_TEXT, start_char: 0, end_char: Array.from(LATE_CHUNK_TEXT).length }];
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -96,6 +109,8 @@ function installApi(route: Route = () => undefined): Captured[] {
         if (request.method === 'POST') return json(uploaded(), 201);
         return json([documentRow(1)]);
       case DOCUMENTS_B: return json([documentRow(2, '乙空间文档.txt', KB_B)]);
+      case NEW_DOCUMENT_PATH: return json(uploadedDetail());
+      case NEW_CHUNKS_PATH: return json([]);
       default: throw new Error('Unexpected mocked endpoint');
     }
   }));
@@ -456,5 +471,178 @@ describe('网页显式上传单份文档', () => {
     expect(reads(captured)).toHaveLength(1);
     expect(uploads(captured)).toHaveLength(1);
     expect(captured.filter(({ request: sent }) => pathOf(sent) === RESTORE)).toHaveLength(1);
+  });
+});
+
+function continueButton() {
+  return screen.getByRole('button', { name: '继续处理这份文档' }) as HTMLButtonElement;
+}
+
+async function uploadOneDocument() {
+  await selectFile();
+  await click(screen.getByRole('button', { name: '上传' }));
+}
+
+function processingReads(captured: Captured[]) {
+  return captured.filter(({ request }) => request.method === 'GET'
+    && [NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH].includes(pathOf(request)));
+}
+
+function expectOnlyOriginalUpload(captured: Captured[]) {
+  expect(uploads(captured)).toHaveLength(1);
+  expect(captured.filter(({ request }) => request.method !== 'GET' && pathOf(request) !== LOGOUT)
+    .map(({ request }) => [request.method, pathOf(request)])).toEqual([['POST', DOCUMENTS_A]]);
+}
+
+describe('从已确认上传结果继续处理文档', () => {
+  it('第一页只有20条旧记录时仍按本次上传ID进入，先读最新详情再读块，不自动切块或向量化', async () => {
+    const rows = Array.from({ length: 20 }, (_, index) => documentRow(index + 1));
+    const captured = installApi(request => request.method === 'GET' && pathOf(request) === DOCUMENTS_A ? json(rows) : undefined);
+    render(<App />); await openDocuments();
+    expect(screen.queryByRole('button', { name: '继续处理这份文档' })).toBeNull();
+    await uploadOneDocument();
+    expect(screen.queryByRole('heading', { level: 2, name: FILENAME })).toBeNull();
+    expect(screen.getByText('当前页 · 20 份文档 · 20 份可检索 · 全部处理状态')).toBeTruthy();
+    expect(continueButton().disabled).toBe(false);
+    expect(processingReads(captured)).toHaveLength(0);
+    const button = continueButton();
+    await act(async () => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: FILENAME })).toBeTruthy();
+    expect(screen.getByText('当前没有文本块')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '切块' }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole('button', { name: '生成向量' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH]);
+    for (const { request, body } of processingReads(captured)) {
+      expect(new URL(request.url).search).toBe(''); expect(body).toBeUndefined();
+      expect(request.credentials).toBe('same-origin'); expect(request.headers.get('X-EAAP-Web')).toBe('1');
+      expect(request.headers.has('Authorization')).toBe(false);
+    }
+    expect(screen.queryByRole('region', { name: '本次上传结果' })).toBeNull();
+    const count = captured.length; await advance(30_000); expect(captured).toHaveLength(count);
+    await click(screen.getByRole('button', { name: '返回文档列表' }));
+    expect(screen.queryByRole('region', { name: '本次上传结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '继续处理这份文档' })).toBeNull();
+    expectOnlyOriginalUpload(captured);
+  });
+
+  it('上传确认后列表刷新失败仍能继续处理，但不解锁上传文件输入', async () => {
+    let listReads = 0;
+    const captured = installApi(request => request.method === 'GET' && pathOf(request) === DOCUMENTS_A
+      && ++listReads === 2 ? json({ detail: PRIVATE_RESPONSE }, 503) : undefined);
+    render(<App />); await openDocuments(); await uploadOneDocument();
+    expect(result().textContent).toContain('已解析'); expect(screen.getByRole('alert')).toBeTruthy();
+    expect((screen.getByLabelText('选择文档') as HTMLInputElement).disabled).toBe(true);
+    expect(continueButton().disabled).toBe(false);
+    await click(continueButton());
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryByRole('region', { name: '本次上传结果' })).toBeNull();
+    expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH]);
+    expect(reads(captured)).toHaveLength(2); expectOnlyOriginalUpload(captured);
+  });
+
+  it('上传后的列表GET仍等待时显示禁用入口，读取结束前点击不能进入或重复上传', async () => {
+    const pending = deferred<Response>(); let listReads = 0;
+    const captured = installApi(request => request.method === 'GET' && pathOf(request) === DOCUMENTS_A
+      && ++listReads === 2 ? pending.promise : undefined);
+    render(<App />); await openDocuments(); await uploadOneDocument();
+    expect(result().textContent).toContain('已解析'); expect(continueButton().disabled).toBe(true);
+    await click(continueButton());
+    expect(screen.getByRole('heading', { level: 1, name: '文档' })).toBeTruthy();
+    expect(processingReads(captured)).toHaveLength(0); expectOnlyOriginalUpload(captured);
+    await act(async () => { pending.resolve(json([documentRow(1)])); await vi.advanceTimersByTimeAsync(0); });
+    expect(continueButton().disabled).toBe(false); expect(processingReads(captured)).toHaveLength(0);
+    await click(continueButton());
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH]);
+    expectOnlyOriginalUpload(captured);
+  });
+
+  it.each(['failed', 'unconfirmed', 'rejected'] as const)('%s上传结果不提供继续处理入口', async outcome => {
+    const captured = installApi(request => {
+      if (request.method !== 'POST' || pathOf(request) !== DOCUMENTS_A) return undefined;
+      return outcome === 'failed' ? json(uploaded('failed'), 201)
+        : json({ detail: PRIVATE_RESPONSE }, outcome === 'unconfirmed' ? 503 : 422);
+    });
+    render(<App />); await openDocuments(); await uploadOneDocument();
+    expect(result()).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '继续处理这份文档' })).toBeNull();
+    expect(processingReads(captured)).toHaveLength(0);
+    expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
+    expectOnlyOriginalUpload(captured);
+  });
+
+  it.each([404, 401])('继续处理的详情GET返回%s时不借上传快照开放切块或读取块', async status => {
+    const captured = installApi(request => pathOf(request) === NEW_DOCUMENT_PATH ? json({ detail: PRIVATE_RESPONSE }, status) : undefined);
+    render(<App />); await openDocuments(); await uploadOneDocument(); await click(continueButton());
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([NEW_DOCUMENT_PATH]);
+    expect(screen.queryByRole('region', { name: '本次上传结果' })).toBeNull();
+    expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
+    if (status === 401) {
+      expect(screen.getByRole('heading', { name: '登录工作空间' })).toBeTruthy();
+      expect(document.body.textContent).not.toContain(FILENAME);
+    } else {
+      expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+      expect(screen.getByRole('alert')).toBeTruthy();
+      expect((screen.getByRole('button', { name: '切块' }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole('button', { name: '生成向量' }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expectOnlyOriginalUpload(captured);
+  });
+
+  it('详情已确认但块GET失败时禁止处理，手动刷新只补GET且成功后才允许切块', async () => {
+    let chunkReads = 0;
+    const captured = installApi(request => pathOf(request) === NEW_CHUNKS_PATH && ++chunkReads === 1
+      ? json({ detail: PRIVATE_RESPONSE }, 503) : undefined);
+    render(<App />); await openDocuments(); await uploadOneDocument(); await click(continueButton());
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '切块' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: '生成向量' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
+    await click(screen.getByRole('button', { name: '刷新文档与切块' }));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect((screen.getByRole('button', { name: '切块' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([
+      NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH, NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH,
+    ]);
+    expectOnlyOriginalUpload(captured);
+  });
+
+  it.each([
+    ['detail', 'back'], ['detail', 'logout'], ['detail', 'expiry'],
+    ['chunks', 'back'], ['chunks', 'logout'], ['chunks', 'expiry'],
+  ] as const)('继续处理等待%s时%s取消读取，迟到成功不能恢复文件正文或追加请求', async (stage, action) => {
+    const pending = deferred<Response>();
+    const awaitedPath = stage === 'detail' ? NEW_DOCUMENT_PATH : NEW_CHUNKS_PATH;
+    const captured = installApi(request => {
+      if (pathOf(request) === RESTORE && action === 'expiry') return sessionResponse(Date.now() / 1000 + 2);
+      if (pathOf(request) === awaitedPath) return pending.promise;
+    });
+    render(<App />); await openDocuments(); await uploadOneDocument(); await click(continueButton());
+    const awaited = captured.find(({ request }) => pathOf(request) === awaitedPath)!.request;
+    if (action === 'back') await click(screen.getByRole('button', { name: '返回文档列表' }));
+    else if (action === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await advance(2000);
+    expect(awaited.signal.aborted).toBe(true);
+    const count = captured.length;
+    await act(async () => {
+      pending.resolve(json(stage === 'detail' ? uploadedDetail() : uploadedChunks()));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(captured).toHaveLength(count);
+    expect(screen.getByRole('heading', { name: action === 'back' ? '文档' : '登录工作空间' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: '本次上传结果' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '继续处理这份文档' })).toBeNull();
+    expect(document.body.textContent).not.toContain(FILENAME);
+    expect(document.body.textContent).not.toContain(LATE_CHUNK_TEXT);
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual(stage === 'detail'
+      ? [NEW_DOCUMENT_PATH] : [NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH]);
+    expectOnlyOriginalUpload(captured);
   });
 });

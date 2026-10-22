@@ -14,6 +14,8 @@ type Props = {
   outcome: UploadOutcome | null;
   onUpload: (file: File) => void;
   onCancel: () => void;
+  canContinue?: boolean;
+  onContinue?: () => void;
 };
 
 function fileSize(bytes: number): string {
@@ -21,7 +23,7 @@ function fileSize(bytes: number): string {
 }
 
 export default function DocumentUpload({ workspaceName, knowledgeBaseName, activity,
-  outcome, onUpload, onCancel }: Props) {
+  outcome, onUpload, onCancel, canContinue = false, onContinue }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -85,6 +87,11 @@ export default function DocumentUpload({ workspaceName, knowledgeBaseName, activ
           : <><p><strong>解析失败</strong>：文档记录已创建，原件解析失败。</p>
             {outcome.document.parseError && <p>{outcome.document.parseError}</p>}</>}
         <p className="upload-note">列表仅展示第一页，新记录未必出现在当前页；本卡片展示本次上传结果。</p>
+        {outcome.document.status === 'parsed' && onContinue && <div className="upload-actions">
+          <button className="button primary" type="button" disabled={!canContinue}
+            onClick={() => { if (canContinue) onContinue(); }}>继续处理这份文档</button>
+          <p className="upload-note">进入文档页后，可查看处理状态并手动切块。</p>
+        </div>}
       </div> : <div>
         <p className="message error" role="alert">{outcome.message}</p>
         {outcome.kind === 'unconfirmed' && <p className="upload-note">

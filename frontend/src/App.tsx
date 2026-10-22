@@ -309,6 +309,17 @@ export default function App() {
     void readDocument(document.id, false);
   }
 
+  function continueUploadedDocument() {
+    if (!session || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null
+      || selectedKnowledgeBase.workspaceId !== selectedWorkspace.id
+      || uploadOutcome?.kind !== 'confirmed' || uploadOutcome.document.status !== 'parsed'
+      || uploadOutcome.document.knowledgeBaseId !== selectedKnowledgeBase.id) return;
+    // 已确认的上传结果持有目标 ID；第一页缺少该记录或刷新失败都不应阻断后续处理。
+    const document = uploadOutcome.document;
+    setUploadOutcome(null);
+    openDocument(document);
+  }
+
   function backToDocuments() {
     if (selectedKnowledgeBase) void openKnowledgeBase(selectedKnowledgeBase);
   }
@@ -1182,7 +1193,8 @@ export default function App() {
           <DocumentUpload key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
             workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
             activity={busy === 'upload' ? 'uploading' : busy !== null || !!error ? 'blocked' : 'idle'}
-            outcome={uploadOutcome} onUpload={file => void upload(file)} onCancel={stopWaitingForUpload} />
+            outcome={uploadOutcome} onUpload={file => void upload(file)} onCancel={stopWaitingForUpload}
+            canContinue={busy === null} onContinue={continueUploadedDocument} />
         </DocumentList> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
           <button className="button secondary back-button" disabled={busy === 'logout'}
             onClick={backToWorkspaces}>返回工作空间</button>
