@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from './api';
-import { isWorkflowHistoryOffset, listAnswerWorkflows, WORKFLOW_HISTORY_PAGE_SIZE } from './workflow-history-api';
+import { isWorkflowHistoryOffset, isWorkflowHistoryStatusFilter, listAnswerWorkflows,
+  WORKFLOW_HISTORY_PAGE_SIZE, type WorkflowHistoryStatusFilter } from './workflow-history-api';
 import { canReadSavedWorkflowAnswer, canResumeWorkflow, readAnswerWorkflow,
   type WorkflowMeta, type WorkflowReadTarget } from './workflow-api';
 import { KNOWLEDGE_BASE_ID, OTHER_KNOWLEDGE_BASE_ID, PRIVATE, QUESTION, WORKSPACE_ID,
@@ -243,6 +244,104 @@ function tracedResponse(payload: unknown, status: number, trace?: string) {
   if (trace !== undefined) headers.set('X-Trace-Id', trace);
   return new Response(JSON.stringify(payload), { status, headers });
 }
+
+const FILTER_STATES = ['pending', 'running', 'failed', 'completed'] as const;
+function filterState(status: typeof FILTER_STATES[number]) {
+  return status === 'pending' ? createdWorkflow() : status === 'running' ? runningWorkflow()
+    : status === 'failed' ? failedWorkflow() : completedWorkflow();
+}
+function filteredList(statusFilter: WorkflowHistoryStatusFilter = 'all', offset = 0, parent = signal()) {
+  return listAnswerWorkflows(WORKSPACE_ID, KNOWLEDGE_BASE_ID, parent, offset, statusFilter);
+}
+
+describe('工作流历史状态条件与后端分页的只读契约', () => {
+  it.each(['all', ...FILTER_STATES])('只接纳精确白名单条件%s', statusFilter => {
+    expect(isWorkflowHistoryStatusFilter(statusFilter)).toBe(true);
+  });
+
+  it.each([undefined, 'all'] as const)('默认或显式%s保持旧URL，不发送status=all', async statusFilter => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([summary()]));
+    const records = await listAnswerWorkflows(WORKSPACE_ID, KNOWLEDGE_BASE_ID, signal(), 20, statusFilter);
+    expect(records).toHaveLength(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${WORKFLOWS_PATH}?limit=20&offset=20`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('全部状态允许同一页混合四种合法状态，仍投影掉执行内容', async () => {
+    const rows = FILTER_STATES.map((status, index) => ({ ...summary(filterState(status)),
+      workflow_id: `11111111-1111-4111-8111-${String(4 - index).padStart(12, '0')}`,
+      checkpoint: PRIVATE, result: PRIVATE }));
+    fetchMock.mockResolvedValueOnce(jsonResponse(rows));
+    const records = await filteredList();
+    expect(records.map(row => row.status)).toEqual(FILTER_STATES);
+    expect(fetchMock.mock.calls[0][0]).toBe(LIST_PATH);
+    expect(JSON.stringify(records)).not.toContain(PRIVATE);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(FILTER_STATES)('%s与offset20携带到同一只读GET，不拆成全部列表和本地筛选', async statusFilter => {
+    const row = { ...summary(filterState(statusFilter)), strategy: 'hybrid', checkpoint: PRIVATE, result: PRIVATE };
+    fetchMock.mockResolvedValueOnce(jsonResponse([row]));
+    const records = await filteredList(statusFilter, 20);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: statusFilter, strategy: 'hybrid' });
+    expect(JSON.stringify(records)).not.toContain(PRIVATE);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toBe(`${WORKFLOWS_PATH}?limit=20&offset=20&status=${statusFilter}`);
+    expect(options).toMatchObject({ method: 'GET', mode: 'same-origin', credentials: 'same-origin',
+      cache: 'no-store', redirect: 'error' });
+    expect(options?.body).toBeUndefined();
+    const headers = new Headers(options?.headers);
+    expect(headers.get('X-EAAP-Web')).toBe('1');
+    expect(headers.has('Authorization')).toBe(false); expect(headers.has('Cookie')).toBe(false);
+    expect(headers.has('X-Trace-Id')).toBe(false);
+  });
+
+  it.each(['', 'ALL', 'Pending', ' completed', 'completed ', 'failed\n', '*', 'status=failed',
+    'completed&offset=0', 'pending%00', null, true, false, 0, 1, {}, [], ['pending']]
+    .map(statusFilter => ({ statusFilter })))('非法条件$statusFilter在HTTP前拒绝，不转换或拼入URL', async ({ statusFilter }) => {
+    expect(isWorkflowHistoryStatusFilter(statusFilter)).toBe(false);
+    expect(await rejected(filteredList(statusFilter as WorkflowHistoryStatusFilter)))
+      .toMatchObject({ status: null, traceId: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each(FILTER_STATES)('%s条件收到空页合法，不额外读取全部状态或下一页', async statusFilter => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([]));
+    expect(await filteredList(statusFilter, 40)).toEqual([]);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${WORKFLOWS_PATH}?limit=20&offset=40&status=${statusFilter}`);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(FILTER_STATES)('%s响应含一个合法但不匹配的状态时整页拒绝，不做本地删行或沿用成功编号', async statusFilter => {
+    const otherStatus = FILTER_STATES[(FILTER_STATES.indexOf(statusFilter) + 1) % FILTER_STATES.length];
+    const matching = summary(filterState(statusFilter));
+    const mismatch = { ...summary(filterState(otherStatus)), workflow_id: OTHER_ID };
+    for (const payload of [[mismatch], [matching, mismatch]]) {
+      fetchMock.mockResolvedValueOnce(tracedResponse(payload, 200, TRACE_A));
+      expect(await rejected(filteredList(statusFilter, 20))).toMatchObject({ status: null, traceId: null });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.every(([url]) => url === `${WORKFLOWS_PATH}?limit=20&offset=20&status=${statusFilter}`)).toBe(true);
+  });
+
+  it('匹配状态仍须核对知识库归属；状态筛选不能绕过原摘要契约', async () => {
+    fetchMock.mockResolvedValueOnce(tracedResponse([
+      { ...summary(failedWorkflow()), knowledge_base_id: OTHER_KNOWLEDGE_BASE_ID },
+    ], 200, TRACE_A));
+    expect(await rejected(filteredList('failed'))).toMatchObject({ status: null, traceId: null });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('带条件的失败只保留当前HTTP编号，不解析错误正文、回退全部状态或自动重试', async () => {
+    const response = tracedResponse({ detail: PRIVATE, trace_id: TRACE_B }, 503, TRACE_A);
+    const json = vi.spyOn(response, 'json'); fetchMock.mockResolvedValueOnce(response);
+    expect(await rejected(filteredList('failed', 20))).toMatchObject({ status: 503, traceId: TRACE_A });
+    expect(json).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${WORKFLOWS_PATH}?limit=20&offset=20&status=failed`);
+  });
+});
 
 describe('工作流历史固定20条的分页偏移', () => {
   it.each([0, 20, 40, 9_007_199_254_740_980])('偏移%s只读取指定一页，安全边界不取整或截断', async offset => {

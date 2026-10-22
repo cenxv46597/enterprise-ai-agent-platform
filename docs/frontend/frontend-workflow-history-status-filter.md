@@ -1,0 +1,59 @@
+# 工作流历史：按状态筛选
+
+2026-10-22，本人明确同意推进“工作流历史按状态筛选”，并要求按面试标准先讲解。承接[手动分页](frontend-workflow-history-pagination.md)及[真实分页验收](frontend-workflow-history-browser-validation.md)已结束的实践/两题；不重复已有教学。主体设计、代码、测试与执行均导师完成，本人当前仅确认范围。
+
+## 业务目标与选择
+
+任务增多后，用户需要集中找“执行失败”或“已完成”的记录。页面增加“任务状态”：全部状态、已创建尚未执行、执行中、执行失败、已完成；一次选一种，默认全部。
+
+若只在前端筛选已经取得的20条，会漏掉其他页的匹配任务，也无法正确判断筛选后的分页。采用后端WHERE状态与知识库范围组合，再按创建时间/ID降序，最后limit/offset；不先取一页再删行。不新增搜索、多个状态组合、总数查询、has_more、迁移或索引，也没有新性能测量。
+
+沿用当前页面显式读取约定：切换条件只清空旧内容、回第一页，不自动请求；用户点击“读取最近工作流”才读取该条件的首页。与切换立即请求相比，这样保留当前手动读取行为，避免无意请求。完成条件是返回记录全部匹配、翻页/重读保留条件、切换清旧且页码归零、权限和只读边界不变。
+
+## 接口与数据库
+
+列表路径不变，新增可选查询参数`status=pending|running|failed|completed`；省略为全部，`all`仅为前端选项，不发到后端。空串、未知值、大小写不匹配或逗号拼接状态均422。原limit/offset范围不变，旧CLI和无条件请求兼容。
+
+示例：`GET …/answer-workflows?limit=20&offset=20&status=failed`，含义是在当前知识库符合failed的记录中跳过前20条，再返回最多20条。不是在全部记录第二页里找failed。
+
+[路由](../../backend/app/api/answer_workflows.py)复用现有WorkflowStatus精确枚举；[查询服务](../../backend/app/workflows/service.py)增加可选参数，仍只查询轻量摘要列。真实登录、成员guard、知识库父级_scope校验保持；状态条件不扩大访问范围，也不把列表改为个人私有任务。
+
+列表结果仍是读取时快照。任务状态变化可能使记录进入或离开筛选集合，新增/删除也会移动位置，offset跨页不保证不重不漏。点选任务后，详情GET可以读到已经变化的状态，以本次详情为准；筛选“已完成”不等于答案内容/来源已核验，仍需原独立完整核验。hybrid仍仅列表可见，不开放历史执行或恢复。
+
+## 前端状态与请求隔离
+
+[API适配](../../frontend/src/workflow-history-api.ts)第4参数offset保留，第5参数statusFilter默认all。发请求前拒绝非法条件；成功响应除原归属、摘要、排序等校验，还逐项检查状态匹配。混入其他状态时整页拒绝，不在前端偷偷删行，不借成功响应编号解释本地核验失败。
+
+[App](../../frontend/src/App.tsx)将statusFilter和offset保存在同一历史view。切换时offset0，清除列表、选中项、详情、答案和三类错误编号，推进请求序号；不执行fetch。读取时捕获当前条件，上一页/下一页/本页重读/读最近都沿用它。失败或停止保留本次条件与目标页；返回重入、401、到期、退出沿用已有清理机制。
+
+[页面](../../frontend/src/WorkflowHistory.tsx)下拉框在列表、详情、答案读取或退出期间禁用，用户可先停止读取再切换。取消后迟到结果仍由AbortController和请求序号隔离。空结果只说明当前条件的本页；不会自动退回全部状态、重试或调用模型。select增加关联label、键盘焦点与禁用样式。
+
+## 本轮验证
+
+- 隔离后端契约入口：**11文件242项/27.02秒**通过，collected=passed，skip=xfail=violations=0，pytest/final_exit=0。将既有`test_answer_workflow_listing.py`加入固定白名单，当前CI以后也会覆盖新增列表规则；没有新增workflow或推送运行。
+- 数据库入口安全：**132项/6.79秒**通过，skip=xfail=violations=0，pytest/final_exit=0。
+- 独立PostgreSQL：固定**18项/43.37秒**通过，collected=passed，skip=xfail=violations=0，cleanup_ok=True，pytest/final_exit=0。扩展既有14个列表节点内断言，固定节点清单仍18（列表14＋ready3＋升级1），不是新增18条筛选测试。
+- 前端首轮：19文件714项通过，但11个worker启动等待超时，未覆盖全部页面，final_exit=1，不能记成功。只将仓库外本机隔离入口的maxWorkers设为2，不修改产品或CI配置；随后完整**30文件1117项/70.17秒**通过，无未处理错误，隔离工具临时目录清理成功，实际子进程final_exit=0。
+- 最终TypeScript及隔离构建通过，构建240毫秒，子进程退出0；早次构建发生在测试文件修改期间，以最终为准，耗时不是产品性能。
+
+真实SQL构造了前20条之外的匹配失败任务，证明WHERE在分页前生效；还核对四状态混合数据、排序分页/空尾页、默认全部、非法条件、跨知识库/空间排除、成员共享与非成员拒绝、任务变更后新筛选结果、读前后快照不变。前端新增40项API和23项页面用例，包括条件保留、清旧正文/编号、错误响应、取消/迟到隔离、会话边界。各组范围不同，不与历史数量相加。
+
+这些是真实SQL与前端模拟fetch的分别验证，**本轮未做真实浏览器筛选验收**，昨日40/45条浏览器证据不移作本轮成绩。昨日临时浏览器入口只允许原无status请求，本轮未扩大它的白名单和数据；它不用于验收新筛选功能。不调用真实模型、候选检索或等待Cookie到期。
+
+## 运行状态、配置与提交
+
+起点Git为main相对缓存origin/main领先4条（0299b91、25fc6c2、4d6f06f、87c71fb），仅六份保护文档原修改。只读确认8000/5173/8810/5432均未监听，原数据库容器存在但停止；随后仅启动原容器用于独立eaap_test验证，测试结束保留运行，没有重建卷、日常库迁移或其他容器操作。前后核对临时角色0、public.vector0.8.6。
+
+沿用现有隔离入口，在导入应用/测试前禁私有Settings来源，禁止.env和凭据读取、模型/额外网络访问；前端用envDir:false、清继承变量和新临时LOCALAPPDATA，防止读取既有工具Token。没有依赖重装。六份保护文档逐字保留，不暂存；新增实现/交接仅本地提交，未来push另行授权，旧e41be96云端成绩不代表本轮。
+
+后端复现CMD（先核对数据库状态，禁止直接改用普通pytest）：
+
+```bat
+.venv\Scripts\python.exe -I -X utf8 backend\scripts\run_contract_tests.py
+.venv\Scripts\python.exe -I -X utf8 backend\scripts\run_postgres_tests.py --check-entry
+.venv\Scripts\python.exe -I -X utf8 backend\scripts\run_postgres_tests.py --docker-exe D:\docker\Docker\resources\bin\docker.exe
+```
+
+## 教学停点
+
+执行后先按面试介绍顺序讲业务问题、前后端筛选取舍、实际请求流程、切换回首页/清旧原因、结果与边界；解释WHERE为筛选条件、limit/offset为筛选后取页。再安排一个小阅读实践：从全部状态第3页切到执行失败时应该从哪一页开始；尚待本人回答，不预记完成。随后最多两道自然面试讨论，每次一个核心问题；本人目前无独立实现或验收证据。

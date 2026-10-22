@@ -15,7 +15,8 @@ import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
 import WorkflowHistory, { type WorkflowHistoryView } from './WorkflowHistory';
-import { isWorkflowHistoryOffset, listAnswerWorkflows, type WorkflowHistoryItem } from './workflow-history-api';
+import { isWorkflowHistoryOffset, isWorkflowHistoryStatusFilter, listAnswerWorkflows,
+  type WorkflowHistoryItem, type WorkflowHistoryStatusFilter } from './workflow-history-api';
 import { createAnswerWorkflow, executeAnswerWorkflow, readAnswerWorkflow, WorkflowUnconfirmedError,
   resumeAnswerWorkflow, canResumeWorkflow, sameWorkflowMeta, canReadSavedWorkflowAnswer, readSavedWorkflowAnswer,
   WORKFLOW_NOTICES, type WorkflowCreation, type WorkflowExecution, type WorkflowResume } from './workflow-api';
@@ -585,20 +586,30 @@ export default function App() {
     if (!selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null || error) return;
     setSearchOpen(false); setSearchOutcome(null); setAnswerOpen(false); setAnswerOutcome(null);
     setConversationView(null); setWorkflowView(null); setUploadOutcome(null); setError('');
-    setWorkflowHistoryView({ offset: 0, items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
+    setWorkflowHistoryView({ statusFilter: 'all', offset: 0, items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
       savedAnswer: null, savedAnswerNotice: null });
+  }
+
+  function changeWorkflowHistoryFilter(statusFilter: WorkflowHistoryStatusFilter) {
+    if (!workflowHistoryView || pending.current || busy !== null
+        || !isWorkflowHistoryStatusFilter(statusFilter) || statusFilter === workflowHistoryView.statusFilter) return;
+    generation.current += 1;
+    setError('');
+    setWorkflowHistoryView({ statusFilter, offset: 0, items: null, listNotice: null, selected: null,
+      snapshot: null, readNotice: null, savedAnswer: null, savedAnswerNotice: null });
   }
 
   async function listWorkflowHistory(offset = 0) {
     if (!workflowHistoryView || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null
         || !isWorkflowHistoryOffset(offset)) return;
     const { id, controller } = beginRequest();
+    const statusFilter = workflowHistoryView.statusFilter;
     setBusy('workflow-history-list'); setError('');
     // Keep the requested page on failure/cancel, but never carry another page's task or answer into it.
-    setWorkflowHistoryView({ offset, items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
+    setWorkflowHistoryView({ statusFilter, offset, items: null, listNotice: null, selected: null, snapshot: null, readNotice: null,
       savedAnswer: null, savedAnswerNotice: null });
     try {
-      const items = await listAnswerWorkflows(selectedWorkspace.id, selectedKnowledgeBase.id, controller.signal, offset);
+      const items = await listAnswerWorkflows(selectedWorkspace.id, selectedKnowledgeBase.id, controller.signal, offset, statusFilter);
       if (isCurrent(id, controller)) setWorkflowHistoryView(view => view && { ...view, items });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -1105,6 +1116,7 @@ export default function App() {
           activity={busy === 'workflow-history-list' ? 'listing' : busy === 'workflow-history-read' ? 'reading'
             : busy === 'workflow-history-answer' ? 'answer-reading' : busy === 'logout' ? 'logout' : 'idle'}
           view={workflowHistoryView} error={error} onList={offset => void listWorkflowHistory(offset)}
+          onFilterChange={changeWorkflowHistoryFilter}
           onSelect={item => void readHistoryWorkflow(item)}
           onRead={() => { if (workflowHistoryView.selected) void readHistoryWorkflow(workflowHistoryView.selected); }}
           onReadAnswer={() => void readHistoryAnswer()} onCancel={stopWaitingForHistory} onBack={backToDocuments}

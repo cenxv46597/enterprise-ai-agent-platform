@@ -202,8 +202,10 @@ def listing_db_context(monkeypatch: pytest.MonkeyPatch) -> Iterator[ListingConte
 
 def test_db_empty_knowledge_base_returns_empty_list(listing_db_context: ListingContext):
     context = listing_db_context
-    response = context.client.get(context.url())
-    assert response.status_code == 200 and response.json() == []
+    for status in (None, "pending", "running", "failed", "completed"):
+        params = {} if status is None else {"status": status}
+        response = context.client.get(context.url(), params=params)
+        assert response.status_code == 200 and response.json() == []
 
 
 def test_db_creation_time_then_uuid_desc_is_stable(listing_db_context: ListingContext):
@@ -236,6 +238,25 @@ def test_db_scope_filter_precedes_limit(listing_db_context: ListingContext):
     response = context.client.get(context.url(), params={"limit": 1})
     assert response.status_code == 200
     assert [item["workflow_id"] for item in response.json()] == [str(allowed_id)]
+    failed = dict(status="failed", version=2, attempt_count=1, error_code="embedding_timeout")
+    target_id = context.insert(created_at=NOW - timedelta(days=2), **failed)
+    context.insert(knowledge_base_id=context.other_base_id, **failed)
+    context.insert(knowledge_base_id=context.other_workspace_base_id, **failed)
+    # More than one unfiltered page is newer than the target: filtering a fetched
+    # twenty-row page in Python would incorrectly hide this matching record.
+    for index in range(21):
+        context.insert(created_at=NOW + timedelta(seconds=index + 1))
+    before = context.rows()
+    unfiltered = context.client.get(context.url())
+    filtered = context.client.get(context.url(), params={"status": "failed"})
+    assert unfiltered.status_code == filtered.status_code == 200
+    assert len(unfiltered.json()) == 20 and str(target_id) not in unfiltered.text
+    assert [item["workflow_id"] for item in filtered.json()] == [str(target_id)]
+    assert all(item["status"] == "failed" for item in filtered.json())
+    for status in ("unknown", "all", "", "Failed", "FAILED", "failed ", "failed,completed"):
+        rejected = context.client.get(context.url(), params={"status": status})
+        assert rejected.status_code == 422
+    assert context.rows() == before
 
 
 def test_db_pagination_uses_stable_offset_and_empty_tail(listing_db_context: ListingContext):
@@ -249,6 +270,34 @@ def test_db_pagination_uses_stable_offset_and_empty_tail(listing_db_context: Lis
     combined = first.json() + second.json() + tail.json()
     assert [item["workflow_id"] for item in combined] == [str(value) for value in reversed(identifiers)]
     assert empty.json() == []
+    by_status = {"pending": identifiers}
+    for group, status in enumerate(("running", "failed", "completed"), start=1):
+        state = dict(status=status, version=3, attempt_count=1)
+        if status == "running":
+            state.update(active_request_id=uuid4(), lease_expires_at=NOW + timedelta(hours=1))
+        elif status == "failed":
+            state.update(error_code="generation_timeout")
+        else:
+            state.update(next_step="done", checkpoint=context.checkpoint(),
+                         result=dict(answer="虚构筛选用空弃答。", abstained=True, citations=[], reranking=None))
+        by_status[status] = [context.insert(identifier=UUID(int=group * 100 + value), **state)
+                             for value in range(1, 8)]
+    before = context.rows()
+    unfiltered = context.client.get(context.url(), params={"limit": 100})
+    expected_all = sorted((item for group in by_status.values() for item in group), reverse=True)
+    assert unfiltered.status_code == 200
+    assert [item["workflow_id"] for item in unfiltered.json()] == [str(value) for value in expected_all]
+    assert {item["status"] for item in unfiltered.json()} == set(by_status)
+    for status, matching in by_status.items():
+        # All four groups share creation timestamps; UUID remains the tie breaker.
+        pages = [context.client.get(context.url(), params={"status": status, "limit": 3, "offset": offset})
+                 for offset in (0, 3, 6, 7)]
+        assert all(page.status_code == 200 for page in pages)
+        assert [len(page.json()) for page in pages] == [3, 3, 1, 0]
+        items = pages[0].json() + pages[1].json() + pages[2].json()
+        assert [item["workflow_id"] for item in items] == [str(value) for value in reversed(matching)]
+        assert all(item["status"] == status for item in items)
+    assert context.rows() == before
 
 
 def test_db_default_page_is_latest_twenty_creation_records(listing_db_context: ListingContext):
@@ -262,20 +311,22 @@ def test_db_default_page_is_latest_twenty_creation_records(listing_db_context: L
 def test_db_owner_and_member_share_same_knowledge_base_list(listing_db_context: ListingContext):
     context = listing_db_context
     identifier = context.insert()
-    owner_response = context.client.get(context.url())
-    context.as_user(context.member_id)
-    member_response = context.client.get(context.url())
-    assert owner_response.status_code == member_response.status_code == 200
-    assert owner_response.json() == member_response.json()
-    assert member_response.json()[0]["workflow_id"] == str(identifier)
+    for params in ({}, {"status": "pending"}):
+        context.as_user(context.owner_id)
+        owner_response = context.client.get(context.url(), params=params)
+        context.as_user(context.member_id)
+        member_response = context.client.get(context.url(), params=params)
+        assert owner_response.status_code == member_response.status_code == 200
+        assert owner_response.json() == member_response.json()
+        assert member_response.json()[0]["workflow_id"] == str(identifier)
 
 
 def test_db_nonmember_cannot_list_or_read_detail(listing_db_context: ListingContext):
     context = listing_db_context
     identifier = context.insert()
     context.as_user(context.outsider_id)
-    for url in (context.url(), context.url(identifier)):
-        response = context.client.get(url)
+    for url, params in ((context.url(), {}), (context.url(), {"status": "failed"}), (context.url(identifier), {})):
+        response = context.client.get(url, params=params)
         assert response.status_code == 404 and response.json() == {"detail": "工作区不存在"}
 
 
@@ -283,15 +334,18 @@ def test_db_wrong_workspace_parent_cannot_expose_another_knowledge_base(listing_
     context = listing_db_context
     # owner 同时是两个空间成员，确保拒绝来自 KB 父级核对而不是成员失败。
     context.insert(knowledge_base_id=context.other_workspace_base_id)
-    response = context.client.get(context.url(knowledge_base_id=context.other_workspace_base_id))
-    assert response.status_code == 404
-    assert response.json() == {"detail": "知识库或工作流不存在"}
+    for params in ({}, {"status": "failed"}):
+        response = context.client.get(context.url(knowledge_base_id=context.other_workspace_base_id), params=params)
+        assert response.status_code == 404
+        assert response.json() == {"detail": "知识库或工作流不存在"}
 
 
 def test_db_missing_knowledge_base_is_not_an_empty_existing_list(listing_db_context: ListingContext):
     context = listing_db_context
-    response = context.client.get(context.url(knowledge_base_id=uuid4()))
-    assert response.status_code == 404
+    missing_url = context.url(knowledge_base_id=uuid4())
+    for params in ({}, {"status": "failed"}):
+        response = context.client.get(missing_url, params=params)
+        assert response.status_code == 404
 
 
 def test_db_workflow_detail_cannot_cross_knowledge_base(listing_db_context: ListingContext):
@@ -308,9 +362,9 @@ def test_db_completed_summary_omits_saved_bodies_and_reads_change_nothing(listin
     identifier = context.insert(status="completed", next_step="done", version=3, attempt_count=1,
                                 checkpoint=context.checkpoint(), result=saved_result)
     before = context.rows()
-    listing = context.client.get(context.url())
+    listing = context.client.get(context.url(), params={"status": "completed"})
     detail = context.client.get(context.url(identifier))
-    repeated = context.client.get(context.url())
+    repeated = context.client.get(context.url(), params={"status": "completed"})
     assert listing.status_code == detail.status_code == repeated.status_code == 200
     assert set(listing.json()[0]) == SUMMARY_FIELDS
     for hidden in ("checkpoint", "result", "creation_request_id", "creation_digest",
@@ -352,7 +406,7 @@ def test_db_later_detail_observes_new_state_after_old_list_snapshot(listing_db_c
     context = listing_db_context
     identifier = context.insert(status="failed", next_step="generate", version=3, attempt_count=1,
                                 checkpoint=context.checkpoint(), error_code="generation_timeout")
-    initial = context.client.get(context.url())
+    initial = context.client.get(context.url(), params={"status": "failed"})
     assert initial.status_code == 200 and initial.json()[0]["status"] == "failed"
     with Session(context.engine) as session, session.begin():
         row = session.get(AnswerWorkflow, identifier)
@@ -364,4 +418,8 @@ def test_db_later_detail_observes_new_state_after_old_list_snapshot(listing_db_c
     detail = context.client.get(context.url(identifier))
     assert detail.status_code == 200 and detail.json()["status"] == "completed"
     assert detail.json()["version"] == 5 and detail.json()["attempt_count"] == 2
+    failed = context.client.get(context.url(), params={"status": "failed"})
+    completed = context.client.get(context.url(), params={"status": "completed"})
+    assert failed.status_code == completed.status_code == 200 and failed.json() == []
+    assert [item["workflow_id"] for item in completed.json()] == [str(identifier)]
     assert initial.json()[0]["status"] == "failed"  # 已返回的旧响应不会自动更新。

@@ -1,10 +1,12 @@
 import { Answer } from './KnowledgeWorkflow';
 import { canReadSavedWorkflowAnswer, type WorkflowMeta, type WorkflowSavedAnswer } from './workflow-api';
-import { isWorkflowHistoryOffset, WORKFLOW_HISTORY_PAGE_SIZE, type WorkflowHistoryItem } from './workflow-history-api';
+import { isWorkflowHistoryOffset, isWorkflowHistoryStatusFilter, WORKFLOW_HISTORY_PAGE_SIZE,
+  type WorkflowHistoryItem, type WorkflowHistoryStatusFilter } from './workflow-history-api';
 import { ReadNotice, type WorkflowReadNotice } from './WorkflowReadNotice';
 
 export type HistoryReadNotice = WorkflowReadNotice;
 export type WorkflowHistoryView = {
+  statusFilter: WorkflowHistoryStatusFilter;
   offset: number;
   items: WorkflowHistoryItem[] | null;
   listNotice: HistoryReadNotice | null;
@@ -22,6 +24,7 @@ type Props = {
   view: WorkflowHistoryView;
   error: string;
   onList: (offset: number) => void;
+  onFilterChange: (statusFilter: WorkflowHistoryStatusFilter) => void;
   onSelect: (item: WorkflowHistoryItem) => void;
   onRead: () => void;
   onReadAnswer: () => void;
@@ -77,7 +80,7 @@ function HistoryMetadata({ workflow }: { workflow: WorkflowMeta }) {
 }
 
 export default function WorkflowHistory({ workspaceName, knowledgeBaseName, activity,
-  view, error, onList, onSelect, onRead, onReadAnswer, onCancel, onBack }: Props) {
+  view, error, onList, onFilterChange, onSelect, onRead, onReadAnswer, onCancel, onBack }: Props) {
   const busy = activity !== 'idle';
   const canReadAnswer = !busy && canReadSavedWorkflowAnswer(view.snapshot);
   const canGoBack = view.offset >= WORKFLOW_HISTORY_PAGE_SIZE;
@@ -100,7 +103,21 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
         <p>读取当前知识库成员共享的任务记录，按创建时间从新到旧排列，每页最多 {WORKFLOW_HISTORY_PAGE_SIZE} 条。
           这里按创建时间排列，不代表最近更新的任务。</p>
         <p className="session-note">进入本页不会自动读取；读取列表、状态和已保存答案均为只读操作，不调用模型。</p>
-        <p className="session-note">浏览期间若有成员新增或删除记录，跨页可能出现重复或遗漏；可读取最近工作流重新浏览。</p>
+        <p className="session-note">浏览期间若有成员新增或删除记录，跨页可能出现重复或遗漏；任务状态变化也可能改变筛选结果。
+          可读取最近工作流重新浏览。</p>
+        <label htmlFor="workflow-history-status">任务状态</label>
+        <select id="workflow-history-status" value={view.statusFilter} disabled={busy}
+          onChange={event => {
+            if (!busy && isWorkflowHistoryStatusFilter(event.target.value)) onFilterChange(event.target.value);
+          }}>
+          <option value="all">全部状态</option>
+          <option value="pending">已创建，尚未执行</option>
+          <option value="running">执行中</option>
+          <option value="failed">执行失败</option>
+          <option value="completed">已完成</option>
+        </select>
+        <p className="session-note">切换状态会回到第一页并清空旧内容，请手动读取；“读取最近工作流”按当前筛选条件从第一页读取。</p>
+        <p className="session-note">筛选状态：{view.statusFilter === 'all' ? '全部状态' : STATUS_TEXT[view.statusFilter]}。</p>
         <nav className="processing-actions" aria-label="工作流列表翻页">
           <button className="button primary" disabled={busy} onClick={() => onList(0)}>读取最近工作流</button>
           <button className="button secondary" disabled={busy || !canGoBack}
@@ -116,6 +133,7 @@ export default function WorkflowHistory({ workspaceName, knowledgeBaseName, acti
         <ReadNotice notice={view.listNotice} />
         {view.items === null ? <p>尚无本次有效列表读取记录。</p>
           : view.items.length === 0 ? <p className="empty-state">本次读取未发现工作流记录。
+            仅代表当前筛选条件下的本页结果。
             {view.offset > 0 && '可返回上一页或读取最近工作流。'}</p>
             : <>
               <p className="page-caption">本次读取 · {view.items.length} 条工作流记录</p>

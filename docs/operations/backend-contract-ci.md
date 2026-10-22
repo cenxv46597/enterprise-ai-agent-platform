@@ -1,5 +1,7 @@
 # 后端隔离契约测试 CI：Windows＋CMD
 
+2026-10-22接续[工作流状态筛选](../frontend/frontend-workflow-history-status-filter.md)：将既有test_answer_workflow_listing.py加入固定白名单，使本次列表规则纳入持续检查；当前11文件242项本地隔离通过（27.02秒），无skip/xfail/外层违规，pytest/final0。workflow未变，新版本尚未推送，不能将本地结果写成新远端成功；下文10文件152项为原版本证据。
+
 2026-10-21远端补记：已按用户授权推送，`612650c`的[首次后端CI39528614169](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39528614169)全部步骤成功，首次安装与隔离套件执行已有远端证据；下文“仅本地/首次待运行”为实现轮历史。随后新增的[独立PostgreSQL CI](backend-postgres-ci.md)另行验证，不改变本入口禁止数据库的职责；新工作未来推送仍需授权。
 
 ## 本轮目标与实现范围

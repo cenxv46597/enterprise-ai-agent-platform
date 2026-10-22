@@ -26,7 +26,7 @@ from app.workflows.contracts import (
     MAX_CHECKPOINT_BYTES, MAX_CHECKPOINT_CHARACTERS, MAX_WORKFLOW_ATTEMPTS, MAX_WORKFLOW_VERSION,
     RETRYABLE_ERRORS, WORKFLOW_LEASE_SECONDS, WorkflowAnswer, WorkflowCheckpoint, WorkflowConflictError,
     WorkflowCreate, WorkflowErrorCode, WorkflowEvidence, WorkflowExecute, WorkflowExecutionRead,
-    WorkflowListItem, WorkflowNotFoundError, WorkflowRead, WorkflowStateError,
+    WorkflowListItem, WorkflowNotFoundError, WorkflowRead, WorkflowStateError, WorkflowStatus,
 )
 
 
@@ -92,7 +92,8 @@ def read_workflow(session: Session, workspace_id: UUID, knowledge_base_id: UUID,
 
 
 def list_workflows(session: Session, workspace_id: UUID, knowledge_base_id: UUID,
-                   limit: int = 20, offset: int = 0) -> list[WorkflowListItem]:
+                   limit: int = 20, offset: int = 0,
+                   status: WorkflowStatus | None = None) -> list[WorkflowListItem]:
     # 不加载 ORM 实体，避免为历史列表读取大段检查点、答案或内部请求信息。
     statement = select(
         AnswerWorkflow.id.label("workflow_id"), AnswerWorkflow.knowledge_base_id,
@@ -100,7 +101,10 @@ def list_workflows(session: Session, workspace_id: UUID, knowledge_base_id: UUID
         AnswerWorkflow.status, AnswerWorkflow.next_step, AnswerWorkflow.version,
         AnswerWorkflow.attempt_count, AnswerWorkflow.error_code,
         AnswerWorkflow.created_at, AnswerWorkflow.updated_at,
-    ).where(AnswerWorkflow.knowledge_base_id == knowledge_base_id).order_by(
+    ).where(AnswerWorkflow.knowledge_base_id == knowledge_base_id)
+    if status is not None:
+        statement = statement.where(AnswerWorkflow.status == status)
+    statement = statement.order_by(
         AnswerWorkflow.created_at.desc(), AnswerWorkflow.id.desc(),
     ).limit(limit).offset(offset)
     with session.begin():

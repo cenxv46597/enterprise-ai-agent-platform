@@ -7,10 +7,10 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-button, input, textarea { font: inherit; }
+button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: .65; }
-button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #73b7b0; outline-offset: 3px; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #73b7b0; outline-offset: 3px; }
 .app-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .topbar { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 22px 5vw; background: #fff; border-bottom: 1px solid #dce3e7; }
 .brand { display: flex; align-items: center; gap: 12px; font-weight: 650; letter-spacing: .02em; }
@@ -99,6 +99,8 @@ textarea:disabled { background: #f4f6f7; }
 .search-form-panel > p { font-size: 14px; color: #5c6d7b; }
 .search-form-panel form { margin-top: 20px; }
 .search-form-panel .session-note { margin-top: 8px; }
+.workflow-history select { display: block; max-width: 100%; min-height: 44px; margin-top: 8px; padding: 9px 12px; border: 1px solid #bccad2; border-radius: 6px; background: #fff; color: #172b3d; }
+.workflow-history select:disabled { background: #f4f6f7; }
 .search-results { margin-top: 28px; }
 .search-results h2 { font-size: 20px; }
 .submitted-query { overflow-wrap: anywhere; }

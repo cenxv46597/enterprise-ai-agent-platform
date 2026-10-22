@@ -2,6 +2,12 @@ import { ApiError, responseTraceId, strictUuid, webRequestOptions } from './api'
 import type { WorkflowMeta, WorkflowReadTarget } from './workflow-api';
 
 export const WORKFLOW_HISTORY_PAGE_SIZE = 20;
+export type WorkflowHistoryStatusFilter = 'all' | WorkflowMeta['status'];
+export function isWorkflowHistoryStatusFilter(value: unknown): value is WorkflowHistoryStatusFilter {
+  return value === 'all' || value === 'pending' || value === 'running'
+    || value === 'failed' || value === 'completed';
+}
+
 export function isWorkflowHistoryOffset(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value)
     && value >= 0 && value % WORKFLOW_HISTORY_PAGE_SIZE === 0;
@@ -47,7 +53,8 @@ function timestamp(value: unknown): { text: string; instant: bigint } {
   return { text: value, instant: BigInt(milliseconds) * 1000n + BigInt((fraction ?? '').padEnd(6, '0').slice(3)) };
 }
 
-function parseList(payload: unknown, workspace: string, knowledgeBase: string): WorkflowHistoryItem[] {
+function parseList(payload: unknown, workspace: string, knowledgeBase: string,
+  statusFilter: WorkflowHistoryStatusFilter): WorkflowHistoryItem[] {
   if (!Array.isArray(payload) || payload.length > WORKFLOW_HISTORY_PAGE_SIZE) return invalid();
   const ids = new Set<string>();
   let previous: { id: string; created: bigint } | null = null;
@@ -61,6 +68,7 @@ function parseList(payload: unknown, workspace: string, knowledgeBase: string): 
     const version = integer(raw.version, 0, 32), attemptCount = integer(raw.attempt_count, 0, 5);
     const status = raw.status, nextStep = raw.next_step;
     if ((status !== 'pending' && status !== 'running' && status !== 'failed' && status !== 'completed')
+        || (statusFilter !== 'all' && status !== statusFilter)
         || (nextStep !== 'retrieve' && nextStep !== 'generate' && nextStep !== 'done')
         || ((status === 'completed') !== (nextStep === 'done'))
         || (status === 'pending' ? nextStep !== 'retrieve' || attemptCount !== 0 || version !== 0
@@ -83,14 +91,15 @@ function parseList(payload: unknown, workspace: string, knowledgeBase: string): 
 }
 
 export async function listAnswerWorkflows(workspaceId: string, knowledgeBaseId: string,
-  signal: AbortSignal, offset = 0): Promise<WorkflowHistoryItem[]> {
+  signal: AbortSignal, offset = 0, statusFilter: WorkflowHistoryStatusFilter = 'all'): Promise<WorkflowHistoryItem[]> {
   const workspace = strictUuid(workspaceId), knowledgeBase = strictUuid(knowledgeBaseId);
-  if (!isWorkflowHistoryOffset(offset) || signal.aborted) return invalid();
+  if (!isWorkflowHistoryOffset(offset) || !isWorkflowHistoryStatusFilter(statusFilter) || signal.aborted) return invalid();
   const controller = new AbortController(), cancel = () => controller.abort();
   signal.addEventListener('abort', cancel, { once: true });
   const timer = setTimeout(cancel, 10_000);
   try {
-    const url = `/api/v1/workspaces/${workspace}/knowledge-bases/${knowledgeBase}/answer-workflows?limit=${WORKFLOW_HISTORY_PAGE_SIZE}&offset=${offset}`;
+    const statusQuery = statusFilter === 'all' ? '' : `&status=${statusFilter}`;
+    const url = `/api/v1/workspaces/${workspace}/knowledge-bases/${knowledgeBase}/answer-workflows?limit=${WORKFLOW_HISTORY_PAGE_SIZE}&offset=${offset}${statusQuery}`;
     const response = await fetch(url, webRequestOptions({ method: 'GET' }, controller.signal));
     if (controller.signal.aborted) return invalid();
     const messages: Record<number, string> = {
@@ -104,7 +113,7 @@ export async function listAnswerWorkflows(workspaceId: string, knowledgeBaseId: 
     if (response.status !== 200) throw new ApiError(UNCONFIRMED, response.status, responseTraceId(response));
     const payload: unknown = await response.json();
     if (controller.signal.aborted) return invalid();
-    return parseList(payload, workspace, knowledgeBase);
+    return parseList(payload, workspace, knowledgeBase, statusFilter);
   } catch (failure) {
     if (controller.signal.aborted) return invalid();
     if (failure instanceof ApiError) throw failure;

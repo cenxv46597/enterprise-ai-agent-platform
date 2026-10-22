@@ -27,6 +27,7 @@ TEST_NAMES = (
     "test_http_trace_app.py",
     "test_http_trace_metadata.py",
     "test_answer_error_trace.py",
+    "test_answer_workflow_listing.py",
     "test_contract_runner.py",
 )
 TEST_PATHS = tuple(BACKEND / "tests" / name for name in TEST_NAMES)

@@ -159,9 +159,28 @@ def test_service_selects_only_summary_columns_and_filters_orders_pages_in_sql():
     assert "LIMIT" in sql and "OFFSET" in sql
     assert KNOWLEDGE_BASE_ID in compiled.params.values()
     assert 10 in compiled.params.values() and 7 in compiled.params.values()
+    assert "answer_workflows.status =" not in sql
     for forbidden in ("checkpoint", "result", "creation_", "active_request", "lease_",
                       "answer_workflow_attempts", "user_id"):
         assert forbidden not in sql
+
+
+@pytest.mark.parametrize("status", ["pending", "running", "failed", "completed"])
+def test_service_applies_exact_status_in_sql_before_order_limit_and_offset(status):
+    session = FakeSession()
+    assert service.list_workflows(session, WORKSPACE_ID, KNOWLEDGE_BASE_ID, 20, 40, status) == []
+    statement = session.list_statements[0]
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    assert set(statement.selected_columns.keys()) == SELECTED_COLUMNS
+    assert "WHERE answer_workflows.knowledge_base_id =" in sql
+    assert "AND answer_workflows.status =" in sql
+    assert sql.index("AND answer_workflows.status =") < sql.index("ORDER BY") < sql.index("LIMIT") < sql.index("OFFSET")
+    assert "ORDER BY answer_workflows.created_at DESC, answer_workflows.id DESC" in sql
+    assert KNOWLEDGE_BASE_ID in compiled.params.values() and status in compiled.params.values()
+    assert 20 in compiled.params.values() and 40 in compiled.params.values()
+    scope = session.scalar_statements[0].compile(dialect=postgresql.dialect())
+    assert WORKSPACE_ID in scope.params.values() and KNOWLEDGE_BASE_ID in scope.params.values()
 
 
 def test_empty_service_list_still_checks_knowledge_base_parent():
@@ -218,6 +237,38 @@ def test_http_default_list_uses_real_membership_and_parent_scope_without_provide
     assert "workspace_memberships" in membership and "user_id" in membership
     compiled = session.list_statements[0].compile(dialect=postgresql.dialect())
     assert 20 in compiled.params.values() and 0 in compiled.params.values()
+    assert "answer_workflows.status =" not in str(compiled)
+
+
+@pytest.mark.parametrize("status", ["pending", "running", "failed", "completed"])
+def test_http_status_filter_reaches_sql_with_the_existing_page_and_access_scope(status):
+    state = dict(status=status)
+    if status != "pending":
+        state.update(version=3, attempt_count=1)
+    if status == "completed":
+        state.update(next_step="done")
+    elif status == "failed":
+        state.update(error_code="generation_timeout")
+    session = FakeSession([row(**state)], scalar_results=(USER_ID, KNOWLEDGE_BASE_ID))
+    with make_client(session) as client:
+        response = client.get(URL, params={"status": status, "limit": 20, "offset": 20})
+    assert response.status_code == 200 and response.json()[0]["status"] == status
+    assert set(response.json()[0]) == SUMMARY_FIELDS
+    assert len(session.scalar_statements) == 2 and len(session.list_statements) == 1
+    compiled = session.list_statements[0].compile(dialect=postgresql.dialect())
+    assert "AND answer_workflows.status =" in str(compiled)
+    assert status in compiled.params.values() and KNOWLEDGE_BASE_ID in compiled.params.values()
+    assert list(compiled.params.values()).count(20) == 2
+
+
+@pytest.mark.parametrize("status", ["unknown", "all", "", "Pending", "FAILED", "pending ",
+                                    " failed", "failed,completed", "null", "true", "0"])
+def test_http_status_filter_rejects_non_enum_values_before_business_query(status):
+    session = FakeSession(scalar_results=(USER_ID,))
+    with make_client(session) as client:
+        response = client.get(URL, params={"status": status})
+    assert response.status_code == 422
+    assert not session.list_statements
 
 
 def test_http_pagination_boundaries_and_member_shared_tasks():
@@ -243,26 +294,29 @@ def test_http_rejects_invalid_pagination_before_business_query(params):
     assert not session.list_statements
 
 
-def test_http_no_login_is_unauthorized_without_reading_any_task():
+@pytest.mark.parametrize("params", [{}, {"status": "failed"}])
+def test_http_no_login_is_unauthorized_without_reading_any_task(params):
     session = FakeSession()
     with make_client(session, authenticated=False) as client:
-        response = client.get(URL)
+        response = client.get(URL, params=params)
     assert response.status_code == 401
     assert not session.scalar_statements and not session.list_statements
 
 
-def test_http_nonmember_is_hidden_before_knowledge_base_or_task_read():
+@pytest.mark.parametrize("params", [{}, {"status": "failed"}])
+def test_http_nonmember_is_hidden_before_knowledge_base_or_task_read(params):
     session = FakeSession(scalar_results=(None,))
     with make_client(session) as client:
-        response = client.get(URL)
+        response = client.get(URL, params=params)
     assert response.status_code == 404
     assert len(session.scalar_statements) == 1 and not session.list_statements
 
 
-def test_http_wrong_knowledge_base_parent_is_hidden():
+@pytest.mark.parametrize("params", [{}, {"status": "failed"}])
+def test_http_wrong_knowledge_base_parent_is_hidden(params):
     session = FakeSession(scalar_results=(USER_ID, None))
     with make_client(session) as client:
-        response = client.get(URL)
+        response = client.get(URL, params=params)
     assert response.status_code == 404 and not session.list_statements
 
 
