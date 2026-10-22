@@ -12,6 +12,7 @@ import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
 import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
 import KnowledgeSearch, { type SearchOutcome } from './KnowledgeSearch';
 import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
+import { readAnswerCitationSource, AnswerCitationSourceError } from './answer-source-api';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
 import WorkflowHistory, { type WorkflowHistoryView } from './WorkflowHistory';
@@ -29,7 +30,7 @@ import {
 } from './conversation-api';
 
 type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
-  | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer'
+  | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer' | 'answer-source'
   | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-execute'
   | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read'
   | 'workflow-answer-read' | 'workflow-history-list' | 'workflow-history-read' | 'workflow-history-answer' | 'logout' | null;
@@ -428,6 +429,57 @@ export default function App() {
     pending.current = null;
     setBusy(null);
     setAnswerOutcome({ kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE });
+  }
+
+  async function readAnswerSource(index: number) {
+    if (!session || !answerOpen || !selectedWorkspace || !selectedKnowledgeBase
+      || answerOutcome?.kind !== 'confirmed' || answerOutcome.result.abstained
+      || !Number.isSafeInteger(index) || index < 0 || index >= answerOutcome.result.citations.length
+      || pending.current || busy !== null) return;
+    const confirmed = answerOutcome;
+    const citation = confirmed.result.citations[index];
+    const { id, controller } = beginRequest();
+    setBusy('answer-source');
+    setAnswerOutcome({ ...confirmed, source: { index, chunk: null, notice: null } });
+    try {
+      const chunk = await readAnswerCitationSource(selectedWorkspace.id, selectedKnowledgeBase.id, citation, controller.signal);
+      if (isCurrent(id, controller)) setAnswerOutcome(outcome =>
+        outcome?.kind === 'confirmed' && outcome.result === confirmed.result
+          ? { ...outcome, source: { index, chunk, notice: null } } : outcome);
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setAnswerOutcome(outcome => outcome?.kind === 'confirmed' && outcome.result === confirmed.result
+        ? { ...outcome, source: { index, chunk: null, notice: {
+          message: failure instanceof AnswerCitationSourceError ? failure.message
+            : '无法确认这条引文的当前来源段落，请稍后手动重新读取。',
+          traceId: failure instanceof ApiError ? failure.traceId : null,
+        } } } : outcome);
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
+  }
+
+  function stopWaitingForAnswerSource() {
+    if (busy !== 'answer-source') return;
+    generation.current += 1;
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(null);
+    setAnswerOutcome(outcome => outcome?.kind === 'confirmed' && outcome.source
+      ? { ...outcome, source: { index: outcome.source.index, chunk: null,
+        notice: { message: '已停止读取来源；可手动重新读取。', traceId: null } } } : outcome);
+  }
+
+  function closeAnswerSource() {
+    if (!answerOpen || busy === 'logout') return;
+    if (busy === 'answer-source') {
+      generation.current += 1;
+      pending.current?.abort();
+      pending.current = null;
+      setBusy(null);
+    }
+    setAnswerOutcome(outcome => outcome?.kind === 'confirmed' ? { ...outcome, source: undefined } : outcome);
   }
 
   function openConversation() {
@@ -1024,8 +1076,8 @@ export default function App() {
       readNotice: view.readNotice && { ...view.readNotice, traceId: null },
       savedAnswerNotice: view.savedAnswerNotice && { ...view.savedAnswerNotice, traceId: null } });
     if (answerOpen) {
-      setAnswerOutcome(outcome => outcome && outcome.kind !== 'confirmed'
-        ? { kind: outcome.kind, message: outcome.message } : outcome);
+      setAnswerOutcome(outcome => outcome?.kind === 'confirmed' ? { ...outcome, source: undefined }
+        : outcome ? { kind: outcome.kind, message: outcome.message } : outcome);
     }
     markConversationInterrupted(busy);
     markWorkflowInterrupted(busy);
@@ -1170,9 +1222,12 @@ export default function App() {
         /> : selectedWorkspace && selectedKnowledgeBase && answerOpen ? <KnowledgeAnswer
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
-          activity={busy === 'answer' ? 'answering' : busy === 'logout' ? 'logout' : 'idle'}
+          activity={busy === 'answer' ? 'answering' : busy === 'answer-source' ? 'reading-source'
+            : busy === 'logout' ? 'logout' : 'idle'}
           outcome={answerOutcome} error={error} onAnswer={question => void answer(question)}
           onCancel={stopWaitingForAnswer} onBack={backToDocuments}
+          onReadSource={index => void readAnswerSource(index)} onCancelSource={stopWaitingForAnswerSource}
+          onCloseSource={closeAnswerSource}
         /> : selectedWorkspace && selectedKnowledgeBase && searchOpen ? <KnowledgeSearch
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}

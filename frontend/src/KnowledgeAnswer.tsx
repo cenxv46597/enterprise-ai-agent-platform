@@ -1,23 +1,32 @@
 import { useState, type FormEvent } from 'react';
-import type { KnowledgeAnswerResult } from './api';
+import type { DocumentChunk, KnowledgeAnswerResult } from './api';
+
+export type AnswerSourceView = {
+  index: number;
+  chunk: DocumentChunk | null;
+  notice: { message: string; traceId: string | null } | null;
+};
 
 export type AnswerOutcome =
-  | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult }
+  | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult; source?: AnswerSourceView }
   | { kind: 'unconfirmed' | 'rejected'; message: string; traceId?: string | null };
 
 type Props = {
   workspaceName: string;
   knowledgeBaseName: string;
-  activity: 'idle' | 'answering' | 'logout';
+  activity: 'idle' | 'answering' | 'reading-source' | 'logout';
   outcome: AnswerOutcome | null;
   error: string;
   onAnswer: (question: string) => void;
   onCancel: () => void;
   onBack: () => void;
+  onReadSource?: (index: number) => void;
+  onCancelSource?: () => void;
+  onCloseSource?: () => void;
 };
 
 export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, activity,
-  outcome, error, onAnswer, onCancel, onBack }: Props) {
+  outcome, error, onAnswer, onCancel, onBack, onReadSource, onCancelSource, onCloseSource }: Props) {
   const [question, setQuestion] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
@@ -51,7 +60,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
     {activity === 'logout' ? <p className="message" role="status">正在确认退出…</p> : <>
       <div className="search-form-panel">
         <p id="answer-scope">问答范围为当前知识库中的全部可检索文档，不限于文档列表第一页。</p>
-        <form noValidate onSubmit={submit} aria-busy={activity === 'answering'}>
+        <form noValidate onSubmit={submit} aria-busy={busy}>
           <label htmlFor="answer-question">问答问题</label>
           <textarea id="answer-question" rows={3} value={question} disabled={busy}
             aria-describedby="answer-scope answer-help" aria-invalid={validationError ? true : undefined}
@@ -84,14 +93,41 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
             <h3>引用来源 · {outcome.result.citations.length} 条</h3>
             <p className="session-note">以下展示完整引文；字符范围对应引文在解析文本中的 [开始, 结束)，
               不是文件字节位置。引用存在仍需结合原文判断回答是否受到支持。</p>
-            <ol className="answer-citation-list">{outcome.result.citations.map((citation, index) =>
-              <li className="answer-citation" key={`${citation.chunkId}/${index}`}>
+            <ol className="answer-citation-list">{outcome.result.citations.map((citation, index) => {
+              const source = outcome.source?.index === index ? outcome.source : null;
+              const characters = source?.chunk ? Array.from(source.chunk.content) : null;
+              const quoteStart = source?.chunk ? citation.startChar - source.chunk.startChar : 0;
+              const quoteEnd = source?.chunk ? citation.endChar - source.chunk.startChar : 0;
+              return <li className="answer-citation" key={`${citation.chunkId}/${index}`}>
                 <h4>引用 {index + 1} · {citation.documentName}</h4>
                 <p className="page-caption">文本块 {citation.chunkIndex} · 引文字符范围：
                   [{citation.startChar}, {citation.endChar})</p>
                 <blockquote className="answer-quote">{citation.quote}</blockquote>
-              </li>,
-            )}</ol>
+                <button className="button secondary" type="button" disabled={busy || !onReadSource}
+                  aria-label={`查看引用 ${index + 1} 的完整来源段落`} aria-expanded={source !== null}
+                  onClick={() => onReadSource?.(index)}>
+                  {source?.chunk ? '重新读取完整来源段落' : '查看完整来源段落'}</button>
+                {source && <section className="answer-source" aria-label={`引用 ${index + 1} 的完整来源段落`}>
+                  {activity === 'reading-source' && <>
+                    <p className="message" role="status">正在读取来源段落…</p>
+                    <button className="button secondary" type="button" onClick={onCancelSource}>停止读取来源</button>
+                  </>}
+                  {source.notice && <p className="message error" role="alert">{source.notice.message}
+                    {source.notice.traceId && <><br /><span>排错编号：<code>{source.notice.traceId}</code></span></>}
+                  </p>}
+                  {source.chunk && characters && <>
+                    <p className="page-caption">完整文本块 {source.chunk.chunkIndex} · 字符范围：
+                      [{source.chunk.startChar}, {source.chunk.endChar})</p>
+                    <p className="session-note">本条引文与本次读取的来源段落一致，标亮部分是引文。
+                      这里展示一个完整文本块，请结合上下文判断回答是否准确。</p>
+                    <pre className="chunk-preview" tabIndex={0} aria-label="完整来源正文">{characters.slice(0, quoteStart).join('')}
+                      <mark>{characters.slice(quoteStart, quoteEnd).join('')}</mark>
+                      {characters.slice(quoteEnd).join('')}</pre>
+                  </>}
+                  <button className="button secondary" type="button" onClick={onCloseSource}>关闭来源段落</button>
+                </section>}
+              </li>;
+            })}</ol>
           </>}
         </> : <p className="message error" role="alert">{outcome.message}
           {outcome.traceId && <><br /><span>排错编号：<code>{outcome.traceId}</code></span></>}
