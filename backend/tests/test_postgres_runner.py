@@ -211,20 +211,25 @@ def test_allowing_postgres_does_not_allow_other_network_operations(operation):
     assert len(guard.attempts) == 1
 
 
-def test_exact_eighteen_database_nodes_are_required():
+def test_exact_nineteen_database_nodes_are_required():
     audit = runner.DatabaseSuiteAudit()
     passing_database(audit)
-    assert audit.collected == 18 and audit.complete()
+    assert audit.collected == 19 and audit.complete()
     assert "test_auth_upgrade_ci_db.py::test_0009_to_0010_preserves_legacy_data_and_explicit_membership" in runner.EXPECTED_NODES
+    assert "test_document_chunk_read_db.py::test_db_chunk_read_scopes_projection_and_unchanged_data" in runner.EXPECTED_NODES
 
 
-@pytest.mark.parametrize("change", ["missing", "missing-migration", "extra", "renamed", "duplicate", "different-path"])
+@pytest.mark.parametrize("change", [
+    "missing", "missing-migration", "missing-chunk", "extra", "renamed", "duplicate", "different-path",
+])
 def test_collection_cannot_substitute_nodes_even_with_the_same_count(change):
     items = database_items()
     if change == "missing":
         items.pop()
     elif change == "missing-migration":
         items = [item for item in items if item.path.name != "test_auth_upgrade_ci_db.py"]
+    elif change == "missing-chunk":
+        items = [item for item in items if item.path.name != "test_document_chunk_read_db.py"]
     elif change == "extra":
         items.append(SimpleNamespace(path=items[0].path, originalname="extra_test", name="extra_test"))
     elif change == "renamed":

@@ -34,6 +34,7 @@ ROLE_PATTERN = re.compile(r"eaap_check_[0-9a-f]{32}")
 SCHEMA_PATTERN = re.compile(r"eaap_test_[0-9a-f]{32}")
 DB_TEST_PATHS = tuple(BACKEND / "tests" / name for name in (
     "test_answer_workflow_listing_db.py", "test_readiness_db.py", "test_auth_upgrade_ci_db.py",
+    "test_document_chunk_read_db.py",
 ))
 EXPECTED_NODES = frozenset({
     "test_answer_workflow_listing_db.py::" + name for name in (
@@ -60,6 +61,7 @@ EXPECTED_NODES = frozenset({
     )
 } | {
     "test_auth_upgrade_ci_db.py::test_0009_to_0010_preserves_legacy_data_and_explicit_membership",
+    "test_document_chunk_read_db.py::test_db_chunk_read_scopes_projection_and_unchanged_data",
 })
 
 

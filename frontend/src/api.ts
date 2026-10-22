@@ -358,8 +358,30 @@ export async function getDocument(
   };
 }
 
+const CHUNK_CHARACTER_LIMIT = 10 * 1024 * 1024;
+
+function parseDocumentChunk(payload: unknown, documentId: string, characterLimit = CHUNK_CHARACTER_LIMIT): DocumentChunk {
+  if (!isObject(payload) || !Number.isSafeInteger(payload.chunk_index) || (payload.chunk_index as number) < 1
+      || typeof payload.content !== "string" || payload.content.length === 0
+      || !Number.isSafeInteger(payload.start_char) || !Number.isSafeInteger(payload.end_char)) {
+    throw new ApiError(INVALID_RESPONSE);
+  }
+  const startChar = payload.start_char as number;
+  const endChar = payload.end_char as number;
+  if (startChar < 0 || endChar <= startChar) throw new ApiError(INVALID_RESPONSE);
+  const id = strictUuid(payload.id);
+  const returnedDocumentId = strictUuid(payload.document_id);
+  if (returnedDocumentId !== documentId) throw new ApiError(INVALID_RESPONSE);
+  let characterCount = 0;
+  for (const _character of payload.content) {
+    if (++characterCount > characterLimit) throw new ApiError(INVALID_RESPONSE);
+  }
+  if (characterCount !== endChar - startChar) throw new ApiError(INVALID_RESPONSE);
+  return { id, documentId: returnedDocumentId, chunkIndex: payload.chunk_index as number,
+    content: payload.content, startChar, endChar };
+}
+
 function parseDocumentChunks(payload: unknown, documentId: string, allowEmpty: boolean): DocumentChunk[] {
-  const characterLimit = 10 * 1024 * 1024;
   if (!Array.isArray(payload) || payload.length > 10_000 || (!allowEmpty && payload.length === 0)) {
     throw new ApiError(INVALID_RESPONSE);
   }
@@ -368,32 +390,18 @@ function parseDocumentChunks(payload: unknown, documentId: string, allowEmpty: b
   let previousStart = -1;
   let previousEnd = -1;
   return payload.map((item: unknown, index: number) => {
-    if (!isObject(item) || !Number.isSafeInteger(item.chunk_index) || item.chunk_index !== index + 1
-        || typeof item.content !== "string" || item.content.length === 0
-        || !Number.isSafeInteger(item.start_char) || !Number.isSafeInteger(item.end_char)) {
+    const chunk = parseDocumentChunk(item, documentId, CHUNK_CHARACTER_LIMIT - totalCharacters);
+    if (chunk.chunkIndex !== index + 1 || seen.has(chunk.id)
+        || (index === 0 && chunk.startChar !== 0)
+        || (index > 0 && (chunk.startChar <= previousStart || chunk.endChar <= previousEnd || chunk.startChar > previousEnd))) {
       throw new ApiError(INVALID_RESPONSE);
     }
-    const startChar = item.start_char as number;
-    const endChar = item.end_char as number;
-    if (startChar < 0 || endChar <= startChar
-        || (index === 0 && startChar !== 0)
-        || (index > 0 && (startChar <= previousStart || endChar <= previousEnd || startChar > previousEnd))) {
-      throw new ApiError(INVALID_RESPONSE);
-    }
-    const id = strictUuid(item.id);
-    const returnedDocumentId = strictUuid(item.document_id);
-    if (returnedDocumentId !== documentId || seen.has(id)) throw new ApiError(INVALID_RESPONSE);
-    let characterCount = 0;
-    for (const _character of item.content) {
-      characterCount += 1;
-      if (totalCharacters + characterCount > characterLimit) throw new ApiError(INVALID_RESPONSE);
-    }
-    if (characterCount !== endChar - startChar) throw new ApiError(INVALID_RESPONSE);
-    totalCharacters += characterCount;
-    previousStart = startChar;
-    previousEnd = endChar;
-    seen.add(id);
-    return { id, documentId: returnedDocumentId, chunkIndex: index + 1, content: item.content, startChar, endChar };
+    totalCharacters += chunk.endChar - chunk.startChar;
+    if (totalCharacters > CHUNK_CHARACTER_LIMIT) throw new ApiError(INVALID_RESPONSE);
+    previousStart = chunk.startChar;
+    previousEnd = chunk.endChar;
+    seen.add(chunk.id);
+    return chunk;
   });
 }
 
@@ -405,6 +413,20 @@ export async function listDocumentChunks(
 ): Promise<DocumentChunk[]> {
   const path = `${documentPath(workspaceId, knowledgeBaseId, documentId)}/chunks`;
   return parseDocumentChunks(await request(path, { method: "GET" }, signal, false, false, 200), strictUuid(documentId), true);
+}
+
+export async function getDocumentChunk(
+  workspaceId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+  chunkId: string,
+  signal: AbortSignal,
+): Promise<DocumentChunk> {
+  const expectedChunkId = strictUuid(chunkId);
+  const path = `${documentPath(workspaceId, knowledgeBaseId, documentId)}/chunks/${expectedChunkId}`;
+  const chunk = parseDocumentChunk(await request(path, { method: "GET" }, signal, false, false, 200), strictUuid(documentId));
+  if (chunk.id !== expectedChunkId) throw new ApiError(INVALID_RESPONSE);
+  return chunk;
 }
 
 export async function createDocumentChunks(

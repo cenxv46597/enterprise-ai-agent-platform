@@ -1,5 +1,7 @@
 # 独立 PostgreSQL 集成 CI
 
+2026-10-22接续[引文单块读取](../backend/document-chunk-read.md)：固定清单增加test_document_chunk_read_db.py的精确节点，当前4文件19节点，本地19项/29.84秒通过，cleanup_ok=True；入口安全133项/2.27秒通过，漏新节点拒绝判绿。两者pytest/final0、skip/xfail/violations均0。新用例在独立eaap_test中验证第24/25块、真实成员与范围JOIN、六列无向量投影、旧列表和数据未变；临时身份/schema清理后角色0、vector仍0.8.6。新版本未推送、未运行云端；下文18项远端证据只属于原版本。
+
 2026-10-21新增升级场景的远端补证：[39591550657](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39591550657)在`e41be96`、push/attempt1全部成功，实际日志入口132项/0.66秒、固定SQL18项/5.53秒及清理通过；Ubuntu24.04/Python3.13.7安装/pip check与容器停止成功。该版本已明确授权推送并核对真实ref。后续前端分页仍只本地，不能继承本次推送授权或云端结果；下文未推送/远端17项为各自旧阶段。
 
 接续范围已扩为[固定0009→0010升级检查](../backend/auth-upgrade-ci-validation.md)：原17项加1项正式Alembic旧资料保留验证，共18项。测试库vector扩展由管理入口检查/按需预置，临时身份权限和随机schema清理范围不扩大。本次18项尚未推送，以下39565175267和39566111253等17项远端结果只证明上一版本；当前结果见最新进度。

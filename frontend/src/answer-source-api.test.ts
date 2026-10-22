@@ -7,10 +7,10 @@ import { AnswerCitationSourceError, readAnswerCitationSource } from './answer-so
 const WORKSPACE = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const KNOWLEDGE_BASE = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const DOCUMENT = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
-const PREFIX_CHUNK = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const CHUNK = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 const OTHER = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 const DOCUMENT_PATH = `/api/v1/workspaces/${WORKSPACE}/knowledge-bases/${KNOWLEDGE_BASE}/documents/${DOCUMENT}`;
+const CHUNK_PATH = `${DOCUMENT_PATH}/chunks/${CHUNK}`;
 const TRACE_A = 'f89ebaf3-bfe1-4aee-a379-c43f42a7bf8f';
 const TRACE_B = '4ea9ee41-af23-4c44-a103-2231d4e03b43';
 const PRIVATE = 'PRIVATE-SOURCE-DETAIL';
@@ -31,11 +31,8 @@ function documentResponse(changes: Record<string, unknown> = {}) {
 }
 
 function chunkResponse(changes: Record<string, unknown> = {}) {
-  return [
-    { id: PREFIX_CHUNK, document_id: DOCUMENT, chunk_index: 1, content: '前导😀内容', start_char: 0, end_char: 5 },
-    { id: CHUNK, document_id: DOCUMENT, chunk_index: 2, content: CONTENT,
-      start_char: CHUNK_START, end_char: CHUNK_START + Array.from(CONTENT).length, ...changes },
-  ];
+  return { id: CHUNK, document_id: DOCUMENT, chunk_index: 2, content: CONTENT,
+    start_char: CHUNK_START, end_char: CHUNK_START + Array.from(CONTENT).length, ...changes };
 }
 
 function json(payload: unknown, status = 200, traceId?: string): Response {
@@ -57,10 +54,15 @@ async function rejected(action: Promise<unknown>): Promise<AnswerCitationSourceE
 }
 
 beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock); });
-afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => {
+  const listReads = fetchMock.mock.calls.filter(([path, options]) => (options?.method ?? 'GET') === 'GET'
+    && String(path).split('?')[0].endsWith('/chunks'));
+  vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  expect(listReads).toEqual([]);
+});
 
 describe('手动读取单条引文的当前完整来源块', () => {
-  it('读取当前范围文档与完整块列表，按Unicode位置核对，只投影选中块且不截断正文', async () => {
+  it('读取当前范围文档与指定单块，按Unicode位置核对，只投影目标块且不截断正文', async () => {
     fetchMock.mockResolvedValueOnce(json(documentResponse(), 200, TRACE_A))
       .mockResolvedValueOnce(json(chunkResponse({ raw: PRIVATE }), 200, TRACE_B));
     const result = await readAnswerCitationSource(WORKSPACE.toUpperCase(), KNOWLEDGE_BASE.toUpperCase(), {
@@ -72,7 +74,7 @@ describe('手动读取单条引文的当前完整来源块', () => {
     expect(JSON.stringify(result)).not.toContain(PRIVATE);
     expect(JSON.stringify(result)).not.toContain(TRACE_A);
     expect(JSON.stringify(result)).not.toContain(TRACE_B);
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([DOCUMENT_PATH, `${DOCUMENT_PATH}/chunks`]);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([DOCUMENT_PATH, CHUNK_PATH]);
     for (const [, options] of fetchMock.mock.calls) {
       expect(options).toMatchObject({ method: 'GET', credentials: 'same-origin', mode: 'same-origin',
         cache: 'no-store', redirect: 'error' });
@@ -91,7 +93,7 @@ describe('手动读取单条引文的当前完整来源块', () => {
     target.startChar = 0; target.endChar = 1;
     finish(json(documentResponse()));
     expect((await action).id).toBe(CHUNK);
-    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([DOCUMENT_PATH, `${DOCUMENT_PATH}/chunks`]);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([DOCUMENT_PATH, CHUNK_PATH]);
   });
 
   it('重复文本必须出现在指定范围；其它位置存在相同字样不能放行', async () => {
@@ -146,7 +148,7 @@ describe('手动读取单条引文的当前完整来源块', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('空块列表和超出块边界的引文均不返回任何正文', async () => {
+  it('数组冒充单块响应和超出块边界的引文均不返回任何正文', async () => {
     fetchMock.mockResolvedValueOnce(json(documentResponse())).mockResolvedValueOnce(json([]));
     expect(await rejected(read())).toMatchObject({ traceId: null });
     fetchMock.mockResolvedValueOnce(json(documentResponse())).mockResolvedValueOnce(json(chunkResponse()));
@@ -175,7 +177,7 @@ describe('手动读取单条引文的当前完整来源块', () => {
     if (stage === 'document') vi.spyOn(api, 'getDocument').mockRejectedValueOnce(unauthorized);
     else {
       fetchMock.mockResolvedValueOnce(json(documentResponse(), 200, TRACE_A));
-      vi.spyOn(api, 'listDocumentChunks').mockRejectedValueOnce(unauthorized);
+      vi.spyOn(api, 'getDocumentChunk').mockRejectedValueOnce(unauthorized);
     }
     await expect(read()).rejects.toBe(unauthorized);
     expect(fetchMock).toHaveBeenCalledTimes(stage === 'document' ? 0 : 1);

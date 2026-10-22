@@ -1,4 +1,4 @@
-import { ApiError, getDocument, listDocumentChunks, strictUuid } from './api';
+import { ApiError, getDocument, getDocumentChunk, strictUuid } from './api';
 import type { AnswerCitation, DocumentChunk } from './api';
 
 const UNCONFIRMED = '无法确认这条引文的当前来源段落，请稍后手动重新读取。';
@@ -40,10 +40,9 @@ export async function readAnswerCitationSource(workspaceId: string, knowledgeBas
     if (signal.aborted || document.originalFilename !== target.documentName || document.status !== 'ready') {
       throw new AnswerCitationSourceError();
     }
-    const chunks = await listDocumentChunks(workspace, knowledgeBase, target.documentId, signal);
+    const chunk = await getDocumentChunk(workspace, knowledgeBase, target.documentId, target.chunkId, signal);
     if (signal.aborted) throw new AnswerCitationSourceError();
-    const chunk = chunks.find(item => item.id === target.chunkId);
-    if (!chunk || chunk.documentId !== target.documentId || chunk.chunkIndex !== target.chunkIndex
+    if (chunk.documentId !== target.documentId || chunk.chunkIndex !== target.chunkIndex
         || target.startChar < chunk.startChar || target.endChar > chunk.endChar
         || Array.from(chunk.content).slice(target.startChar - chunk.startChar,
           target.endChar - chunk.startChar).join('') !== target.quote) {

@@ -154,6 +154,7 @@ def test_anonymous_workspace_entries_and_all_nested_routers_require_identity(
             "workspace_id": placeholder,
             "knowledge_base_id": placeholder,
             "document_id": placeholder,
+            "chunk_id": placeholder,
             "conversation_id": placeholder,
             "workflow_id": placeholder,
         })

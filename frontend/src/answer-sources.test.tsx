@@ -14,7 +14,7 @@ const RESTORE = '/api/v1/auth/web/session', LOGOUT = '/api/v1/auth/web/logout';
 const SPACES = '/api/v1/workspaces', KNOWLEDGE = `${SPACES}/${SPACE}/knowledge-bases`;
 const DOCUMENTS = `${KNOWLEDGE}/${KB}/documents`, ANSWERS = `${KNOWLEDGE}/${KB}/answers`;
 const DETAIL_A = `${DOCUMENTS}/${DOCUMENT_A}`, DETAIL_B = `${DOCUMENTS}/${DOCUMENT_B}`;
-const CHUNKS_A = `${DETAIL_A}/chunks`, CHUNKS_B = `${DETAIL_B}/chunks`;
+const CHUNK_A_PATH = `${DETAIL_A}/chunks/${CHUNK_A}`, CHUNK_B_PATH = `${DETAIL_B}/chunks/${CHUNK_B}`;
 const FILENAME_A = '导出说明.md', FILENAME_B = '保留期限.md';
 const QUESTION = '导出资料如何组织？', NEXT_QUESTION = '下一次问题是什么？';
 const ANSWER = '导出资料保留名称和日期等信息，保留期限见来源。';
@@ -56,9 +56,9 @@ function citation(index: number) {
 function answerResult() {
   return { answer: ANSWER, abstained: false, citations: [0, 1, 2].map(citation), reranking: null };
 }
-function chunks(documentId = DOCUMENT_A, content = documentId === DOCUMENT_A ? CONTENT_A : CONTENT_B) {
-  return [{ id: documentId === DOCUMENT_A ? CHUNK_A : CHUNK_B, document_id: documentId,
-    chunk_index: 1, content, start_char: 0, end_char: characters(content) }];
+function chunkResponse(documentId = DOCUMENT_A, content = documentId === DOCUMENT_A ? CONTENT_A : CONTENT_B) {
+  return { id: documentId === DOCUMENT_A ? CHUNK_A : CHUNK_B, document_id: documentId,
+    chunk_index: 1, content, start_char: 0, end_char: characters(content) };
 }
 function deferred() {
   let resolve!: (response: Response) => void;
@@ -66,7 +66,7 @@ function deferred() {
 }
 function pathOf(request: Request) { return new URL(request.url).pathname; }
 function answerPosts(requests: Request[]) { return requests.filter(request => request.method === 'POST' && pathOf(request) === ANSWERS); }
-function chunkReads(requests: Request[]) { return requests.filter(request => [CHUNKS_A, CHUNKS_B].includes(pathOf(request))); }
+function chunkReads(requests: Request[]) { return requests.filter(request => [CHUNK_A_PATH, CHUNK_B_PATH].includes(pathOf(request))); }
 
 // All traffic is a fixture; aborted requests may deliberately resolve late.
 function installApi(route: Route = () => undefined) {
@@ -82,8 +82,10 @@ function installApi(route: Route = () => undefined) {
       case DOCUMENTS: return json([documentRow()]);
       case DETAIL_A: return json(documentRow());
       case DETAIL_B: return json(documentRow(DOCUMENT_B));
-      case CHUNKS_A: return json(chunks());
-      case CHUNKS_B: return json(chunks(DOCUMENT_B));
+      case CHUNK_A_PATH: return json(chunkResponse());
+      case CHUNK_B_PATH: return json(chunkResponse(DOCUMENT_B));
+      case `${DETAIL_A}/chunks`:
+      case `${DETAIL_B}/chunks`: throw new Error('Source previews must not read the whole chunk list');
       case ANSWERS: return json(answerResult());
       default: throw new Error('Unexpected answer-source fixture endpoint');
     }
@@ -124,6 +126,8 @@ function expectOnlyAnswerWrites(requests: Request[], count = 1) {
   expect(answerPosts(requests)).toHaveLength(count);
   expect(requests.filter(request => request.method !== 'GET' && pathOf(request) !== LOGOUT)
     .map(request => [request.method, pathOf(request)])).toEqual(Array.from({ length: count }, () => ['POST', ANSWERS]));
+  expect(requests.filter(request => request.method === 'GET'
+    && pathOf(request).endsWith('/chunks'))).toHaveLength(0);
   expect(document.body.textContent).not.toContain(PRIVATE);
 }
 
@@ -141,7 +145,7 @@ describe('引用问答中手动查看完整来源段落', () => {
     expect(preview.querySelectorAll('mark')).toHaveLength(1);
     expect(preview.querySelector('mark')?.textContent).toBe(QUOTE_A);
     expect(document.querySelector('img')).toBeNull(); expect(document.querySelector('script')).toBeNull();
-    expect(requests.slice(before).map(pathOf)).toEqual([DETAIL_A, CHUNKS_A]);
+    expect(requests.slice(before).map(pathOf)).toEqual([DETAIL_A, CHUNK_A_PATH]);
     for (const request of requests.slice(before)) {
       expect(request.method).toBe('GET'); expect(request.body).toBeNull();
       expect(request.credentials).toBe('same-origin'); expect(request.headers.get('X-EAAP-Web')).toBe('1');
@@ -151,15 +155,15 @@ describe('引用问答中手动查看完整来源段落', () => {
   });
 
   it('来源等待中保留原答案，禁用新提交和其他来源，双击不产生第二次读取', async () => {
-    const pending = deferred(); const requests = installApi(request => pathOf(request) === CHUNKS_A ? pending.promise : undefined);
+    const pending = deferred(); const requests = installApi(request => pathOf(request) === CHUNK_A_PATH ? pending.promise : undefined);
     await prepare(); const before = requests.length; await click(sourceButton());
     expectConfirmedAnswer(); expectNoFullSource();
     expect((screen.getByRole('button', { name: '生成回答' }) as HTMLButtonElement).disabled).toBe(true);
     expect(sourceButton(2).disabled).toBe(true); expect(sourceButton(3).disabled).toBe(true);
     await click(sourceButton()); await click(sourceButton(3));
     await click(screen.getByRole('button', { name: '生成回答' }));
-    expect(requests.slice(before).map(pathOf)).toEqual([DETAIL_A, CHUNKS_A]);
-    await resolve(pending, json(chunks()));
+    expect(requests.slice(before).map(pathOf)).toEqual([DETAIL_A, CHUNK_A_PATH]);
+    await resolve(pending, json(chunkResponse()));
     expect(sourceRegion().textContent).toContain(CONTENT_A);
     expect(sourceButton(3).disabled).toBe(false); expectOnlyAnswerWrites(requests);
   });
@@ -176,7 +180,7 @@ describe('引用问答中手动查看完整来源段落', () => {
 
   it('等待时关闭来源会取消请求；同一答案重新打开成功后，旧失败不能覆盖新预览或带回编号', async () => {
     const old = deferred(); let reads = 0;
-    const requests = installApi(request => pathOf(request) === CHUNKS_A && ++reads === 1 ? old.promise : undefined);
+    const requests = installApi(request => pathOf(request) === CHUNK_A_PATH && ++reads === 1 ? old.promise : undefined);
     await prepare(); await click(sourceButton());
     const cancelled = chunkReads(requests)[0];
     await click(screen.getByRole('button', { name: '关闭来源段落' }));
@@ -197,7 +201,7 @@ describe('引用问答中手动查看完整来源段落', () => {
     let documentReads = 0;
     const requests = installApi(request => {
       if (pathOf(request) === DETAIL_B && ++documentReads > 1 && stage === 'detail') return json({ detail: PRIVATE }, 503, TRACE_A);
-      if (pathOf(request) === CHUNKS_B && stage === 'chunks') return json({ detail: PRIVATE }, 503, TRACE_A);
+      if (pathOf(request) === CHUNK_B_PATH && stage === 'chunks') return json({ detail: PRIVATE }, 503, TRACE_A);
     });
     await prepare(); await click(sourceButton()); expect(sourceRegion().textContent).toContain(CONTENT_A);
     await click(sourceButton(3)); expectNoFullSource(); expectConfirmedAnswer();
@@ -209,7 +213,7 @@ describe('引用问答中手动查看完整来源段落', () => {
 
   it('200返回的当前块引文已变化时不展示完整正文，也不把成功HTTP编号当失败编号', async () => {
     const changed = CONTENT_A.replace(QUOTE_A, '变'.repeat(characters(QUOTE_A)));
-    const requests = installApi(request => pathOf(request) === CHUNKS_A ? json(chunks(DOCUMENT_A, changed), 200, TRACE_A) : undefined);
+    const requests = installApi(request => pathOf(request) === CHUNK_A_PATH ? json(chunkResponse(DOCUMENT_A, changed), 200, TRACE_A) : undefined);
     await prepare(); await click(sourceButton());
     expectNoFullSource(); expectNoTrace(); expectConfirmedAnswer();
     expect(within(sourceRegion()).getByRole('alert')).toBeTruthy(); expectOnlyAnswerWrites(requests);
@@ -218,14 +222,14 @@ describe('引用问答中手动查看完整来源段落', () => {
   it('停止来源读取不撤销已确认答案；随后新问题成功后，旧来源迟到也不能挂到新答案', async () => {
     const pending = deferred(); let answers = 0;
     const requests = installApi(request => {
-      if (pathOf(request) === CHUNKS_A) return pending.promise;
+      if (pathOf(request) === CHUNK_A_PATH) return pending.promise;
       if (pathOf(request) === ANSWERS && ++answers === 2) return json({ answer: ABSTENTION, abstained: true, citations: [], reranking: null });
     });
     await prepare(); await click(sourceButton());
     const old = chunkReads(requests)[0]; await click(screen.getByRole('button', { name: '停止读取来源' }));
     expect(old.signal.aborted).toBe(true); expectConfirmedAnswer(); expectNoFullSource();
     await submit(NEXT_QUESTION); expect(screen.getByText(ABSTENTION)).toBeTruthy();
-    const before = requests.length; await resolve(pending, json(chunks()));
+    const before = requests.length; await resolve(pending, json(chunkResponse()));
     expect(requests).toHaveLength(before); expect(within(answerRegion()).getByText(NEXT_QUESTION)).toBeTruthy();
     expect(screen.queryByText(ANSWER)).toBeNull(); expectNoFullSource(); expectNoTrace(); expectOnlyAnswerWrites(requests, 2);
   });
@@ -247,7 +251,7 @@ describe('引用问答中手动查看完整来源段落', () => {
     const pending = deferred(), exiting = deferred();
     const requests = installApi(request => {
       if (pathOf(request) === RESTORE && action === 'expiry') return sessionResponse(Date.now() / 1000 + 2);
-      if (pathOf(request) === CHUNKS_A) return pending.promise;
+      if (pathOf(request) === CHUNK_A_PATH) return pending.promise;
       if (pathOf(request) === LOGOUT && action === 'logout-failed') return exiting.promise;
     });
     await prepare(); await click(sourceButton()); const old = chunkReads(requests)[0];

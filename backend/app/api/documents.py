@@ -303,6 +303,30 @@ def get_document_chunks(
     )
 
 
+@router.get("/{document_id}/chunks/{chunk_id}", response_model=ChunkRead)
+def get_document_chunk(
+    workspace_id: UUID,
+    knowledge_base_id: UUID,
+    document_id: UUID,
+    chunk_id: UUID,
+    session: DbSession,
+) -> ChunkRead:
+    row = session.execute(
+        select(Chunk.id, Chunk.document_id, Chunk.chunk_index, Chunk.content, Chunk.start_char, Chunk.end_char)
+        .join(Document, Chunk.document_id == Document.id)
+        .join(KnowledgeBase, Document.knowledge_base_id == KnowledgeBase.id)
+        .where(
+            Chunk.id == chunk_id,
+            Chunk.document_id == document_id,
+            Document.knowledge_base_id == knowledge_base_id,
+            KnowledgeBase.workspace_id == workspace_id,
+        )
+    ).mappings().one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文本块不存在")
+    return ChunkRead.model_validate(row)
+
+
 @router.post("/{document_id}/embeddings", response_model=EmbeddingRead)
 def create_document_embeddings(
     workspace_id: UUID,
