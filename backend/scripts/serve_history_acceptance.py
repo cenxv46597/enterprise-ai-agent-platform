@@ -27,6 +27,8 @@ DEFAULT_PORT = 8810
 DEFAULT_MAX_SECONDS = 900
 TEMP_PREFIX = "eaap-history-acceptance-"
 FIXTURE_PASSWORD = "HistoryBrowser-Disposable-Only"
+FILTER_STATUSES = frozenset({"pending", "running", "failed", "completed"})
+EXPECTED_STATUS_COUNTS = (("completed", 10), ("failed", 25), ("pending", 45), ("running", 5))
 sys.path.insert(0, str(BACKEND))
 
 from scripts.run_contract_tests import isolated_settings, prepare_environment
@@ -68,7 +70,9 @@ class ReadOnlyRoutes:
         }
         self.pages = {"/api/v1/workspaces": {0}}
         self.history_pages, self.forty_details = {}, set()
-        self.coverage_required = {"login_200", "logout_204", "history_45_20_503", "detail_40_200"}
+        self.coverage_required = {"login_200", "logout_204", "history_45_failed_20_503", "detail_40_200",
+                                  "history_45_failed_20_200", "history_40_failed_0_200"}
+        self.coverage_required.update(f"history_45_{status}_0_200" for status in FILTER_STATUSES)
         base = f"/api/v1/workspaces/{workspace_id}/knowledge-bases"
         self.pages[base] = {0}
         for kb_id, workflow_ids in workflows_by_kb.items():
@@ -82,7 +86,7 @@ class ReadOnlyRoutes:
             self.empty_query.update(details)
             if len(workflow_ids) == 40:
                 self.forty_details.update(details)
-            self.coverage_required.update(f"history_{len(workflow_ids)}_{offset}_200" for offset in (0, 20, 40))
+            self.coverage_required.update(f"history_{len(workflow_ids)}_all_{offset}_200" for offset in (0, 20, 40))
         self.static_paths = frozenset(static_paths)
 
     def coverage_ok(self):
@@ -97,8 +101,9 @@ class ReadOnlyRoutes:
                 self.counts.mark("logout_204")
         elif method == "GET":
             if path in self.history_pages:
-                offset = dict(parse_qsl(query.decode("ascii")))["offset"]
-                self.counts.mark(f"history_{self.history_pages[path]}_{offset}_{status}")
+                parameters = dict(parse_qsl(query.decode("ascii")))
+                offset, status_filter = parameters["offset"], parameters.get("status", "all")
+                self.counts.mark(f"history_{self.history_pages[path]}_{status_filter}_{offset}_{status}")
             elif path in self.forty_details and status == 200:
                 self.counts.mark("detail_40_200")
 
@@ -111,12 +116,19 @@ class ReadOnlyRoutes:
             if path in self.pages:
                 try:
                     pairs = parse_qsl(query.decode("ascii"), keep_blank_values=True,
-                                      strict_parsing=True, max_num_fields=2)
+                                      strict_parsing=True, max_num_fields=3 if path in self.history_pages else 2)
                 except (UnicodeError, ValueError):
                     return False
-                return (len(pairs) == 2 and dict(pairs).get("limit") == "20"
-                        and dict(pairs).get("offset") in {str(n) for n in self.pages[path]}
-                        and {key for key, _ in pairs} == {"limit", "offset"})
+                parameters = dict(pairs)
+                if len(parameters) != len(pairs):
+                    return False
+                keys = set(parameters)
+                if keys != {"limit", "offset"}:
+                    if (path not in self.history_pages or keys != {"limit", "offset", "status"}
+                            or parameters["status"] not in FILTER_STATUSES):
+                        return False
+                return (parameters["limit"] == "20"
+                        and parameters["offset"] in {str(n) for n in self.pages[path]})
         return method in {"GET", "HEAD"} and not query and path in self.static_paths
 
     async def __call__(self, scope, receive, send):
@@ -214,7 +226,27 @@ def workflow_snapshot(engine):
                       and row._mapping["version"] == 0 and row._mapping["attempt_count"] == 0
                       for row in records)
         attempts = connection.scalar(select(func.count()).select_from(AnswerWorkflowAttempt))
-    return rows, attempts, pending
+        status_counts = tuple(sorted(Counter(row._mapping["status"] for row in records).items()))
+    return rows, attempts, pending, status_counts
+
+
+def fixture_fields(amount, index, created, workspace_id, knowledge_base_id):
+    """Synthetic display states only; no task execution or model call is performed."""
+    if amount not in (40, 45) or not 0 <= index < amount:
+        raise ValueError("Invalid history fixture position")
+    fields = dict(status="pending", next_step="retrieve", version=0, attempt_count=0,
+                  checkpoint=None, result=None, error_code=None, active_request_id=None, lease_expires_at=None)
+    if amount == 45 and index < 25:
+        fields.update(status="failed", version=2, attempt_count=1, error_code="embedding_timeout")
+    elif amount == 45 and index < 35:
+        fields.update(status="completed", next_step="done", version=3, attempt_count=1,
+                      checkpoint=dict(schema_version=1, workspace_id=str(workspace_id),
+                                      knowledge_base_id=str(knowledge_base_id), strategy="vector", hits=[]),
+                      result=dict(answer="虚构验收弃答：没有选中资料。", abstained=True, citations=[], reranking=None))
+    elif amount == 45 and index < 40:
+        fields.update(status="running", version=1, attempt_count=1,
+                      active_request_id=uuid4(), lease_expires_at=created + timedelta(hours=1))
+    return fields
 
 
 def seed_fixture(engine, schema, username):
@@ -253,8 +285,8 @@ def seed_fixture(engine, schema, username):
                 session.add(AnswerWorkflow(
                     id=workflow_id, knowledge_base_id=kb_id, creation_request_id=uuid4(),
                     creation_digest="a" * 64, question=f"临时历史记录 {amount}-{index + 1:02d}",
-                    strategy="vector", max_context_characters=12000, status="pending", next_step="retrieve",
-                    version=0, attempt_count=0, created_at=created, updated_at=created,
+                    strategy="vector", max_context_characters=12000, created_at=created, updated_at=created,
+                    **fixture_fields(amount, index, created, workspace_id, kb_id),
                 ))
             workflows_by_kb[kb_id] = tuple(ids)
             kb_labels.append({"name": label, "count": amount})
@@ -288,16 +320,19 @@ def acceptance_app(engine, workspace_id, workflows_by_kb, counts, port, paths):
     original, fault_lock = answer_workflows.list_workflows, Lock()
     fault_used = False
 
-    def list_with_one_failure(session, requested_workspace, requested_kb, limit, offset):
+    def list_with_one_failure(session, requested_workspace, requested_kb, limit, offset, status=None):
         nonlocal fault_used
-        if requested_workspace == workspace_id and requested_kb == fault_kb and offset == 20:
+        if (requested_workspace == workspace_id and requested_kb == fault_kb
+                and offset == 20 and status == "failed"):
             # This service hook is reached only after the real authentication/member dependencies.
             with fault_lock:
                 if not fault_used:
                     fault_used = True
                     counts.add("injected_failures")
                     raise HTTPException(503, "临时验收：本页首次读取失败，请手动重试")
-        return original(session, requested_workspace, requested_kb, limit, offset)
+        if status is None:
+            return original(session, requested_workspace, requested_kb, limit, offset)
+        return original(session, requested_workspace, requested_kb, limit, offset, status)
 
     wrapped = ReadOnlyRoutes(app, workspace_id, workflows_by_kb, counts, paths)
     return wrapped, patch.object(answer_workflows, "list_workflows", list_with_one_failure)
@@ -349,7 +384,8 @@ def run_acceptance(docker, port, max_seconds):
                 seed_engine = owned_engine(url, schema, readonly=False)
                 workspace_id, workflows_by_kb, labels = seed_fixture(seed_engine, schema, username)
                 before = workflow_snapshot(seed_engine)
-                if len(before[0]) != 85 or before[1] != 0 or before[2] != 85:
+                if (len(before[0]) != 85 or before[1] != 0 or before[2] != 45
+                        or before[3] != EXPECTED_STATUS_COUNTS):
                     raise RuntimeError("Initial history fixture is incomplete")
                 seed_engine.dispose()
                 seed_engine = None

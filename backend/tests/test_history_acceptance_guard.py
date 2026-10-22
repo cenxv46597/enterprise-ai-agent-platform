@@ -1,9 +1,13 @@
 """Pure fixtures for the temporary history browser's listener and DB boundary."""
 
 from asyncio import BaseEventLoop
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+import json
 import os
 import socket
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID
 
@@ -389,11 +393,13 @@ def test_denied_business_post_returns_safe_response_without_dispatching_app(rout
     assert counts.snapshot()["requests"] == 1 and counts.snapshot()["rejected_requests"] == 1
 
 
-def test_allowed_history_page_dispatches_once_without_performing_a_request(route_policy):
+@pytest.mark.parametrize("status_filter", [None, "failed"])
+def test_allowed_history_page_dispatches_once_without_performing_a_request(route_policy, status_filter):
     policy, app, counts = route_policy
     send, receive = AsyncMock(), AsyncMock()
+    query = b"limit=20&offset=20" + (b"&status=failed" if status_filter else b"")
     scope = {"type": "http", "method": "GET", "path": f"{BASES_PATH}/{BASE_45}/answer-workflows",
-             "query_string": b"limit=20&offset=20", "http_version": "1.1", "headers": []}
+             "query_string": query, "http_version": "1.1", "headers": []}
     start = {"type": "http.response.start", "status": 200, "headers": []}
     body = {"type": "http.response.body", "body": b"[]"}
 
@@ -409,7 +415,8 @@ def test_allowed_history_page_dispatches_once_without_performing_a_request(route
     assert app.await_args.args[:2] == (scope, receive)
     assert [call.args[0] for call in send.await_args_list] == [start, body]
     receive.assert_not_awaited()
-    assert counts.covered({"history_45_20_200"})
+    assert counts.covered({f"history_45_{status_filter or 'all'}_20_200"})
+    assert not counts.covered({f"history_45_{'all' if status_filter else 'failed'}_20_200"})
     assert not policy.coverage_ok()
     assert counts.snapshot()["requests"] == 1
     assert counts.snapshot().get("rejected_requests", 0) == 0
@@ -425,11 +432,260 @@ def test_idle_or_partial_response_coverage_cannot_mark_browser_acceptance_comple
     policy.response_seen("GET", f"{BASES_PATH}/{BASE_45}/answer-workflows", b"limit=20&offset=20", 503)
     policy.response_seen("POST", "/api/v1/auth/web/login", b"", 200)
     policy.response_seen("POST", "/api/v1/auth/web/logout", b"", 204)
-    assert not policy.coverage_ok()  # All pages alone still omit the required task detail.
+    assert not policy.coverage_ok()  # All pages still omit detail and status-filtered reads.
     policy.response_seen("GET", f"{BASES_PATH}/{BASE_40}/answer-workflows/{WORKFLOWS_40[0]}", b"", 404)
     assert not policy.coverage_ok()
     policy.response_seen("GET", f"{BASES_PATH}/{BASE_40}/answer-workflows/{WORKFLOWS_40[0]}", b"", 200)
+    assert not policy.coverage_ok()  # Unfiltered responses cannot stand in for filtered ones.
+    for status in ("pending", "running", "failed", "completed"):
+        policy.response_seen("GET", f"{BASES_PATH}/{BASE_45}/answer-workflows",
+                             f"limit=20&offset=0&status={status}".encode("ascii"), 200)
+    assert not policy.coverage_ok()
+    policy.response_seen("GET", f"{BASES_PATH}/{BASE_45}/answer-workflows", b"limit=20&offset=20&status=failed", 200)
+    assert not policy.coverage_ok()
+    policy.response_seen("GET", f"{BASES_PATH}/{BASE_45}/answer-workflows", b"limit=20&offset=20&status=failed", 503)
+    assert not policy.coverage_ok()
+    policy.response_seen("GET", f"{BASES_PATH}/{BASE_40}/answer-workflows", b"limit=20&offset=0&status=failed", 404)
+    assert not policy.coverage_ok()
+    policy.response_seen("GET", f"{BASES_PATH}/{BASE_40}/answer-workflows", b"limit=20&offset=0&status=failed", 200)
     assert policy.coverage_ok()
+
+
+@pytest.mark.parametrize("base,offset,status", [
+    (base, offset, status) for base in (BASE_40, BASE_45) for offset in (0, 20, 40)
+    for status in ("pending", "running", "failed", "completed")
+])
+def test_status_filter_is_allowed_only_as_the_third_history_page_parameter(route_policy, base, offset, status):
+    policy, _app, _counts = route_policy
+    path = f"{BASES_PATH}/{base}/answer-workflows"
+    assert policy.permitted("GET", path, f"limit=20&offset={offset}&status={status}".encode("ascii"))
+    assert policy.permitted("GET", path, f"status={status}&offset={offset}&limit=20".encode("ascii"))
+
+
+@pytest.mark.parametrize("query", [
+    b"limit=20&offset=0&status=all", b"limit=20&offset=0&status=",
+    b"limit=20&offset=0&status", b"limit=20&offset=0&status=FAILED",
+    b"limit=20&offset=0&status=Failed", b"limit=20&offset=0&status=unknown",
+    b"limit=20&offset=0&status=%20failed", b"limit=20&offset=0&status=failed%20",
+    b"limit=20&offset=0&status=failed%0A", b"limit=20&offset=0&status=failed&status=failed",
+    b"limit=20&offset=0&status=failed&status=pending", b"limit=20&offset=0&status=failed&extra=fixture",
+    b"limit=20&offset=0&limit=20&status=failed", b"limit=20&offset=0&offset=20&status=failed",
+    b"limit=20&offset=0&Status=failed", b"limit=20&offset=0&status=\xff",
+    b"limit=20&status=failed", b"offset=0&status=failed",
+    b"limit=1&offset=0&status=failed", b"limit=20&offset=60&status=failed",
+    b"limit=20&offset=00&status=failed", b"limit=20&offset=-20&status=failed",
+    b"limit=20&offset=0&status=failed%26offset%3D20",
+])
+def test_history_status_queries_reject_aliases_duplicates_extra_fields_and_invalid_pages(route_policy, query):
+    policy, _app, _counts = route_policy
+    for base in (BASE_40, BASE_45):
+        assert not policy.permitted("GET", f"{BASES_PATH}/{base}/answer-workflows", query)
+
+
+@pytest.mark.parametrize("path", [
+    "/api/v1/workspaces", BASES_PATH,
+    f"{BASES_PATH}/{BASE_40}/documents", f"{BASES_PATH}/{BASE_45}/documents",
+    "/api/v1/auth/web/session", WORKSPACE_PATH, f"{BASES_PATH}/{BASE_40}",
+    f"{BASES_PATH}/{BASE_40}/answer-workflows/{WORKFLOWS_40[0]}",
+    "/", "/index.html", "/assets/fixture.js",
+])
+def test_status_query_cannot_expand_other_list_detail_auth_or_static_read_scopes(route_policy, path):
+    policy, _app, _counts = route_policy
+    assert not policy.permitted("GET", path, b"limit=20&offset=0&status=failed")
+    assert not policy.permitted("GET", path, b"status=failed")
+
+
+@pytest.mark.parametrize("method,path", [
+    ("POST", "/api/v1/auth/web/login"), ("POST", "/api/v1/auth/web/logout"),
+    ("HEAD", f"{BASES_PATH}/{BASE_40}/answer-workflows"),
+    ("POST", f"{BASES_PATH}/{BASE_40}/answer-workflows"),
+])
+def test_status_filter_does_not_grant_methods_or_login_query_parameters(route_policy, method, path):
+    policy, _app, _counts = route_policy
+    assert not policy.permitted(method, path, b"limit=20&offset=0&status=failed")
+    assert not policy.permitted(method, path, b"status=failed")
+
+
+def test_denied_status_query_never_dispatches_the_app_or_contributes_response_coverage(route_policy):
+    policy, app, counts = route_policy
+    send, receive = AsyncMock(), AsyncMock()
+    scope = {"type": "http", "method": "GET", "path": f"{BASES_PATH}/{BASE_45}/answer-workflows",
+             "query_string": b"limit=20&offset=20&status=all", "http_version": "1.1", "headers": []}
+    complete_immediate(policy(scope, receive, send))
+    app.assert_not_awaited(); receive.assert_not_awaited()
+    messages = [call.args[0] for call in send.await_args_list]
+    assert messages[0]["status"] == 405
+    assert (b"cache-control", b"no-store") in messages[0]["headers"]
+    assert not counts.covered({"history_45_all_20_200"})
+    assert not counts.covered({"history_45_failed_20_200"})
+    assert counts.snapshot() == {"requests": 1, "rejected_requests": 1}
+    assert not policy.coverage_ok()
+
+
+def required_history_responses():
+    responses = [
+        ("login_200", "POST", "/api/v1/auth/web/login", b"", 200),
+        ("logout_204", "POST", "/api/v1/auth/web/logout", b"", 204),
+        ("detail_40_200", "GET", f"{BASES_PATH}/{BASE_40}/answer-workflows/{WORKFLOWS_40[0]}", b"", 200),
+    ]
+    for base, amount in ((BASE_40, 40), (BASE_45, 45)):
+        for offset in (0, 20, 40):
+            responses.append((f"history_{amount}_all_{offset}_200", "GET", f"{BASES_PATH}/{base}/answer-workflows",
+                              f"limit=20&offset={offset}".encode("ascii"), 200))
+    for status in ("pending", "running", "failed", "completed"):
+        responses.append((f"history_45_{status}_0_200", "GET", f"{BASES_PATH}/{BASE_45}/answer-workflows",
+                          f"limit=20&offset=0&status={status}".encode("ascii"), 200))
+    for http_status in (200, 503):
+        responses.append((f"history_45_failed_20_{http_status}", "GET", f"{BASES_PATH}/{BASE_45}/answer-workflows",
+                          b"limit=20&offset=20&status=failed", http_status))
+    responses.append(("history_40_failed_0_200", "GET", f"{BASES_PATH}/{BASE_40}/answer-workflows",
+                      b"limit=20&offset=0&status=failed", 200))
+    return responses
+
+
+@pytest.mark.parametrize("omitted", [row[0] for row in required_history_responses()])
+def test_response_coverage_requires_each_original_and_status_specific_path(route_policy, omitted):
+    policy, _app, _counts = route_policy
+    required = required_history_responses()
+    for tag, method, path, query, status in required:
+        if tag != omitted:
+            assert policy.permitted(method, path, query)
+            policy.response_seen(method, path, query, status)
+    assert not policy.coverage_ok()
+    _tag, method, path, query, status = next(row for row in required if row[0] == omitted)
+    policy.response_seen(method, path, query, status)
+    assert policy.coverage_ok()
+
+
+@pytest.mark.parametrize("filter_status", ["pending", "running", "failed", "completed"])
+def test_filtered_response_tag_is_distinct_from_unfiltered_and_other_states(route_policy, filter_status):
+    policy, _app, counts = route_policy
+    policy.response_seen("GET", f"{BASES_PATH}/{BASE_45}/answer-workflows",
+                         f"limit=20&offset=0&status={filter_status}".encode("ascii"), 200)
+    assert counts.covered({f"history_45_{filter_status}_0_200"})
+    for other in {"all", "pending", "running", "failed", "completed"} - {filter_status}:
+        assert not counts.covered({f"history_45_{other}_0_200"})
+    assert not policy.coverage_ok()
+
+
+@pytest.mark.parametrize("amount,expected", [
+    (40, {"pending": 40}),
+    (45, {"failed": 25, "completed": 10, "running": 5, "pending": 5}),
+])
+def test_synthetic_states_meet_real_read_and_list_contracts_without_database_or_provider(amount, expected):
+    from app.workflows.contracts import WorkflowListItem, WorkflowRead
+
+    now, states = datetime(2030, 1, 1, tzinfo=timezone.utc), Counter()
+    base = BASE_40 if amount == 40 else BASE_45
+    for index in range(amount):
+        created = now - timedelta(seconds=index)
+        fields = acceptance.fixture_fields(amount, index, created, WORKSPACE, base)
+        payload = dict(workflow_id=UUID(int=1000 + index), workspace_id=WORKSPACE, knowledge_base_id=base,
+                       question=f"Synthetic status fixture {amount}-{index + 1:02d}", strategy="vector",
+                       max_context_characters=12000, retryable=fields["status"] == "failed", **fields)
+        record = WorkflowRead.model_validate_json(json.dumps(payload, default=str))
+        # Validate the same visible metadata the real list endpoint will serialize.
+        summary = record.model_dump(exclude={"checkpoint", "result", "active_request_id", "lease_expires_at"})
+        listed = WorkflowListItem(**summary, created_at=created, updated_at=created)
+        assert listed.status == record.status and listed.knowledge_base_id == base
+        states[record.status] += 1
+        if record.status == "pending":
+            assert (record.next_step, record.version, record.attempt_count) == ("retrieve", 0, 0)
+            assert record.error_code is None and not record.retryable
+        elif record.status == "failed":
+            assert (record.next_step, record.version, record.attempt_count) == ("retrieve", 2, 1)
+            assert record.error_code == "embedding_timeout" and record.retryable
+            assert record.checkpoint is None and record.result is None
+        elif record.status == "completed":
+            assert (record.next_step, record.version, record.attempt_count) == ("done", 3, 1)
+            assert record.checkpoint is not None and not record.checkpoint.hits
+            assert record.checkpoint.workspace_id == WORKSPACE and record.checkpoint.knowledge_base_id == base
+            assert record.result is not None and record.result.abstained and not record.result.citations
+            assert not record.retryable
+        else:
+            assert record.status == "running"
+            assert (record.next_step, record.version, record.attempt_count) == ("retrieve", 1, 1)
+            assert isinstance(record.active_request_id, UUID)
+            assert record.lease_expires_at == created + timedelta(hours=1)
+            assert record.lease_expires_at.utcoffset() == timedelta(0)
+            assert record.checkpoint is None and record.result is None and not record.retryable
+    assert states == expected
+
+
+def test_status_fixtures_match_the_runtime_full_snapshot_distribution_gate():
+    now, states = datetime(2030, 1, 1, tzinfo=timezone.utc), Counter()
+    for amount, base in ((40, BASE_40), (45, BASE_45)):
+        for index in range(amount):
+            fields = acceptance.fixture_fields(amount, index, now, WORKSPACE, base)
+            states[fields["status"]] += 1
+    assert tuple(sorted(states.items())) == (
+        ("completed", 10), ("failed", 25), ("pending", 45), ("running", 5),
+    ) == acceptance.EXPECTED_STATUS_COUNTS
+    assert sum(states.values()) == 85
+
+
+@pytest.mark.parametrize("amount,index", [(0, 0), (39, 0), (41, 0), (46, 0), (40, -1), (40, 40), (45, -1), (45, 45)])
+def test_synthetic_state_helper_rejects_other_fixture_sizes_and_positions(amount, index):
+    with pytest.raises(ValueError, match="Invalid history fixture position"):
+        acceptance.fixture_fields(amount, index, datetime(2030, 1, 1, tzinfo=timezone.utc), WORKSPACE, BASE_45)
+
+
+def test_failure_hook_targets_only_failed_second_page_once_and_forwards_optional_status(monkeypatch):
+    from fastapi import HTTPException
+    from starlette import staticfiles
+
+    original = Mock(return_value=["synthetic-service-result"])
+    workflow_api = SimpleNamespace(list_workflows=original)
+    app = SimpleNamespace(state=SimpleNamespace(), dependency_overrides={}, mount=Mock())
+    get_session = Mock()
+    modules = {
+        "app.api": dict(answer_workflows=workflow_api,
+                        documents=SimpleNamespace(get_embedding_provider=Mock()),
+                        answers=SimpleNamespace(get_generation_provider=Mock()),
+                        reranking=SimpleNamespace(get_rerank_provider=Mock())),
+        "app.db.session": dict(get_session=get_session),
+        "app.main": dict(create_app=Mock(return_value=app)),
+    }
+    for name, attributes in modules.items():
+        module = ModuleType(name)
+        module.__dict__.update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+    # Avoid app construction, a static-directory read, and all engine construction.
+    monkeypatch.setattr(staticfiles, "StaticFiles", Mock(return_value=object()))
+    engine_construction = Mock(side_effect=AssertionError("Pure hook fixture cannot construct an engine"))
+    monkeypatch.setattr(sqlalchemy, "create_engine", engine_construction)
+    counts = acceptance.AcceptanceCounts()
+    _wrapped, fault_patch = acceptance.acceptance_app(
+        object(), WORKSPACE, {BASE_40: WORKFLOWS_40, BASE_45: WORKFLOWS_45}, counts, API_PORT, {"/"},
+    )
+    session = object()
+    with fault_patch:
+        read = workflow_api.list_workflows
+        for workspace, base, offset, status in [
+            (UUID(int=999), BASE_45, 20, "failed"), (WORKSPACE, BASE_40, 20, "failed"),
+            (WORKSPACE, BASE_45, 0, "failed"), (WORKSPACE, BASE_45, 40, "failed"),
+            (WORKSPACE, BASE_45, 20, None), (WORKSPACE, BASE_45, 20, "pending"),
+            (WORKSPACE, BASE_45, 20, "running"), (WORKSPACE, BASE_45, 20, "completed"),
+        ]:
+            original.reset_mock()
+            assert read(session, workspace, base, 20, offset, status) == ["synthetic-service-result"]
+            arguments = (session, workspace, base, 20, offset)
+            original.assert_called_once_with(*arguments, *(() if status is None else (status,)))
+            assert counts.snapshot().get("injected_failures", 0) == 0
+        original.reset_mock()
+        with pytest.raises(HTTPException) as failure:
+            read(session, WORKSPACE, BASE_45, 20, 20, "failed")
+        assert failure.value.status_code == 503
+        original.assert_not_called()
+        assert counts.snapshot()["injected_failures"] == 1
+        assert read(session, WORKSPACE, BASE_45, 20, 20, "failed") == ["synthetic-service-result"]
+        original.assert_called_once_with(session, WORKSPACE, BASE_45, 20, 20, "failed")
+        original.reset_mock()
+        assert read(session, WORKSPACE, BASE_45, 20, 20) == ["synthetic-service-result"]
+        original.assert_called_once_with(session, WORKSPACE, BASE_45, 20, 20)
+        assert counts.snapshot()["injected_failures"] == 1
+    assert workflow_api.list_workflows is original
+    engine_construction.assert_not_called()
 
 
 @pytest.mark.parametrize("arguments", [
