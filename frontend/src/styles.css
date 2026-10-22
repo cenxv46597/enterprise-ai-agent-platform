@@ -110,6 +110,7 @@ textarea:disabled { background: #f4f6f7; }
 .search-preview { margin-bottom: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
 .answer-results { margin-top: 28px; }
 .answer-results h2 { font-size: 20px; }
+.answer-export { margin-bottom: 24px; }
 .answer-content { padding: 24px; background: #f4f8f7; border: 1px solid #d4e2de; border-radius: 10px; margin-bottom: 24px; }
 .answer-content h3 { margin: 0 0 12px; font-size: 18px; }
 .answer-text, .answer-quote { white-space: pre-wrap; overflow-wrap: anywhere; }

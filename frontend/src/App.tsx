@@ -13,6 +13,7 @@ import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
 import KnowledgeSearch, { type SearchOutcome } from './KnowledgeSearch';
 import KnowledgeAnswer, { type AnswerOutcome } from './KnowledgeAnswer';
 import { readAnswerCitationSource, AnswerCitationSourceError } from './answer-source-api';
+import { downloadAnswerText } from './answer-export';
 import KnowledgeConversation, { type ConversationView } from './KnowledgeConversation';
 import KnowledgeWorkflow, { type WorkflowView } from './KnowledgeWorkflow';
 import WorkflowHistory, { type WorkflowHistoryView } from './WorkflowHistory';
@@ -429,6 +430,24 @@ export default function App() {
     pending.current = null;
     setBusy(null);
     setAnswerOutcome({ kind: 'unconfirmed', message: ANSWER_UNCONFIRMED_MESSAGE });
+  }
+
+  function exportAnswer() {
+    if (!session || !answerOpen || !selectedWorkspace || !selectedKnowledgeBase
+      || selectedKnowledgeBase.workspaceId !== selectedWorkspace.id
+      || answerOutcome?.kind !== 'confirmed' || pending.current || busy !== null || error) return;
+    if (session.expiresAt <= Date.now()) {
+      reset('登录已到期，请重新登录。');
+      return;
+    }
+    const confirmed = answerOutcome;
+    try {
+      downloadAnswerText({ workspaceName: selectedWorkspace.name, knowledgeBaseName: selectedKnowledgeBase.name,
+        question: confirmed.question, result: confirmed.result });
+      setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'requested' } : outcome);
+    } catch {
+      setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'failed' } : outcome);
+    }
   }
 
   async function readAnswerSource(index: number) {
@@ -1076,7 +1095,7 @@ export default function App() {
       readNotice: view.readNotice && { ...view.readNotice, traceId: null },
       savedAnswerNotice: view.savedAnswerNotice && { ...view.savedAnswerNotice, traceId: null } });
     if (answerOpen) {
-      setAnswerOutcome(outcome => outcome?.kind === 'confirmed' ? { ...outcome, source: undefined }
+      setAnswerOutcome(outcome => outcome?.kind === 'confirmed' ? { ...outcome, source: undefined, exportStatus: undefined }
         : outcome ? { kind: outcome.kind, message: outcome.message } : outcome);
     }
     markConversationInterrupted(busy);
@@ -1227,7 +1246,7 @@ export default function App() {
           outcome={answerOutcome} error={error} onAnswer={question => void answer(question)}
           onCancel={stopWaitingForAnswer} onBack={backToDocuments}
           onReadSource={index => void readAnswerSource(index)} onCancelSource={stopWaitingForAnswerSource}
-          onCloseSource={closeAnswerSource}
+          onCloseSource={closeAnswerSource} onExport={exportAnswer}
         /> : selectedWorkspace && selectedKnowledgeBase && searchOpen ? <KnowledgeSearch
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}

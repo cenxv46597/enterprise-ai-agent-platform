@@ -8,7 +8,8 @@ export type AnswerSourceView = {
 };
 
 export type AnswerOutcome =
-  | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult; source?: AnswerSourceView }
+  | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult; source?: AnswerSourceView;
+      exportStatus?: 'requested' | 'failed' }
   | { kind: 'unconfirmed' | 'rejected'; message: string; traceId?: string | null };
 
 type Props = {
@@ -23,10 +24,11 @@ type Props = {
   onReadSource?: (index: number) => void;
   onCancelSource?: () => void;
   onCloseSource?: () => void;
+  onExport?: () => void;
 };
 
 export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, activity,
-  outcome, error, onAnswer, onCancel, onBack, onReadSource, onCancelSource, onCloseSource }: Props) {
+  outcome, error, onAnswer, onCancel, onBack, onReadSource, onCancelSource, onCloseSource, onExport }: Props) {
   const [question, setQuestion] = useState('');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
@@ -84,6 +86,15 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
         <h2 id="answer-result-title">本次问答结果</h2>
         {outcome.kind === 'confirmed' ? <>
           <p className="submitted-query">本次提交的问题：<strong>{outcome.question}</strong></p>
+          <div className="answer-export">
+            <button className="button secondary" type="button" disabled={busy || !!error || !onExport}
+              onClick={onExport}>导出回答与引文</button>
+            <p className="session-note">下载文本文件，包含本次提交的问题、回答和完整引文；不会重新生成回答。</p>
+            {outcome.exportStatus === 'requested' && <p className="message" role="status">
+              已请求浏览器下载，请在下载列表中确认文件。</p>}
+            {outcome.exportStatus === 'failed' && <p className="message error" role="alert">
+              未能开始下载，请重试导出。原回答仍保留。</p>}
+          </div>
           {outcome.result.abstained ? <div className="empty-state">
             <h3>证据不足，本次弃答</h3>
             <p className="answer-text">{outcome.result.answer}</p>
