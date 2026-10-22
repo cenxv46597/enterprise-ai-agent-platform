@@ -275,6 +275,7 @@ describe('显式预算的文档向量化', () => {
     await click(screen.getByRole('button', { name: '刷新文档与切块' }));
     expect(screen.getByText(UNCONFIRMED)).toBeTruthy();
     expect(budget().disabled).toBe(true);
+    expectNoUsableAnswerEntry();
     await click(screen.getByRole('button', { name: '刷新文档与切块' }));
     expect(screen.queryByText(UNCONFIRMED)).toBeNull();
     expect(budget().value).toBe('');
@@ -322,6 +323,7 @@ describe('显式预算的文档向量化', () => {
     expect(screen.getByText(UNCONFIRMED)).toBeTruthy();
     expect(screen.queryByText(/向量结果已保存/)).toBeNull();
     expect(budget().disabled).toBe(true);
+    expectNoUsableAnswerEntry();
     expect(posts(requests)).toHaveLength(1);
   });
 
@@ -356,6 +358,7 @@ describe('显式预算的文档向量化', () => {
     expect(screen.queryByText(FILENAME)).toBeNull();
     expect(screen.queryByText('甲知识库')).toBeNull();
     expect(screen.queryByText(CONTENTS[0])).toBeNull();
+    expect(screen.queryByRole('button', { name: ANSWER_ENTRY })).toBeNull();
     expect(posts(requests)).toHaveLength(1);
     expectNoPrivateOutput();
   });
@@ -406,6 +409,7 @@ describe('显式预算的文档向量化', () => {
     expect(screen.queryByText(/向量结果已保存/)).toBeNull();
     expect(budget().value).toBe('');
     expect(budget().disabled).toBe(true);
+    expectNoUsableAnswerEntry();
     expectNoPrivateOutput();
   });
 
@@ -428,7 +432,103 @@ describe('显式预算的文档向量化', () => {
     expect(screen.getByRole('alert').textContent).toBe('登录已到期，请重新登录。');
     expect(screen.queryByText(UNCONFIRMED)).toBeNull();
     expect(screen.queryByLabelText('本次新生成块数上限')).toBeNull();
+    expect(screen.queryByRole('button', { name: ANSWER_ENTRY })).toBeNull();
     expect(requests.filter(request => pathOf(request) === RESTORE)).toHaveLength(1);
     expectNoPrivateOutput();
   });
+});
+
+const ANSWER_ENTRY = '前往当前知识库引用问答';
+function answerEntry() { return screen.getByRole('button', { name: ANSWER_ENTRY }) as HTMLButtonElement; }
+function expectNoUsableAnswerEntry() {
+  const entry = screen.queryByRole('button', { name: ANSWER_ENTRY }) as HTMLButtonElement | null;
+  if (entry) expect(entry.disabled).toBe(true);
+}
+function expectNoAnswerRequest(requests: Request[]) {
+  expect(requests.some(request => pathOf(request).endsWith('/answers'))).toBe(false);
+}
+function expectCleanAnswerPage() {
+  expect(screen.getByRole('heading', { level: 1, name: '引用问答' })).toBeTruthy();
+  expect(document.body.textContent).toContain('当前知识库中的全部可检索文档');
+  expect((screen.getByLabelText('问答问题') as HTMLTextAreaElement).value).toBe('');
+  expect(screen.queryByLabelText('本次新生成块数上限')).toBeNull();
+  expect(screen.queryByRole('region', { name: '本次向量化结果' })).toBeNull();
+  expect(document.body.textContent).not.toContain(FILENAME);
+  for (const content of CONTENTS) expect(document.body.textContent).not.toContain(content);
+  expectNoPrivateOutput();
+}
+
+describe('从已确认可检索文档前往当前知识库引用问答', () => {
+  it('已有ready详情和非空块即可进入，不要求再次向量化；点击仅导航且问答范围是整库', async () => {
+    const requests = installApi(request => pathOf(request) === DETAIL_A ? json(documentRow(DOCUMENT_A, 'ready')) : undefined);
+    render(<App />); await openProcessing();
+    expect(answerEntry().disabled).toBe(false);
+    await fillBudget('1');
+    const count = requests.length; await click(answerEntry());
+    expect(requests).toHaveLength(count); expect(posts(requests)).toHaveLength(0);
+    expectNoAnswerRequest(requests); expectCleanAnswerPage();
+    await advance(30_000); expect(requests).toHaveLength(count);
+    await click(screen.getByRole('button', { name: '返回文档列表' }));
+    await click(screen.getByRole('button', { name: `查看${FILENAME}的处理详情` }));
+    expect(budget().value).toBe('');
+    expect(screen.queryByRole('region', { name: '本次向量化结果' })).toBeNull();
+    expect(posts(requests)).toHaveLength(0); expectNoAnswerRequest(requests);
+  });
+
+  it('parsed阶段不能直达，向量化确认并另行GET到ready后才可导航，不自动生成回答', async () => {
+    let detailReads = 0;
+    const requests = installApi(request => pathOf(request) === DETAIL_A
+      ? json(documentRow(DOCUMENT_A, ++detailReads === 1 ? 'parsed' : 'ready')) : undefined);
+    render(<App />); await openProcessing(); expectNoUsableAnswerEntry();
+    await fillBudget('5'); await click(screen.getByRole('button', { name: '生成向量' }));
+    expect(screen.getByRole('region', { name: '本次向量化结果' }).textContent).toContain('向量结果已保存');
+    expect(detailReads).toBe(2); expect(answerEntry().disabled).toBe(false);
+    const count = requests.length; await click(answerEntry());
+    expect(requests).toHaveLength(count); expect(posts(requests)).toHaveLength(1);
+    expectNoAnswerRequest(requests); expectCleanAnswerPage();
+  });
+
+  it('ready详情但块记录为空时不能仅凭ready直达问答', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DETAIL_A) return json(documentRow(DOCUMENT_A, 'ready'));
+      if (pathOf(request) === CHUNKS_A) return json([]);
+    });
+    render(<App />); await openProcessing(); expectNoUsableAnswerEntry();
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(posts(requests)).toHaveLength(0); expectNoAnswerRequest(requests); expectNoPrivateOutput();
+  });
+
+  it.each(['read-failure', 'non-ready'] as const)('向量化成功后详情%s，旧confirmed卡仍不能放行导航', async latest => {
+    let detailReads = 0;
+    const requests = installApi(request => {
+      if (pathOf(request) !== DETAIL_A) return undefined;
+      if (++detailReads === 1 || latest === 'non-ready') return json(documentRow());
+      return json({ detail: PRIVATE }, 503);
+    });
+    render(<App />); await openProcessing();
+    await fillBudget('5'); await click(screen.getByRole('button', { name: '生成向量' }));
+    expect(screen.getByRole('region', { name: '本次向量化结果' }).textContent).toContain('向量结果已保存');
+    expect(detailReads).toBe(2); expectNoUsableAnswerEntry();
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(posts(requests)).toHaveLength(1); expectNoAnswerRequest(requests); expectNoPrivateOutput();
+  });
+
+  it('向量POST和成功后的详情GET等待中均不能离开处理链，详情ready确认后才恢复导航', async () => {
+    const embedding = deferred<Response>(), detail = deferred<Response>(); let detailReads = 0;
+    const requests = installApi(request => {
+      if (pathOf(request) === DETAIL_A) return ++detailReads === 1 ? json(documentRow(DOCUMENT_A, 'ready')) : detail.promise;
+      if (pathOf(request) === EMBEDDINGS_A) return embedding.promise;
+    });
+    render(<App />); await openProcessing(); expect(answerEntry().disabled).toBe(false);
+    await fillBudget('1'); await click(screen.getByRole('button', { name: '生成向量' }));
+    expectNoUsableAnswerEntry(); const waitingPost = requests.length;
+    const entry = screen.queryByRole('button', { name: ANSWER_ENTRY }); if (entry) await click(entry);
+    expect(requests).toHaveLength(waitingPost);
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    await act(async () => { embedding.resolve(json(embeddingResult(DOCUMENT_A, true))); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('region', { name: '本次向量化结果' })).toBeTruthy(); expectNoUsableAnswerEntry();
+    await act(async () => { detail.resolve(json(documentRow(DOCUMENT_A, 'ready'))); await vi.advanceTimersByTimeAsync(0); });
+    expect(answerEntry().disabled).toBe(false); expect(posts(requests)).toHaveLength(1); expectNoAnswerRequest(requests);
+  });
+
 });

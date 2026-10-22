@@ -382,6 +382,21 @@ export default function App() {
     setError('');
   }
 
+  function openAnswerFromDocument() {
+    if (!session || !selectedWorkspace || !selectedKnowledgeBase || !selectedDocument || !documentDetail
+      || documentDetail.status !== 'ready' || documentDetail.id !== selectedDocument.id
+      || documentDetail.knowledgeBaseId !== selectedKnowledgeBase.id
+      || selectedDocument.knowledgeBaseId !== selectedKnowledgeBase.id
+      || selectedKnowledgeBase.workspaceId !== selectedWorkspace.id
+      || chunks === null || chunks.length === 0 || pending.current || busy !== null || error) return;
+    setSelectedDocument(null);
+    setDocumentDetail(null);
+    setChunks(null);
+    setChunkOutcome(null);
+    setEmbeddingOutcome(null);
+    openAnswer();
+  }
+
   async function answer(question: string) {
     if (!answerOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
     const workspaceId = selectedWorkspace.id;
@@ -1172,6 +1187,7 @@ export default function App() {
             : busy === 'embedding' ? 'embedding' : busy === 'logout' ? 'logout' : 'idle'}
           onBack={backToDocuments} onRefresh={() => void readDocument(selectedDocument.id)}
           onChunk={() => void chunkDocument()} onCancel={stopWaitingForChunking}
+          onOpenAnswer={openAnswerFromDocument}
         >
           <DocumentEmbedding key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}/${selectedDocument.id}`}
             document={documentDetail} chunks={chunks} outcome={embeddingOutcome}

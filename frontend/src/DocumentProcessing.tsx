@@ -18,6 +18,7 @@ type Props = {
   onRefresh: () => void;
   onChunk: () => void;
   onCancel: () => void;
+  onOpenAnswer?: () => void;
   children?: ReactNode;
 };
 
@@ -41,10 +42,12 @@ function preview(content: string): { text: string; shortened: boolean } {
 }
 
 export default function DocumentProcessing({ workspaceName, knowledgeBaseName, documentName, document,
-  chunks, activity, error, outcome, onBack, onRefresh, onChunk, onCancel, children }: Props) {
+  chunks, activity, error, outcome, onBack, onRefresh, onChunk, onCancel, onOpenAnswer, children }: Props) {
   const busy = activity !== 'idle';
   const canChunk = !busy && !error && document !== null && chunks !== null
     && (document.status === 'parsed' || document.status === 'ready');
+  const canOpenAnswer = !busy && !error && document?.status === 'ready'
+    && chunks !== null && chunks.length > 0;
   const showDetails = activity !== 'logout';
   const status = document ? STATUS_TEXT[document.status] : null;
 
@@ -69,6 +72,11 @@ export default function DocumentProcessing({ workspaceName, knowledgeBaseName, d
         {document && status ? <>
           <span className={`document-status status-${document.status}`}>{status.label}</span>
           <p>{status.description}</p>
+          {document.status === 'ready' && onOpenAnswer && <>
+            <p className="session-note">可向当前知识库中的全部可检索文档提问，不限于这份文档。进入问答页不会自动生成回答。</p>
+            <button className="button secondary" type="button" disabled={!canOpenAnswer}
+              onClick={onOpenAnswer}>前往当前知识库引用问答</button>
+          </>}
         </> : <p className="message">文档最新状态尚未确认</p>}
       </section>
       <section aria-labelledby="chunk-action-title">
