@@ -1,5 +1,7 @@
 # 后端隔离契约测试 CI：Windows＋CMD
 
+2026-10-22远端补证：[Backend contract CI 39791937307](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39791937307)在已授权推送的119b104、push/attempt1已completed/success，Windows安装/pip check及收尾成功，日志257项/5.73秒、collected=passed257、skip/xfail/violations0、pytest/final0。当前12文件版本已有真实云端证据；下文未推送为历史，详见[当日回执](../progress/progress-2026-10-22.md)，后续push另授权。
+
 2026-10-22接续[引文单块读取](../backend/document-chunk-read.md)：固定白名单新增test_document_chunk_read.py，当前12文件257项本地通过（10.98秒），pytest/final0、skip/xfail/violations均0。新增15项检查登录/成员边界、四层ID与六列投影、旧列表兼容；不连接数据库。workflow配置未变，新版本仅本地，远端历史成绩不替代本次运行。
 
 2026-10-22接续[工作流状态筛选](../frontend/frontend-workflow-history-status-filter.md)：将既有test_answer_workflow_listing.py加入固定白名单，使本次列表规则纳入持续检查；当前11文件242项本地隔离通过（27.02秒），无skip/xfail/外层违规，pytest/final0。workflow未变，新版本尚未推送，不能将本地结果写成新远端成功；下文10文件152项为原版本证据。
