@@ -304,18 +304,42 @@ export async function listKnowledgeBases(workspaceId: string, signal: AbortSigna
   });
 }
 
+export const DOCUMENT_PAGE_SIZE = 20;
+export const MAX_DOCUMENT_OFFSET = Number.MAX_SAFE_INTEGER - Number.MAX_SAFE_INTEGER % DOCUMENT_PAGE_SIZE;
+export const DOCUMENT_FILENAME_QUERY_ERROR = "文件名线索不能超过 255 个字符，也不能包含空字符。";
+
+export function isDocumentOffset(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    && value >= 0 && value <= MAX_DOCUMENT_OFFSET && value % DOCUMENT_PAGE_SIZE === 0;
+}
+
+export function normalizeDocumentFilenameQuery(value: unknown): string {
+  if (typeof value !== "string") throw new ApiError(DOCUMENT_FILENAME_QUERY_ERROR);
+  const normalized = value.trim();
+  if (normalized.includes("\u0000") || Array.from(normalized).length > 255) {
+    throw new ApiError(DOCUMENT_FILENAME_QUERY_ERROR);
+  }
+  return normalized;
+}
+
 export async function listDocuments(
   workspaceId: string,
   knowledgeBaseId: string,
   signal: AbortSignal,
+  offset = 0,
+  filenameQuery = "",
 ): Promise<KnowledgeDocument[]> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
   const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  if (!isDocumentOffset(offset)) throw new ApiError("文档列表页码无效，请返回首页后重试。");
+  const normalizedFilenameQuery = normalizeDocumentFilenameQuery(filenameQuery);
+  const query = new URLSearchParams({ limit: String(DOCUMENT_PAGE_SIZE), offset: String(offset) });
+  if (normalizedFilenameQuery) query.set("filename_query", normalizedFilenameQuery);
   const payload = await request(
-    `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/documents?limit=20&offset=0`,
+    `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/documents?${query}`,
     { method: "GET" }, signal,
   );
-  if (!Array.isArray(payload) || payload.length > 20) throw new ApiError(INVALID_RESPONSE);
+  if (!Array.isArray(payload) || payload.length > DOCUMENT_PAGE_SIZE) throw new ApiError(INVALID_RESPONSE);
   const seen = new Set<string>();
   return payload.map((item: unknown) => {
     if (!isObject(item) || typeof item.original_filename !== "string"

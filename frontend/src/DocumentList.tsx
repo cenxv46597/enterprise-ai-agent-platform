@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import type { DocumentStatus, KnowledgeDocument } from './api';
+import { DOCUMENT_FILENAME_QUERY_ERROR, DOCUMENT_PAGE_SIZE, isDocumentOffset,
+  normalizeDocumentFilenameQuery, type DocumentStatus, type KnowledgeDocument } from './api';
 
 const STATUS_TEXT: Record<DocumentStatus, { label: string; description: string }> = {
   uploaded: { label: '已上传', description: '原件已保存，尚未开始解析。' },
@@ -23,13 +24,29 @@ type Props = {
   onWorkflow?: () => void;
   onWorkflowHistory?: () => void;
   onOpenDocument: (document: KnowledgeDocument) => void;
+  filenameDraft?: string;
+  filenameQuery?: string;
+  offset?: number;
+  onFilenameDraftChange?: (value: string) => void;
+  onFind?: () => void;
+  onClearFilename?: () => void;
+  onPage?: (offset: number) => void;
   children?: ReactNode;
 };
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
-  activity, error, onBack, onRefresh, onSearch, onAnswer, onConversation, onWorkflow, onWorkflowHistory, onOpenDocument, children }: Props) {
+  activity, error, onBack, onRefresh, onSearch, onAnswer, onConversation, onWorkflow, onWorkflowHistory, onOpenDocument,
+  filenameDraft = '', filenameQuery = '', offset = 0, onFilenameDraftChange, onFind, onClearFilename,
+  onPage, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
+  const validOffset = isDocumentOffset(offset);
+  const canGoBack = validOffset && offset >= DOCUMENT_PAGE_SIZE;
+  const canGoNext = validOffset && !error && documents.length === DOCUMENT_PAGE_SIZE
+    && isDocumentOffset(offset + DOCUMENT_PAGE_SIZE);
+  let filenameError = '';
+  try { normalizeDocumentFilenameQuery(filenameDraft); }
+  catch { filenameError = DOCUMENT_FILENAME_QUERY_ERROR; }
   return <section aria-labelledby="document-title">
     <button className="button secondary back-button" disabled={activity === 'logout'}
       onClick={onBack}>返回知识库</button>
@@ -52,6 +69,44 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
       </div>
     </div>
     {activity !== 'logout' && children}
+    {activity !== 'logout' && onFind && <section className="search-form-panel document-find-panel"
+      aria-labelledby="document-find-title">
+      <h2 id="document-find-title">查找知识库文档</h2>
+      <p id="document-find-note">按文件名包含的文字查找当前知识库中的文档，包含全部处理状态。
+        输入后点击查找；这里查找文件名，不检索正文，也不调用模型。</p>
+      <form onSubmit={event => {
+        event.preventDefault();
+        if (!busy && !filenameError) onFind();
+      }}>
+        <label htmlFor="document-filename-query">按文件名查找</label>
+        <input id="document-filename-query" value={filenameDraft} disabled={busy}
+          aria-invalid={!!filenameError}
+          aria-describedby={`document-find-note${filenameError ? ' document-filename-error' : ''}`}
+          placeholder="例如：报销"
+          onChange={event => { if (!busy) onFilenameDraftChange?.(event.target.value); }} />
+        {filenameError && <p id="document-filename-error" className="message error" role="alert">{filenameError}</p>}
+        <div className="processing-actions">
+          <button className="button primary" type="submit" disabled={busy || !!filenameError}>查找</button>
+          {onClearFilename && <button className="button secondary" type="button"
+            disabled={busy || (!filenameDraft && !filenameQuery)}
+            onClick={() => { if (!busy) onClearFilename(); }}>清除查找</button>}
+        </div>
+      </form>
+      <p className="page-caption submitted-query">{filenameQuery
+        ? <>已应用的文件名条件：<strong>{filenameQuery}</strong></> : '已应用的文件名条件：不限文件名'}。
+        刷新列表保留该条件和当前页；查找或清除后从首页读取。</p>
+    </section>}
+    {activity !== 'logout' && onPage && <>
+      <nav className="processing-actions" aria-label="文档列表翻页">
+        <button className="button secondary" disabled={busy || !canGoBack}
+          onClick={() => { if (!busy && canGoBack) onPage(offset - DOCUMENT_PAGE_SIZE); }}>上一页</button>
+        <button className="button secondary" disabled={busy || !canGoNext}
+          onClick={() => { if (!busy && canGoNext) onPage(offset + DOCUMENT_PAGE_SIZE); }}>下一页</button>
+        <button className="button secondary" disabled={busy || !canGoBack}
+          onClick={() => { if (!busy && canGoBack) onPage(0); }}>回到首页</button>
+      </nav>
+      <p className="page-caption">当前页：第 {(validOffset ? offset : 0) / DOCUMENT_PAGE_SIZE + 1} 页，每页最多 {DOCUMENT_PAGE_SIZE} 份。</p>
+    </>}
     {error && <div className="list-error">
       <p className="message error" role="alert">{error}</p>
       <button className="button secondary" disabled={busy} onClick={onRefresh}>重试加载</button>
@@ -59,7 +114,10 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
     {activity === 'loading' ? <p className="message" role="status">正在读取文档…</p>
       : activity === 'logout' ? <p className="message" role="status">正在确认退出…</p>
       : error ? null : documents.length === 0 ? <div className="empty-state">
-        <h2>该知识库暂无文档</h2><p>这里会展示该知识库中已有的文档。</p></div>
+        <h2>{offset > 0 ? '当前页没有文档' : filenameQuery ? '未找到文件名匹配的文档' : '该知识库暂无文档'}</h2>
+        <p>{offset > 0 ? '本次读取的这一页没有文档，可返回上一页或回到首页。'
+          : filenameQuery ? '请调整文件名线索，或清除查找后查看该知识库的文档。'
+            : '这里会展示该知识库中已有的文档。'}</p></div>
       : <><p className="page-caption">当前页 · {documents.length} 份文档 · {readyCount} 份可检索 · 全部处理状态</p>
         <ul className="workspace-list">{documents.map(document => {
           const status = STATUS_TEXT[document.status];
@@ -73,7 +131,11 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
                 onClick={() => onOpenDocument(document)}>查看与切块</button></div>
           </li>;
         })}</ul>
-        {documents.length === 20 && <p className="session-note">当前页已满，可能还有更多文档；本版仅展示第一页。</p>}
+        {documents.length === DOCUMENT_PAGE_SIZE && <p className="session-note">{onPage
+          ? '当前页已满，可能还有更多文档；下一页也可能为空。'
+          : '当前页已满，可能还有更多文档；本版仅展示第一页。'}</p>}
       </>}
+    {activity !== 'logout' && onPage && <p className="session-note">文档按创建时间从旧到新排列；浏览期间若有文档新增或删除，
+      跨页可能出现重复或遗漏。可回到首页重新浏览。</p>}
   </section>;
 }

@@ -530,6 +530,63 @@ describe('从已确认上传结果继续处理文档', () => {
     expectOnlyOriginalUpload(captured);
   });
 
+  it.each([200, 503])('文件名查找第二页上传后刷新返回%i仍保留条件、页码与草稿，并按本次ID继续处理', async refreshStatus => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => documentRow(index + 1, `报销资料${index + 1}.txt`));
+    const secondPage = Array.from({ length: 3 }, (_, index) => documentRow(index + 21, `报销资料${index + 21}.txt`));
+    let secondPageReads = 0;
+    const captured = installApi(request => {
+      if (request.method !== 'GET' || pathOf(request) !== DOCUMENTS_A) return undefined;
+      const query = new URL(request.url).searchParams;
+      if (!query.has('filename_query')) return undefined;
+      if (query.get('filename_query') !== '报销') return json([]);
+      if (query.get('offset') === '0') return json(firstPage);
+      if (query.get('offset') === '20') {
+        if (++secondPageReads === 2 && refreshStatus === 503) return json({ detail: PRIVATE_RESPONSE }, 503);
+        return json(secondPage);
+      }
+      return json([]);
+    });
+    render(<App />); await openDocuments();
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('按文件名查找'), { target: { value: '  报销  ' } });
+    });
+    await click(screen.getByRole('button', { name: '查找' }));
+    await click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('按文件名查找'), { target: { value: '尚未提交的草稿' } });
+    });
+    await uploadOneDocument();
+
+    expect(reads(captured)).toHaveLength(4);
+    expect(reads(captured).slice(-2).map(({ request }) => [...new URL(request.url).searchParams.entries()]))
+      .toEqual(Array.from({ length: 2 }, () => [['limit', '20'], ['offset', '20'], ['filename_query', '报销']]));
+    expect(screen.getByText(/当前页：第 2 页/)).toBeTruthy();
+    expect(screen.getByText(/已应用的文件名条件/).textContent).toContain('报销');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('尚未提交的草稿');
+    expect(within(result()).getByText(FILENAME)).toBeTruthy();
+    expect(result().textContent).toContain('已解析');
+    expect(screen.queryByRole('heading', { name: FILENAME })).toBeNull();
+    if (refreshStatus === 503) expect(screen.getByRole('alert')).toBeTruthy();
+    else {
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
+    }
+    expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
+    expect(document.body.textContent).not.toContain(UNCONFIRMED);
+    expect(continueButton().disabled).toBe(false);
+    expect(processingReads(captured)).toHaveLength(0);
+    expectOnlyOriginalUpload(captured);
+
+    await click(continueButton());
+    expect(screen.getByRole('heading', { level: 1, name: '文档处理' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 2, name: FILENAME })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(processingReads(captured).map(({ request }) => pathOf(request))).toEqual([NEW_DOCUMENT_PATH, NEW_CHUNKS_PATH]);
+    expect(reads(captured)).toHaveLength(4);
+    expectOnlyOriginalUpload(captured);
+  });
+
   it('上传确认后列表刷新失败仍能继续处理，但不解锁上传文件输入', async () => {
     let listReads = 0;
     const captured = installApi(request => request.method === 'GET' && pathOf(request) === DOCUMENTS_A

@@ -24,6 +24,7 @@ from app.knowledge.chunk_repository import (
     persist_document_chunks,
 )
 from app.knowledge.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
+from app.knowledge.document_candidates import DocumentFilenameClue
 from app.knowledge.ingestion import (
     InvalidFilenameError,
     UnsupportedFileTypeError,
@@ -213,6 +214,7 @@ def list_documents(
         Literal["uploaded", "processing", "parsed", "ready", "failed"] | None,
         Query(alias="status"),
     ] = None,
+    filename_query: Annotated[DocumentFilenameClue | None, Query()] = None,
 ) -> list[Document]:
     parent_id = session.scalar(
         select(KnowledgeBase.id).where(
@@ -233,6 +235,10 @@ def list_documents(
     )
     if document_status is not None:
         statement = statement.where(Document.status == document_status)
+    if filename_query is not None:
+        statement = statement.where(
+            Document.original_filename.icontains(filename_query, autoescape=True)
+        )
     statement = (
         statement.order_by(Document.created_at, Document.id).offset(offset).limit(limit)
     )

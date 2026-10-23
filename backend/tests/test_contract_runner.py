@@ -124,6 +124,11 @@ def test_collection_must_match_the_whole_whitelist(change):
         runner.ContractSuiteAudit().pytest_collection_modifyitems(items)
 
 
+def test_document_listing_contract_is_part_of_the_fixed_whitelist():
+    assert "test_document_listing.py" in runner.TEST_NAMES
+    assert runner.BACKEND / "tests/test_document_listing.py" in runner.TEST_PATHS
+
+
 @pytest.mark.parametrize("incomplete", ["skip", "xfail", "xpass", "zero", "not-all-passed", "not-collected"])
 def test_incomplete_or_expected_failure_cannot_turn_the_entry_green(incomplete, monkeypatch, capsys):
     def run(audit):

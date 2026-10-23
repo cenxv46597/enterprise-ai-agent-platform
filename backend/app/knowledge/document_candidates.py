@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,19 +14,23 @@ from app.db.models import Document, KnowledgeBase
 MAX_DOCUMENT_CANDIDATES = 5
 
 
+def _reject_null_character(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("文件名线索不能包含空字符")
+    return value
+
+
+DocumentFilenameClue = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
+    AfterValidator(_reject_null_character),
+]
+
+
 class DocumentFilenameQuery(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
-    filename_query: Annotated[
-        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=255),
-    ]
-
-    @field_validator("filename_query")
-    @classmethod
-    def reject_null_character(cls, value: str) -> str:
-        if "\x00" in value:
-            raise ValueError("文件名线索不能包含空字符")
-        return value
+    filename_query: DocumentFilenameClue
 
 
 class DocumentCandidate(BaseModel):

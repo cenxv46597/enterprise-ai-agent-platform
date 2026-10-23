@@ -78,7 +78,7 @@ jobs:
           subprocess.run([
               sys.executable, "-I", "scripts/run_postgres_tests.py", "--check-entry",
           ], check=True)
-      - name: Run 18 isolated PostgreSQL checks
+      - name: Run fixed isolated PostgreSQL checks
         env:
           POSTGRES_SERVICE_ID: ${{ job.services.postgres.id }}
           POSTGRES_SERVICE_PORT: ${{ job.services.postgres.ports['5432'] }}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listDocuments, listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
+import { ApiError, listDocuments, isDocumentOffset, normalizeDocumentFilenameQuery,
+  listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
   createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
@@ -47,6 +48,9 @@ export default function App() {
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBase | null>(null);
   const [documents, setDocuments] = useState<KnowledgeDocument[]>([]);
+  const [documentOffset, setDocumentOffset] = useState(0);
+  const [documentFilenameQuery, setDocumentFilenameQuery] = useState('');
+  const [documentFilenameDraft, setDocumentFilenameDraft] = useState('');
   const [uploadOutcome, setUploadOutcome] = useState<UploadOutcome | null>(null);
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocument | null>(null);
   const [documentDetail, setDocumentDetail] = useState<KnowledgeDocument | null>(null);
@@ -76,6 +80,9 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setDocumentOffset(0);
+    setDocumentFilenameQuery('');
+    setDocumentFilenameDraft('');
     setUploadOutcome(null);
     setSelectedDocument(null);
     setDocumentDetail(null);
@@ -150,6 +157,9 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setDocumentOffset(0);
+    setDocumentFilenameQuery('');
+    setDocumentFilenameDraft('');
     setUploadOutcome(null);
     setSelectedDocument(null);
     setDocumentDetail(null);
@@ -185,6 +195,9 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setDocumentOffset(0);
+    setDocumentFilenameQuery('');
+    setDocumentFilenameDraft('');
     setUploadOutcome(null);
     setSelectedDocument(null);
     setDocumentDetail(null);
@@ -219,6 +232,9 @@ export default function App() {
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
     setDocuments([]);
+    setDocumentOffset(0);
+    setDocumentFilenameQuery('');
+    setDocumentFilenameDraft('');
     setUploadOutcome(null);
     setSelectedDocument(null);
     setDocumentDetail(null);
@@ -235,10 +251,16 @@ export default function App() {
     void refresh();
   }
 
-  async function openKnowledgeBase(knowledgeBase: KnowledgeBase) {
-    if (!selectedWorkspace) return;
+  async function openKnowledgeBase(knowledgeBase: KnowledgeBase, offset = 0, filenameQuery = '', preserveDraft = false) {
+    if (!selectedWorkspace || !isDocumentOffset(offset)) return;
+    let normalizedQuery: string;
+    try { normalizedQuery = normalizeDocumentFilenameQuery(filenameQuery); }
+    catch { return; }
     const { id, controller } = beginRequest();
     setSelectedKnowledgeBase(knowledgeBase);
+    setDocumentOffset(offset);
+    setDocumentFilenameQuery(normalizedQuery);
+    if (!preserveDraft) setDocumentFilenameDraft(normalizedQuery);
     setDocuments([]);
     setSelectedDocument(null);
     setDocumentDetail(null);
@@ -255,7 +277,7 @@ export default function App() {
     setBusy('documents');
     setError('');
     try {
-      const rows = await listDocuments(selectedWorkspace.id, knowledgeBase.id, controller.signal);
+      const rows = await listDocuments(selectedWorkspace.id, knowledgeBase.id, controller.signal, offset, normalizedQuery);
       if (isCurrent(id, controller)) setDocuments(rows);
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -266,6 +288,35 @@ export default function App() {
     } finally {
       if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
     }
+  }
+
+  function canReadDocumentList() {
+    if (!session || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return false;
+    if (session.expiresAt <= Date.now()) { reset('登录已到期，请重新登录。'); return false; }
+    return selectedKnowledgeBase.workspaceId === selectedWorkspace.id;
+  }
+
+  function readDocumentPage(offset: number) {
+    if (!canReadDocumentList() || !selectedKnowledgeBase || !isDocumentOffset(offset)) return;
+    void openKnowledgeBase(selectedKnowledgeBase, offset, documentFilenameQuery, true);
+  }
+
+  function findDocuments() {
+    if (!canReadDocumentList() || !selectedKnowledgeBase) return;
+    let query: string;
+    try { query = normalizeDocumentFilenameQuery(documentFilenameDraft); }
+    catch { return; }
+    void openKnowledgeBase(selectedKnowledgeBase, 0, query);
+  }
+
+  function clearDocumentFilename() {
+    if (!canReadDocumentList() || !selectedKnowledgeBase) return;
+    void openKnowledgeBase(selectedKnowledgeBase, 0, '');
+  }
+
+  function changeDocumentFilenameDraft(value: string) {
+    if (!canReadDocumentList()) return;
+    setDocumentFilenameDraft(value);
   }
 
   function backToKnowledgeBases() {
@@ -323,7 +374,7 @@ export default function App() {
   }
 
   function backToDocuments() {
-    if (selectedKnowledgeBase) void openKnowledgeBase(selectedKnowledgeBase);
+    if (selectedKnowledgeBase) void openKnowledgeBase(selectedKnowledgeBase, documentOffset, documentFilenameQuery, true);
   }
 
   function openSearch() {
@@ -1062,8 +1113,8 @@ export default function App() {
       const document = await uploadDocument(workspace.id, knowledgeBase.id, file, controller.signal);
       if (!isCurrent(id, controller)) return;
       setUploadOutcome({ kind: 'confirmed', document });
-      // 列表只代表第一页；刷新失败也不能抹去已确认的本次上传结果。
-      await openKnowledgeBase(knowledgeBase);
+      // 列表受当前查询与页码限制；刷新失败也不能抹去已确认的本次上传结果。
+      await openKnowledgeBase(knowledgeBase, documentOffset, documentFilenameQuery, true);
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
@@ -1272,7 +1323,10 @@ export default function App() {
           documents={documents} error={error}
           activity={busy === 'documents' ? 'loading' : busy === 'logout' ? 'logout'
             : busy === 'upload' ? 'uploading' : 'idle'}
-          onBack={backToKnowledgeBases} onRefresh={() => void openKnowledgeBase(selectedKnowledgeBase)}
+          onBack={backToKnowledgeBases} onRefresh={() => readDocumentPage(documentOffset)}
+          filenameDraft={documentFilenameDraft} filenameQuery={documentFilenameQuery} offset={documentOffset}
+          onFilenameDraftChange={changeDocumentFilenameDraft} onFind={findDocuments}
+          onClearFilename={clearDocumentFilename} onPage={readDocumentPage}
           onSearch={openSearch}
           onAnswer={openAnswer}
           onConversation={openConversation}

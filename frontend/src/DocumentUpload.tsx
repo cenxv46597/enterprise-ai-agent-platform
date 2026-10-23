@@ -86,7 +86,7 @@ export default function DocumentUpload({ workspaceName, knowledgeBaseName, activ
           ? <p><strong>已解析</strong>：文档记录已创建，文字解析完成；尚未可检索。</p>
           : <><p><strong>解析失败</strong>：文档记录已创建，原件解析失败。</p>
             {outcome.document.parseError && <p>{outcome.document.parseError}</p>}</>}
-        <p className="upload-note">列表仅展示第一页，新记录未必出现在当前页；本卡片展示本次上传结果。</p>
+        <p className="upload-note">列表按当前查找条件与页码展示，新记录未必显示；本卡片展示本次上传结果。</p>
         {outcome.document.status === 'parsed' && onContinue && <div className="upload-actions">
           <button className="button primary" type="button" disabled={!canContinue}
             onClick={() => { if (canContinue) onContinue(); }}>继续处理这份文档</button>
@@ -95,7 +95,7 @@ export default function DocumentUpload({ workspaceName, knowledgeBaseName, activ
       </div> : <div>
         <p className="message error" role="alert">{outcome.message}</p>
         {outcome.kind === 'unconfirmed' && <p className="upload-note">
-          请先核对知识库文档记录；列表只含第一页，未看到新记录不能证明上传失败。
+          请先核对知识库文档记录，可清除查找条件并翻页查看；列表按当前查找条件与页码展示，未看到新记录不能证明上传失败。
           如决定再次上传，需要重新选择文件后再点击“上传”，再次上传可能创建重复记录。
         </p>}
       </div>}

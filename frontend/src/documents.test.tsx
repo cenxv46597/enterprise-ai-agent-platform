@@ -135,6 +135,22 @@ function expectNoPrivateOutput() {
   expect(document.body.textContent).not.toContain(PRIVATE_RESPONSE);
 }
 
+async function filenameDraft(value: string) {
+  await act(async () => { fireEvent.change(screen.getByLabelText('按文件名查找'), { target: { value } }); });
+}
+
+async function findFilename(value: string) {
+  await filenameDraft(value);
+  await click(screen.getByRole('button', { name: '查找' }));
+}
+
+function filenamePage(start: number, count = 20) {
+  return Array.from({ length: count }, (_, index) => documentRow(
+    `00000000-0000-0000-0000-${(start + index + 0x501).toString(16).padStart(12, '0')}`,
+    `报销资料${start + index + 1}.txt`,
+  ));
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
@@ -491,5 +507,214 @@ describe('知识库内的文档列表', () => {
     expect(requests.filter(request => pathOf(request) === RESTORE)).toHaveLength(1);
     expect(documentRequests(requests)).toHaveLength(1);
     expectNoPrivateOutput();
+  });
+});
+
+describe('按文件名查找与文档翻页的业务闭环', () => {
+  it('输入不发请求，显式提交编码后的字面条件，刷新沿用已提交条件而非草稿', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('filename_query')) {
+        return json([documentRow(DOCUMENT_A2, '报销%_/旧资料.txt')]);
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await filenameDraft('  报销%_/  ');
+    expect(documentRequests(requests)).toHaveLength(1);
+    await click(screen.getByRole('button', { name: '查找' }));
+    const query = new URL(documentRequests(requests)[1].url).searchParams;
+    expect([...query]).toEqual([['limit', '20'], ['offset', '0'], ['filename_query', '报销%_/']]);
+    expect(screen.queryByRole('heading', { name: '初始文档.txt' })).toBeNull();
+    expect(screen.getByRole('heading', { name: '报销%_/旧资料.txt' })).toBeTruthy();
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('报销%_/');
+    await filenameDraft('未提交草稿');
+    await click(screen.getByRole('button', { name: '刷新列表' }));
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.get('filename_query')).toBe('报销%_/');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('未提交草稿');
+    expect(requests.every(request => request.method === 'GET')).toBe(true);
+  });
+
+  it('匹配结果按20/20/5手动翻页，上一页与首页保留文件名条件', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A) {
+        const parameters = new URL(request.url).searchParams;
+        if (parameters.has('filename_query')) {
+          const offset = Number(parameters.get('offset'));
+          return json(filenamePage(offset, offset === 40 ? 5 : 20));
+        }
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await findFilename('报销');
+    expect(screen.getByRole('heading', { name: '报销资料1.txt' })).toBeTruthy();
+    await click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '报销资料1.txt' })).toBeNull();
+    await click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByRole('heading', { name: '报销资料45.txt' })).toBeTruthy();
+    expect(screen.getByText('当前页 · 5 份文档 · 5 份可检索 · 全部处理状态')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
+    await click(screen.getByRole('button', { name: '上一页' }));
+    await click(screen.getByRole('button', { name: '回到首页' }));
+    expect(documentRequests(requests).slice(1).map(request => new URL(request.url).searchParams.get('offset')))
+      .toEqual(['0', '20', '40', '20', '0']);
+    expect(documentRequests(requests).slice(1).every(request => new URL(request.url).searchParams.get('filename_query') === '报销')).toBe(true);
+  });
+
+  it('普通列表也能翻页，整40条后的空尾页仍可回退且不冒充空库', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A) {
+        const offset = Number(new URL(request.url).searchParams.get('offset'));
+        return json(offset === 40 ? [] : filenamePage(offset));
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await click(screen.getByRole('button', { name: '下一页' }));
+    await click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.getByRole('heading', { name: '当前页没有文档' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: EMPTY })).toBeNull();
+    expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
+    await click(screen.getByRole('button', { name: '上一页' }));
+    expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
+    expect(documentRequests(requests).every(request => !new URL(request.url).searchParams.has('filename_query'))).toBe(true);
+  });
+
+  it('分页失败清旧行并保留目标页和条件，手动重试只重读该页', async () => {
+    let pageTwoReads = 0;
+    const waiting = deferred<Response>();
+    const requests = installApi(request => {
+      if (pathOf(request) !== DOCUMENTS_A) return;
+      const query = new URL(request.url).searchParams;
+      if (!query.has('filename_query')) return;
+      if (query.get('offset') === '0') return json(filenamePage(0));
+      if (++pageTwoReads === 1) return waiting.promise;
+      return json(filenamePage(20, 3));
+    });
+    render(<App />);
+    await openDocuments();
+    await findFilename('报销');
+    await click(screen.getByRole('button', { name: '下一页' }));
+    expect(screen.queryByRole('heading', { name: '报销资料1.txt' })).toBeNull();
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).disabled).toBe(true);
+    await act(async () => { waiting.resolve(json({ detail: PRIVATE_RESPONSE }, 503)); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/当前页：第 2 页/)).toBeTruthy();
+    expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
+    await click(screen.getByRole('button', { name: '重试加载' }));
+    expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
+    expect(documentRequests(requests).slice(-2).map(request => new URL(request.url).searchParams.toString()))
+      .toEqual(['limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80', 'limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80']);
+    expectNoPrivateOutput();
+  });
+
+  it('新查询回首页，无匹配与空库区分，清除后省略参数并回首页', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A) {
+        return json(new URL(request.url).searchParams.has('filename_query') ? [] : filenamePage(0));
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await click(screen.getByRole('button', { name: '下一页' }));
+    await findFilename('不存在');
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.get('offset')).toBe('0');
+    expect(screen.getByRole('heading', { name: '未找到文件名匹配的文档' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: EMPTY })).toBeNull();
+    await click(screen.getByRole('button', { name: '清除查找' }));
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(screen.getByRole('heading', { name: '报销资料1.txt' })).toBeTruthy();
+  });
+
+  it('从查找结果进入处理页后返回，保留查询、页码和未提交草稿', async () => {
+    const target = documentRow(DOCUMENT_A2, '报销旧资料.txt');
+    const requests = installApi(request => {
+      if (pathOf(request) === `${DOCUMENTS_A}/${DOCUMENT_A2}`) return json(target);
+      if (pathOf(request) === `${DOCUMENTS_A}/${DOCUMENT_A2}/chunks`) return json([]);
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('filename_query')) {
+        return json(new URL(request.url).searchParams.get('offset') === '0' ? filenamePage(0) : [target]);
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await findFilename('报销');
+    await click(screen.getByRole('button', { name: '下一页' }));
+    await filenameDraft('尚未提交');
+    await click(screen.getByRole('button', { name: '查看报销旧资料.txt的处理详情' }));
+    await click(screen.getByRole('button', { name: '返回文档列表' }));
+    const query = new URL(documentRequests(requests).at(-1)!.url).searchParams;
+    expect(query.get('filename_query')).toBe('报销');
+    expect(query.get('offset')).toBe('20');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('尚未提交');
+    expect(screen.getByRole('heading', { name: '报销旧资料.txt' })).toBeTruthy();
+  });
+
+  it.each(['😀'.repeat(256), '报\u0000销'])('非法草稿不发请求、不改变已确认列表，清除仍可恢复（%s）', async value => {
+    const requests = installApi();
+    render(<App />);
+    await openDocuments();
+    await filenameDraft(value);
+    await act(async () => { fireEvent.submit(screen.getByLabelText('按文件名查找').closest('form')!); });
+    expect(documentRequests(requests)).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
+    expect(screen.getByRole('alert')).toBeTruthy();
+    await click(screen.getByRole('button', { name: '清除查找' }));
+    expect(documentRequests(requests)).toHaveLength(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([200, 401])('返回并重进知识库清除条件与页码，隔离旧查找迟到结果（%i）', async status => {
+    const waiting = deferred<Response>();
+    let findReads = 0;
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('filename_query')) {
+        if (++findReads === 1) return waiting.promise;
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await findFilename('报销');
+    const old = documentRequests(requests).at(-1)!;
+    await click(screen.getByRole('button', { name: '返回知识库' }));
+    expect(old.signal.aborted).toBe(true);
+    await click(screen.getByRole('button', { name: '查看甲空间知识库的文档' }));
+    await act(async () => {
+      waiting.resolve(status === 200 ? json([documentRow(DOCUMENT_A2, '迟到报销资料.txt')]) : json({}, status));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '迟到报销资料.txt' })).toBeNull();
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
+  });
+
+  it.each(['401', 'expiry', 'logout'] as const)('查找中的%s清除条件且隔离迟到结果，重新登录从空间开始', async reason => {
+    const waiting = deferred<Response>();
+    const requests = installApi(request => {
+      if (pathOf(request) === RESTORE && reason === 'expiry') return sessionResponse(Date.now() / 1000 + 2);
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('filename_query')) return waiting.promise;
+    });
+    render(<App />);
+    await openDocuments();
+    await findFilename('报销');
+    const old = documentRequests(requests).at(-1)!;
+    if (reason === 'expiry') await advance(2000);
+    else if (reason === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
+    else await act(async () => { waiting.resolve(json({}, 401)); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole('heading', { name: '登录工作空间' })).toBeTruthy();
+    if (reason !== '401') {
+      expect(old.signal.aborted).toBe(true);
+      await act(async () => { waiting.resolve(json([documentRow(DOCUMENT_A2, '已退出的报销资料.txt')])); await vi.advanceTimersByTimeAsync(0); });
+    }
+    expect(screen.queryByLabelText('按文件名查找')).toBeNull();
+    expect(screen.queryByText('已退出的报销资料.txt')).toBeNull();
+    await signIn();
+    expect(screen.getByRole('heading', { name: '你的工作空间' })).toBeTruthy();
+    await click(screen.getByRole('button', { name: '进入甲空间' }));
+    await click(screen.getByRole('button', { name: '查看甲空间知识库的文档' }));
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
   });
 });

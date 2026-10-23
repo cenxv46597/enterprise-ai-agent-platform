@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, listDocuments, type DocumentStatus } from './api';
+import { ApiError, DOCUMENT_FILENAME_QUERY_ERROR, DOCUMENT_PAGE_SIZE, MAX_DOCUMENT_OFFSET,
+  isDocumentOffset, listDocuments, normalizeDocumentFilenameQuery, type DocumentStatus } from './api';
 
 const PRIVATE = 'PRIVATE-DOCUMENT-RESPONSE-DETAIL';
 const WORKSPACE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -38,7 +39,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('document first-page API boundary', () => {
+describe('document list API boundary', () => {
   it('normalizes UUIDs, requests all five statuses, and retains only the public document fields', async () => {
     const statuses: DocumentStatus[] = ['uploaded', 'processing', 'parsed', 'ready', 'failed'];
     const page = statuses.map((status, index) => ({
@@ -87,6 +88,61 @@ describe('document first-page API boundary', () => {
       })),
     );
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends the requested page and encodes a trimmed literal filename query without adding conditions', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([DOCUMENT]));
+    const filenameQuery = '  研发 100%_\\+&?#.md  ';
+    await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, 40, filenameQuery);
+    const [path, options] = fetchMock.mock.calls[0];
+    const url = new URL(String(path), 'http://localhost');
+    expect(url.pathname).toBe(DOCUMENTS.split('?')[0]);
+    expect([...url.searchParams.entries()]).toEqual([
+      ['limit', '20'], ['offset', '40'], ['filename_query', filenameQuery.trim()],
+    ]);
+    expect(String(path)).toContain('%25_');
+    expect(options).toMatchObject({ method: 'GET' });
+    expect(options?.body).toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits a blank query, accepts 255 Unicode code points and the largest safe page offset', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse([]));
+    await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, 20, ' \t\n ');
+    expect(fetchMock.mock.calls[0][0]).toBe(DOCUMENTS.replace('offset=0', 'offset=20'));
+    fetchMock.mockResolvedValueOnce(jsonResponse([]));
+    await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal,
+      MAX_DOCUMENT_OFFSET, '😀'.repeat(255));
+    const url = new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost');
+    expect(url.searchParams.get('filename_query')).toBe('😀'.repeat(255));
+    expect(url.searchParams.get('offset')).toBe(String(MAX_DOCUMENT_OFFSET));
+    expect(DOCUMENT_PAGE_SIZE).toBe(20);
+    expect(normalizeDocumentFilenameQuery('  报销 \n')).toBe('报销');
+    expect(isDocumentOffset(MAX_DOCUMENT_OFFSET)).toBe(true);
+    expect(isDocumentOffset(MAX_DOCUMENT_OFFSET + DOCUMENT_PAGE_SIZE)).toBe(false);
+  });
+
+  it('rejects invalid page offsets before making any request', async () => {
+    for (const offset of [-20, -1, 1, 19, 21, 20.5, NaN, Infinity, Number.MAX_SAFE_INTEGER,
+      MAX_DOCUMENT_OFFSET + DOCUMENT_PAGE_SIZE, '20', null]) {
+      expect(isDocumentOffset(offset)).toBe(false);
+      await expectSafeFailure(
+        listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, offset as number),
+        '文档列表页码无效，请返回首页后重试。', null,
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects overlong, NUL-containing and non-string filename queries before making any request', async () => {
+    for (const filenameQuery of ['文'.repeat(256), '😀'.repeat(256), '报\u0000销', '\u0000', 123, null]) {
+      expect(() => normalizeDocumentFilenameQuery(filenameQuery)).toThrow(DOCUMENT_FILENAME_QUERY_ERROR);
+      await expectSafeFailure(
+        listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, 0, filenameQuery as string),
+        DOCUMENT_FILENAME_QUERY_ERROR, null,
+      );
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects malformed structures, UUIDs, parent mismatches, duplicates and oversized pages as a whole', async () => {
