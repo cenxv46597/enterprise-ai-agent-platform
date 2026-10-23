@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listDocuments, isAnswerTopK, isDocumentOffset, isDocumentStatusFilter, isSearchStrategy, normalizeDocumentFilenameQuery,
+import { ApiError, createWorkspace, createKnowledgeBase, isResourceOffset, RESOURCE_CREATE_UNCONFIRMED,
+  listDocuments, isAnswerTopK, isDocumentOffset, isDocumentStatusFilter, isSearchStrategy, normalizeDocumentFilenameQuery,
   listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
@@ -8,6 +9,7 @@ import { ApiError, listDocuments, isAnswerTopK, isDocumentOffset, isDocumentStat
   answerKnowledgeBase, AnswerUnconfirmedError, ANSWER_UNCONFIRMED_MESSAGE,
   type AnswerTopK, type DocumentChunk, type DocumentStatusFilter, type KnowledgeBase, type KnowledgeDocument, type SearchStrategy, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
+import { DirectoryPagination, ResourceCreate } from './ResourceDirectoryControls';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
 import DocumentEmbedding, { type EmbeddingOutcome } from './DocumentEmbedding';
@@ -31,7 +33,7 @@ import {
   executeConversationBilling, BILLING_UNCONFIRMED_MESSAGE, type BillingExecutionRequest,
 } from './conversation-api';
 
-type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'documents' | 'upload'
+type Busy = 'restore' | 'login' | 'workspaces' | 'knowledge-bases' | 'resource-create' | 'documents' | 'upload'
   | 'document-detail' | 'chunking' | 'embedding' | 'search' | 'answer' | 'answer-source'
   | 'conversation-create' | 'conversation-message' | 'conversation-supplement' | 'conversation-execute'
   | 'conversation-read' | 'workflow-create' | 'workflow-execute' | 'workflow-resume' | 'workflow-read'
@@ -44,6 +46,9 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [phase, setPhase] = useState<Phase>('restoring');
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceOffset, setWorkspaceOffset] = useState(0);
+  const [knowledgeBaseOffset, setKnowledgeBaseOffset] = useState(0);
+  const [resourceNotice, setResourceNotice] = useState('');
   const [selectedWorkspace, setSelectedWorkspace] = useState<Workspace | null>(null);
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBase[]>([]);
   const [selectedKnowledgeBase, setSelectedKnowledgeBase] = useState<KnowledgeBase | null>(null);
@@ -76,6 +81,9 @@ export default function App() {
     pending.current?.abort();
     pending.current = null;
     setSession(null);
+    setWorkspaceOffset(0);
+    setKnowledgeBaseOffset(0);
+    setResourceNotice('');
     setPhase(next);
     setWorkspaces([]);
     setSelectedWorkspace(null);
@@ -133,13 +141,15 @@ export default function App() {
     return id === generation.current && !controller.signal.aborted;
   }
 
-  async function refresh() {
+  async function refresh(offset = workspaceOffset) {
+    if (!isResourceOffset(offset)) return;
     const { id, controller } = beginRequest();
+    setWorkspaceOffset(offset);
     setBusy('workspaces');
     setError('');
     setWorkspaces([]);
     try {
-      const rows = await listWorkspaces(controller.signal);
+      const rows = await listWorkspaces(controller.signal, offset);
       if (isCurrent(id, controller)) setWorkspaces(rows);
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -195,8 +205,11 @@ export default function App() {
     }
   }
 
-  async function openWorkspace(workspace: Workspace) {
+  async function openWorkspace(workspace: Workspace, offset = 0) {
+    if (!isResourceOffset(offset)) return;
+    if (workspace.id !== selectedWorkspace?.id) setResourceNotice('');
     const { id, controller } = beginRequest();
+    setKnowledgeBaseOffset(offset);
     setSelectedWorkspace(workspace);
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
@@ -222,7 +235,7 @@ export default function App() {
     setBusy('knowledge-bases');
     setError('');
     try {
-      const rows = await listKnowledgeBases(workspace.id, controller.signal);
+      const rows = await listKnowledgeBases(workspace.id, controller.signal, offset);
       if (isCurrent(id, controller)) setKnowledgeBases(rows);
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -236,6 +249,7 @@ export default function App() {
   }
 
   function backToWorkspaces() {
+    setResourceNotice('');
     setSelectedWorkspace(null);
     setKnowledgeBases([]);
     setSelectedKnowledgeBase(null);
@@ -264,6 +278,7 @@ export default function App() {
   async function openKnowledgeBase(knowledgeBase: KnowledgeBase, offset = 0, filenameQuery = '', preserveDraft = false,
     statusFilter: DocumentStatusFilter = 'all') {
     if (!selectedWorkspace || !isDocumentOffset(offset) || !isDocumentStatusFilter(statusFilter)) return;
+    setResourceNotice('');
     let normalizedQuery: string;
     try { normalizedQuery = normalizeDocumentFilenameQuery(filenameQuery); }
     catch { return; }
@@ -340,7 +355,32 @@ export default function App() {
   }
 
   function backToKnowledgeBases() {
-    if (selectedWorkspace) void openWorkspace(selectedWorkspace);
+    setResourceNotice('');
+    if (selectedWorkspace) void openWorkspace(selectedWorkspace, knowledgeBaseOffset);
+  }
+
+  async function createDirectory(name: string) {
+    if (!session || selectedKnowledgeBase || pending.current || busy !== null) return;
+    if (session.expiresAt <= Date.now()) { reset('登录已到期，请重新登录。'); return; }
+    const workspace = selectedWorkspace;
+    const { id, controller } = beginRequest();
+    setBusy('resource-create');
+    setResourceNotice('');
+    try {
+      if (workspace) {
+        const created = await createKnowledgeBase(workspace.id, name, controller.signal);
+        if (isCurrent(id, controller)) void openKnowledgeBase(created);
+      } else {
+        const created = await createWorkspace(name, controller.signal);
+        if (isCurrent(id, controller)) void openWorkspace(created);
+      }
+    } catch (failure) {
+      if (!isCurrent(id, controller)) return;
+      if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
+      else setResourceNotice(failure instanceof ApiError ? failure.message : RESOURCE_CREATE_UNCONFIRMED);
+    } finally {
+      if (isCurrent(id, controller)) { setBusy(null); pending.current = null; }
+    }
   }
 
   async function readDocument(documentId: string, preserveOutcome = true) {
@@ -1162,6 +1202,7 @@ export default function App() {
   }
 
   async function exit() {
+    if (busy === 'resource-create') setResourceNotice(RESOURCE_CREATE_UNCONFIRMED);
     setWorkflowView(view => view && { ...view,
       readNotice: view.readNotice && { ...view.readNotice, traceId: null },
       savedAnswerNotice: view.savedAnswerNotice && { ...view.savedAnswerNotice, traceId: null } });
@@ -1365,57 +1406,64 @@ export default function App() {
             outcome={uploadOutcome} onUpload={file => void upload(file)} onCancel={stopWaitingForUpload}
             canContinue={busy === null} onContinue={continueUploadedDocument} />
         </DocumentList> : selectedWorkspace ? <section aria-labelledby="knowledge-base-title">
-          <button className="button secondary back-button" disabled={busy === 'logout'}
+          <button className="button secondary back-button" disabled={busy === 'logout' || busy === 'resource-create'}
             onClick={backToWorkspaces}>返回工作空间</button>
           <div className="page-heading">
             <div><p className="eyebrow">工作空间：<strong>{selectedWorkspace.name}</strong></p>
               <h1 id="knowledge-base-title">知识库</h1>
               <p className="intro">这里列出该工作空间中的知识库。</p></div>
-            <button className="button secondary" disabled={busy === 'knowledge-bases' || busy === 'logout'}
-              onClick={() => void openWorkspace(selectedWorkspace)}>刷新列表</button>
+            <button className="button secondary" disabled={busy !== null}
+              onClick={() => void openWorkspace(selectedWorkspace, knowledgeBaseOffset)}>刷新列表</button>
           </div>
+          <ResourceCreate key={selectedWorkspace.id} kind="知识库" disabled={busy !== null}
+            notice={resourceNotice} onCreate={name => void createDirectory(name)} />
           {error && <div className="list-error">
             <p className="message error" role="alert">{error}</p>
-            <button className="button secondary" disabled={busy === 'knowledge-bases' || busy === 'logout'}
-              onClick={() => void openWorkspace(selectedWorkspace)}>重试加载</button>
+            <button className="button secondary" disabled={busy !== null}
+              onClick={() => void openWorkspace(selectedWorkspace, knowledgeBaseOffset)}>重试加载</button>
           </div>}
           {busy === 'knowledge-bases' ? <p className="message" role="status">正在读取知识库…</p>
             : busy === 'logout' ? <p className="message" role="status">正在确认退出…</p>
             : error ? null : knowledgeBases.length === 0 ? <div className="empty-state">
-              <h2>该工作空间暂无知识库</h2><p>这里会展示该空间中已有的知识库。</p></div>
+              <h2>{knowledgeBaseOffset === 0 ? '该工作空间暂无知识库' : '本页没有知识库'}</h2><p>可创建知识库，或返回上一页查看。</p></div>
             : <><p className="page-caption">当前页 · {knowledgeBases.length} 个知识库</p>
               <ul className="workspace-list">{knowledgeBases.map(knowledgeBase =>
                 <li className="workspace-card" key={knowledgeBase.id}>
                   <span className="workspace-symbol" aria-hidden="true">K</span>
                   <div><h2>{knowledgeBase.name}</h2>
                     <button className="button secondary card-entry" aria-label={`查看${knowledgeBase.name}的文档`}
+                      disabled={busy !== null}
                       onClick={() => void openKnowledgeBase(knowledgeBase)}>查看文档</button></div>
                 </li>,
               )}</ul>
-              {knowledgeBases.length === 20 && <p className="session-note">当前页已满，可能还有更多知识库；本版仅展示第一页。</p>}
             </>}
+          <DirectoryPagination offset={knowledgeBaseOffset} count={knowledgeBases.length} disabled={busy !== null}
+            onPage={offset => void openWorkspace(selectedWorkspace, offset)} />
         </section> : <section aria-labelledby="workspace-title">
           <div className="page-heading">
             <div><p className="eyebrow">工作空间</p><h1 id="workspace-title">你的工作空间</h1>
               <p className="intro">这里列出你可以访问的工作空间。</p></div>
-            <button className="button secondary" disabled={busy === 'workspaces' || busy === 'logout'}
+            <button className="button secondary" disabled={busy !== null}
               onClick={() => void refresh()}>刷新列表</button>
           </div>
+          <ResourceCreate kind="工作空间" disabled={busy !== null} notice={resourceNotice}
+            onCreate={name => void createDirectory(name)} />
           {error && <p className="message error" role="alert">{error}</p>}
           {busy === 'workspaces' ? <p className="message" role="status">正在读取工作空间…</p>
-            : error ? null : workspaces.length === 0 ? <div className="empty-state"><h2>暂无可访问的工作空间</h2>
-              <p>账号尚未加入工作空间，可联系工作空间所有者添加成员。</p></div>
+            : error ? null : workspaces.length === 0 ? <div className="empty-state"><h2>{workspaceOffset === 0 ? '暂无可访问的工作空间' : '本页没有工作空间'}</h2>
+              <p>可以创建自己的工作空间，或联系工作空间所有者添加成员。</p></div>
             : <><p className="page-caption">当前页 · {workspaces.length} 个工作空间</p>
               <ul className="workspace-list">{workspaces.map(workspace =>
                 <li className="workspace-card" key={workspace.id}>
                   <span className="workspace-symbol" aria-hidden="true">W</span>
                   <div><h2>{workspace.name}</h2><p>已授权访问</p>
                     <button className="button secondary card-entry" aria-label={`进入${workspace.name}`}
-                      disabled={busy === 'logout'} onClick={() => void openWorkspace(workspace)}>进入知识库</button></div>
+                      disabled={busy !== null} onClick={() => void openWorkspace(workspace)}>进入知识库</button></div>
                 </li>,
               )}</ul>
-              {workspaces.length === 20 && <p className="session-note">当前页已满，可能还有更多工作空间；本版仅展示第一页。</p>}
             </>}
+          <DirectoryPagination offset={workspaceOffset} count={workspaces.length} disabled={busy !== null}
+            onPage={offset => void refresh(offset)} />
         </section>}
       </main>
       <footer>企业知识与工作流智能体平台 · 本机演示</footer>

@@ -7,7 +7,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "python -I scripts/check.py all",
+    "check:test": "python -I scripts/check.py test",
+    "check:build": "python -I scripts/check.py build",
+    "check:resources": "python -I scripts/check.py resources"
   },
   "dependencies": {
     "react": "19.3.1",

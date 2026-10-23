@@ -283,8 +283,15 @@ export async function logout(signal: AbortSignal): Promise<void> {
   await request("/api/v1/auth/web/logout", { method: "POST" }, signal, false, true);
 }
 
-export async function listWorkspaces(signal: AbortSignal): Promise<Workspace[]> {
-  const payload = await request("/api/v1/workspaces?limit=20&offset=0", {
+export const MAX_RESOURCE_OFFSET = Number.MAX_SAFE_INTEGER - Number.MAX_SAFE_INTEGER % 20;
+export function isResourceOffset(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    && value >= 0 && value <= MAX_RESOURCE_OFFSET && value % 20 === 0;
+}
+
+export async function listWorkspaces(signal: AbortSignal, offset = 0): Promise<Workspace[]> {
+  if (!isResourceOffset(offset)) throw new ApiError("列表页码无效，请返回首页后重试。");
+  const payload = await request(`/api/v1/workspaces?limit=20&offset=${offset}`, {
     method: "GET",
   }, signal);
   if (!Array.isArray(payload) || payload.length > 20) throw new ApiError(INVALID_RESPONSE);
@@ -301,9 +308,10 @@ export async function listWorkspaces(signal: AbortSignal): Promise<Workspace[]> 
   });
 }
 
-export async function listKnowledgeBases(workspaceId: string, signal: AbortSignal): Promise<KnowledgeBase[]> {
+export async function listKnowledgeBases(workspaceId: string, signal: AbortSignal, offset = 0): Promise<KnowledgeBase[]> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
-  const payload = await request(`/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases?limit=20&offset=0`, {
+  if (!isResourceOffset(offset)) throw new ApiError("列表页码无效，请返回首页后重试。");
+  const payload = await request(`/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases?limit=20&offset=${offset}`, {
     method: "GET",
   }, signal);
   if (!Array.isArray(payload) || payload.length > 20) throw new ApiError(INVALID_RESPONSE);
@@ -319,6 +327,58 @@ export async function listKnowledgeBases(workspaceId: string, signal: AbortSigna
     seen.add(id);
     return { id, workspaceId: itemWorkspaceId, name: item.name };
   });
+}
+
+export const RESOURCE_CREATE_UNCONFIRMED = "创建结果未确认，未自动重试。请先刷新并翻页核对资源记录，再决定是否再次创建。";
+export function normalizeResourceName(value: unknown): string {
+  if (typeof value !== "string") throw new ApiError("请输入 1 到 200 个字符的名称。");
+  const name = value.trim();
+  if (!name || Array.from(name).length > 200 || name.includes("\u0000")) {
+    throw new ApiError("请输入 1 到 200 个字符的名称。");
+  }
+  return name;
+}
+
+async function createResource(path: string, name: string, signal: AbortSignal, workspaceId?: string): Promise<Workspace | KnowledgeBase> {
+  if (signal.aborted) throw new ApiError("请求已取消。");
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  signal.addEventListener("abort", cancel, { once: true });
+  const timer = setTimeout(cancel, 10_000);
+  try {
+    const response = await fetch(path, webRequestOptions({ method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }, controller.signal));
+    if (controller.signal.aborted) throw new ApiError(RESOURCE_CREATE_UNCONFIRMED);
+    const messages: Record<number, string> = {
+      401: SESSION_EXPIRED, 403: "创建请求被拒绝，请检查当前账号权限。",
+      404: "工作空间不存在或你已无权访问，请返回列表。",
+      409: "该工作空间已存在同名知识库，请选择其他名称或打开已有知识库。",
+      422: "名称不符合要求，请检查后重新提交。",
+    };
+    if (Object.hasOwn(messages, response.status)) throw new ApiError(messages[response.status], response.status);
+    if (response.status !== 201) throw new ApiError(RESOURCE_CREATE_UNCONFIRMED);
+    const payload: unknown = await response.json();
+    if (controller.signal.aborted || !isObject(payload) || payload.name !== name) throw new ApiError(RESOURCE_CREATE_UNCONFIRMED);
+    const id = strictUuid(payload.id);
+    if (!workspaceId) return { id, name };
+    if (strictUuid(payload.workspace_id) !== workspaceId) throw new ApiError(RESOURCE_CREATE_UNCONFIRMED);
+    return { id, name, workspaceId };
+  } catch (failure) {
+    if (failure instanceof ApiError && failure.status !== null && !controller.signal.aborted) throw failure;
+    throw new ApiError(RESOURCE_CREATE_UNCONFIRMED);
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", cancel);
+  }
+}
+
+export async function createWorkspace(name: string, signal: AbortSignal): Promise<Workspace> {
+  return createResource("/api/v1/workspaces", normalizeResourceName(name), signal);
+}
+
+export async function createKnowledgeBase(workspaceId: string, name: string, signal: AbortSignal): Promise<KnowledgeBase> {
+  const scope = strictUuid(workspaceId);
+  return await createResource(`/api/v1/workspaces/${scope}/knowledge-bases`, normalizeResourceName(name), signal, scope) as KnowledgeBase;
 }
 
 export const DOCUMENT_PAGE_SIZE = 20;

@@ -113,6 +113,11 @@ textarea:disabled { background: #f4f6f7; }
 .search-hit { min-width: 0; padding: 22px; background: #fff; border: 1px solid #dce3e7; border-radius: 10px; }
 .search-hit h3 { margin: 0 0 10px; font-size: 17px; overflow-wrap: anywhere; }
 .search-preview { margin-bottom: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; }
+.resource-create { margin: 16px 0; padding: 20px; border: 1px solid #dce3e7; border-radius: 10px; background: #fff; }
+.resource-create label { display: block; margin-bottom: 8px; font-weight: 600; }
+.resource-create input { max-width: 100%; width: 320px; margin: 0 12px 10px 0; padding: 10px; border: 1px solid #aebdc5; border-radius: 6px; font: inherit; }
+.directory-pagination { margin: 20px 0; }
+.directory-pagination button { margin: 0 8px 8px 0; }
 .answer-results { margin-top: 28px; }
 .answer-results h2 { font-size: 20px; }
 .answer-export { margin-bottom: 24px; }

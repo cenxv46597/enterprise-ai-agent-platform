@@ -1,5 +1,10 @@
 # 前端持续集成：Windows＋CMD
 
+2026-10-23交付收尾：前端新增仓库内`python -I scripts/check.py`启动器，Node启动前清除继承业务配置，
+Vite/Vitest禁用环境文件；临时配置归属校验后清理。测试后独立进程执行生产构建，避免继承测试环境。
+工作流以固定Python安装步骤和`npm run check:test/check:build`复用入口。最终本地38文件1386项及类型/构建通过，
+本次没有push或新云端CI结果；历史远端证据仍仅对应原SHA。细节见[交付记录](../delivery/release-2026-10-23.md)。
+
 2026-10-22远端补证：本人明确授权后，16条既有提交正常快进至119b104；[本次Frontend CI 39791937232](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/runs/39791937232)在该SHA、push/attempt1已completed/success，日志35文件1228项/40.66秒、类型检查与构建189毫秒通过，依赖安装及收尾成功。同SHA另两项后端CI也成功，见[当日回执](../progress/progress-2026-10-22.md)。下文“仅本地/待运行”保留对应旧阶段，未来新push另授权，六份保护和真实任务暂停不变。
 
 ## 最新结果：已推送且首次远端运行通过
