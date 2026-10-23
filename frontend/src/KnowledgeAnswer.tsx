@@ -114,6 +114,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
           {outcome.result.abstained ? <div className="empty-state">
             <h3>证据不足，本次弃答</h3>
             <p className="answer-text">{outcome.result.answer}</p>
+            <p className="session-note">这只表示本次检索到的资料不足以确认答案；不代表知识库没有相关资料。</p>
           </div> : <>
             <div className="answer-content"><h3>回答</h3>
               <p className="answer-text">{outcome.result.answer}</p></div>

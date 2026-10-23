@@ -330,6 +330,7 @@ describe('知识库独立引用问答页', () => {
     const result = screen.getByRole('region', { name: '本次问答结果' });
     expect(result.textContent).toContain(QUESTION);
     expect(result.textContent).toContain(ABSTENTION);
+    expect(result.textContent).toContain('不代表知识库没有相关资料');
     expect(screen.getByRole('heading', { name: '证据不足，本次弃答' })).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(sourceReads(requests)).toHaveLength(0);
