@@ -32,6 +32,7 @@ export default function KnowledgeSearch({ workspaceName, knowledgeBaseName, acti
   const [query, setQuery] = useState('');
   const [strategy, setStrategy] = useState<SearchStrategy>('vector');
   const [validationError, setValidationError] = useState('');
+  const [expanded, setExpanded] = useState<{ result: KnowledgeSearchResult; chunkId: string } | null>(null);
   const busy = activity !== 'idle';
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -111,7 +112,7 @@ export default function KnowledgeSearch({ workspaceName, knowledgeBaseName, acti
             <p className="session-note">{outcome.result.strategy === 'hybrid'
               ? '候选按融合得分从高到低排列；融合得分综合两路名次，不是答案正确率。余弦距离仍表示向量接近程度，越小越接近，不决定本次排列。“未入前20”只说明该通道未选中此候选，不代表完全不相关。'
               : '余弦距离越小表示向量越接近，不是答案正确率。'}
-              每段仅预览前 300 个字符；字符范围为解析文本中的 [开始, 结束)，不是文件字节位置。</p>
+              长段默认预览前 300 个字符，可展开本次返回的完整文本块；字符范围为解析文本中的 [开始, 结束)，不是文件字节位置。</p>
             <ol className="search-hit-list">{outcome.result.hits.map((hit, index) =>
               <li className="search-hit" key={hit.chunkId}>
                 <h3>候选 {index + 1} · {hit.documentName}</h3>
@@ -120,7 +121,18 @@ export default function KnowledgeSearch({ workspaceName, knowledgeBaseName, acti
                   {' · '}词项通道名次：{hit.lexicalRank ?? '未入前20'}</p>}
                 <p className="page-caption">文本块 {hit.chunkIndex} · 字符范围：[{hit.startChar}, {hit.endChar})
                   {' · '}余弦距离：{hit.distance.toFixed(4)}</p>
-                <p className="search-preview">{preview(hit.content)}</p>
+                {(() => {
+                  const long = Array.from(hit.content).length > 300;
+                  const open = expanded?.result === outcome.result && expanded.chunkId === hit.chunkId;
+                  return <>
+                    <p className="search-preview">{open ? hit.content : preview(hit.content)}</p>
+                    {long && <button className="button secondary" type="button" aria-expanded={open}
+                      aria-label={`${open ? '收起' : '展开'}候选 ${index + 1} 的完整文本块`}
+                      onClick={() => setExpanded(open ? null : { result: outcome.result, chunkId: hit.chunkId })}>
+                      {open ? '收起完整文本块' : '展开完整文本块'}
+                    </button>}
+                  </>;
+                })()}
               </li>,
             )}</ol>
           </>}

@@ -381,6 +381,27 @@ describe('知识库独立检索页', () => {
     expectNoPrivateOutput();
   });
 
+  it('长候选可展开完整文本块且不发新请求，短候选无需展开', async () => {
+    const requests = installApi();
+    const { container } = render(<App />);
+    await openSearch();
+    await submitQuery();
+    const candidates = within(screen.getByRole('region', { name: '本次检索结果' })).getAllByRole('listitem');
+    expect(candidates[0].textContent).not.toContain('未展示的原文尾部');
+    expect(within(candidates[1]).queryByRole('button', { name: /完整文本块/ })).toBeNull();
+    const requestCount = requests.length;
+    await click(within(candidates[0]).getByRole('button', { name: '展开候选 1 的完整文本块' }));
+    expect(candidates[0].textContent).toContain(LONG_CONTENT);
+    expect(within(candidates[0]).getByRole('button', { name: '收起候选 1 的完整文本块' })
+      .getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('img')).toBeNull();
+    expect(requests).toHaveLength(requestCount);
+    await click(within(candidates[0]).getByRole('button', { name: '收起候选 1 的完整文本块' }));
+    expect(candidates[0].textContent).not.toContain('未展示的原文尾部');
+    expect(requests).toHaveLength(requestCount);
+    expectNoAnswerOrRerankRequests(requests);
+  });
+
   it('列表文件名与状态不缩小混合检索范围，空候选不自动改用向量或再次请求', async () => {
     const requests = installApi(request => {
       if (pathOf(request) === DOCUMENTS && new URL(request.url).searchParams.has('status')) return json([]);
