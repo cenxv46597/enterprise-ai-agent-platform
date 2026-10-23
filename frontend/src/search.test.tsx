@@ -230,7 +230,7 @@ describe('知识库独立检索页', () => {
     await chooseStrategy('hybrid');
     expect(strategyInput().value).toBe('hybrid');
     expect(screen.getByText(/选择方式不会发送请求/)).toBeTruthy();
-    expect(screen.getByText(/引用问答仍使用向量检索/)).toBeTruthy();
+    expect(screen.getByText(/本页选择不影响引用问答，请在问答页单独选择/)).toBeTruthy();
     expect(screen.getByText(/当前混合检索支持最多 2000 个可检索文本块/)).toBeTruthy();
     expect(searchPosts(requests)).toHaveLength(0);
     expectNoAnswerOrRerankRequests(requests);

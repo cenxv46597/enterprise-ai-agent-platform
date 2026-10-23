@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import App from './App';
@@ -31,8 +31,10 @@ const THIRD_QUOTE = '导出条目的保留期限为七天。';
 
 type Route = (request: Request) => Response | Promise<Response> | undefined;
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+function json(body: unknown, status = 200, traceId?: string) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (traceId) headers.set('X-Trace-Id', traceId);
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function sessionResponse(expiresAt = Date.now() / 1000 + 1800) {
@@ -120,6 +122,11 @@ async function click(element: HTMLElement) {
 }
 
 function questionInput() { return screen.getByLabelText('问答问题') as HTMLTextAreaElement; }
+function strategyInput() { return screen.getByLabelText<HTMLSelectElement>('问答检索方式'); }
+
+async function chooseStrategy(strategy: 'vector' | 'hybrid') {
+  await act(async () => { fireEvent.change(strategyInput(), { target: { value: strategy } }); });
+}
 
 async function fillQuestion(value: string) {
   await act(async () => { fireEvent.change(questionInput(), { target: { value } }); });
@@ -139,6 +146,14 @@ async function openAnswers() {
 async function submitQuestion(value = QUESTION) {
   await fillQuestion(value);
   await click(screen.getByRole('button', { name: '生成回答' }));
+}
+
+async function signIn() {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText('用户名'), { target: { value: 'demo_a' } });
+    fireEvent.change(screen.getByLabelText('密码'), { target: { value: 'fake-answer-test-password' } });
+  });
+  await click(screen.getByRole('button', { name: '登录' }));
 }
 
 function expectNoPrivateOutput() {
@@ -188,6 +203,7 @@ describe('知识库独立引用问答页', () => {
     expect(document.body.textContent).toContain('甲空间');
     expect(document.body.textContent).toContain('甲知识库');
     expect(questionInput().value).toBe('');
+    expect(strategyInput().value).toBe('vector');
     expect(answerPosts(requests)).toHaveLength(0);
     for (const value of ['', ' \n\t ', '🙂'.repeat(2001)]) {
       await submitQuestion(value);
@@ -195,8 +211,14 @@ describe('知识库独立引用问答页', () => {
       expect(answerPosts(requests)).toHaveLength(0);
     }
     await fillQuestion(QUESTION);
+    await chooseStrategy('hybrid');
+    expect(strategyInput().value).toBe('hybrid');
+    expect(screen.getByText(/问答页与检索页分别选择方式/)).toBeTruthy();
+    expect(screen.getByText(/切换方式不发送请求/)).toBeTruthy();
+    expect(screen.getByText(/不限于文档列表页或文件名、状态筛选结果/)).toBeTruthy();
     expect(answerPosts(requests)).toHaveLength(0);
     expect(sourceReads(requests)).toHaveLength(0);
+    expect(requests.some(request => pathOf(request).endsWith('/search'))).toBe(false);
     expectNoPrivateOutput();
   });
 
@@ -235,7 +257,7 @@ describe('知识库独立引用问答页', () => {
     expect(answerPosts(requests)).toHaveLength(0);
   });
 
-  it('一次Cookie问答POST后核对全部唯一来源，完成前隐藏答案，完成后显示完整安全引文', async () => {
+  it.each(['vector', 'hybrid'] as const)('%s仅一次Cookie问答POST，全来源核验完成后才显示答案及提交方式快照', async strategy => {
     const pendingAnswer = deferred<Response>();
     const secondSource = deferred<Response>();
     const requests = installApi(request => {
@@ -244,15 +266,17 @@ describe('知识库独立引用问答页', () => {
     });
     const { container } = render(<App />);
     await openAnswers();
+    if (strategy === 'hybrid') await chooseStrategy(strategy);
     await submitQuestion(`\u3000 ${QUESTION}\n`);
     const running = screen.getByRole('button', { name: '正在回答…' }) as HTMLButtonElement;
     expect(running.disabled).toBe(true);
     expect(questionInput().disabled).toBe(true);
+    expect(strategyInput().disabled).toBe(true);
     await click(running);
     expect(answerPosts(requests)).toHaveLength(1);
     const [post] = answerPosts(requests);
     expect(pathOf(post)).toBe(ANSWERS);
-    expect(await post.clone().json()).toEqual({ question: QUESTION, top_k: 3, strategy: 'vector', rerank: false });
+    expect(await post.clone().json()).toEqual({ question: QUESTION, top_k: 3, strategy, rerank: false });
     expect(post.credentials).toBe('same-origin');
     expect(post.headers.get('X-EAAP-Web')).toBe('1');
     expect(post.headers.get('Content-Type')).toBe('application/json');
@@ -264,6 +288,8 @@ describe('知识库独立引用问答页', () => {
     expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
     await act(async () => { secondSource.resolve(json(documentRow(DOCUMENT_B, FILENAME_B))); await vi.advanceTimersByTimeAsync(0); });
     const result = screen.getByRole('region', { name: '本次问答结果' });
+    expect(result.textContent).toContain(`本次提交的检索方式：${strategy === 'hybrid' ? '混合检索（向量＋词项）' : '向量检索'}`);
+    expect(result.textContent).toContain('未请求重排');
     expect(result.querySelectorAll('blockquote')).toHaveLength(3);
     for (const value of [QUESTION, ANSWER, FILENAME_A, FILENAME_B, LONG_QUOTE, SECOND_QUOTE, THIRD_QUOTE]) {
       expect(result.textContent).toContain(value);
@@ -328,6 +354,35 @@ describe('知识库独立引用问答页', () => {
     expectNoPrivateOutput();
   });
 
+  it('混合问答422保留固定参数/上下文/处理量提示和真实排错编号，不自动回退向量或重发', async () => {
+    const traceId = 'a0e0b901-2b0d-4ae0-812a-bab2cf9e7b01';
+    const requests = installApi(request => {
+      if (pathOf(request) === ANSWERS) return json({ detail: PRIVATE }, 422, traceId);
+    });
+    render(<App />);
+    await openAnswers();
+    await chooseStrategy('hybrid');
+    await submitQuestion();
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toContain('参数');
+    expect(alert.textContent).toContain('上下文');
+    expect(alert.textContent).toContain('2000 个可检索文本块');
+    expect(alert.textContent).toContain('100 万正文字符');
+    expect(alert.textContent).toContain('不能确认是否已产生费用');
+    expect(within(alert).getByText(traceId)).toBeTruthy();
+    expectNoAnswerContent();
+    expect(screen.queryByRole('heading', { name: '证据不足，本次弃答' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '导出回答与引文' })).toBeNull();
+    expect(sourceReads(requests)).toHaveLength(0);
+    await advance(30_000);
+    expect(answerPosts(requests)).toHaveLength(1);
+    expect(await answerPosts(requests)[0].clone().json())
+      .toEqual({ question: QUESTION, top_k: 3, strategy: 'hybrid', rerank: false });
+    expect(requests.some(request => pathOf(request).endsWith('/search'))).toBe(false);
+    expect(strategyInput().value).toBe('hybrid');
+    expectNoPrivateOutput();
+  });
+
   it('后一个引用结构无效时整批拒绝，不能提前展示答案或第一个合法引文', async () => {
     const requests = installApi(request => {
       if (pathOf(request) === ANSWERS) return json({ ...answerResult(),
@@ -360,22 +415,30 @@ describe('知识库独立引用问答页', () => {
     expectNoPrivateOutput();
   });
 
-  it.each([ANSWERS, DETAIL_B])('问答或来源401清除身份、问题和当前范围（%s）', async endpoint => {
+  it.each([ANSWERS, DETAIL_B])('混合问答或来源401清除身份/问题/方式，重进默认向量（%s）', async endpoint => {
     const requests = installApi(request => {
       if (pathOf(request) === endpoint) return json({ detail: PRIVATE }, 401);
     });
     render(<App />);
     await openAnswers();
+    await chooseStrategy('hybrid');
     await submitQuestion();
     expect(screen.getByRole('heading', { name: '登录工作空间' })).toBeTruthy();
     expect(screen.queryByLabelText('问答问题')).toBeNull();
+    expect(screen.queryByLabelText('问答检索方式')).toBeNull();
     for (const value of [QUESTION, '甲空间', '甲知识库']) expect(document.body.textContent).not.toContain(value);
     expectNoAnswerContent();
     expect(answerPosts(requests)).toHaveLength(1);
     expectNoPrivateOutput();
+    await signIn();
+    await openAnswers();
+    expect(strategyInput().value).toBe('vector');
+    expect(questionInput().value).toBe('');
+    expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
+    expect(answerPosts(requests)).toHaveLength(1);
   });
 
-  it('提交快照不随编辑改变，再次提交立即清空旧答案和引文', async () => {
+  it('混合提交快照不随问题/向量草稿改变，再次提交立即清旧并记录新向量方式', async () => {
     const second = deferred<Response>();
     let submissions = 0;
     const requests = installApi(request => {
@@ -383,12 +446,15 @@ describe('知识库独立引用问答页', () => {
     });
     render(<App />);
     await openAnswers();
+    await chooseStrategy('hybrid');
     await submitQuestion();
     const nextQuestion = '导出条目的另一个问题';
     await fillQuestion(nextQuestion);
+    await chooseStrategy('vector');
     const first = screen.getByRole('region', { name: '本次问答结果' });
     expect(first.textContent).toContain(QUESTION);
     expect(first.textContent).not.toContain(nextQuestion);
+    expect(first.textContent).toContain('本次提交的检索方式：混合检索（向量＋词项）');
     expect(answerPosts(requests)).toHaveLength(1);
     await click(screen.getByRole('button', { name: '生成回答' }));
     expectNoAnswerContent();
@@ -397,8 +463,13 @@ describe('知识库独立引用问答页', () => {
     const result = screen.getByRole('region', { name: '本次问答结果' });
     expect(result.textContent).toContain(nextQuestion);
     expect(result.textContent).not.toContain(QUESTION);
+    expect(result.textContent).toContain('本次提交的检索方式：向量检索');
     expect(screen.getByRole('heading', { name: '证据不足，本次弃答' })).toBeTruthy();
     expect(answerPosts(requests)).toHaveLength(2);
+    expect(await answerPosts(requests)[0].clone().json())
+      .toEqual({ question: QUESTION, top_k: 3, strategy: 'hybrid', rerank: false });
+    expect(await answerPosts(requests)[1].clone().json())
+      .toEqual({ question: nextQuestion, top_k: 3, strategy: 'vector', rerank: false });
     expectNoPrivateOutput();
   });
 
@@ -434,13 +505,14 @@ describe('知识库独立引用问答页', () => {
     expect(answerPosts(requests)).toHaveLength(1);
   });
 
-  it('停止等待取消浏览器请求，迟到成功不能改写未确认结果或启动来源读取', async () => {
+  it('停止等待混合问答取消浏览器请求，迟到成功不能改写结果或启动来源读取', async () => {
     const pending = deferred<Response>();
     const requests = installApi(request => {
       if (pathOf(request) === ANSWERS) return pending.promise;
     });
     render(<App />);
     await openAnswers();
+    await chooseStrategy('hybrid');
     await submitQuestion();
     await click(screen.getByRole('button', { name: '停止等待回答结果' }));
     expect(answerPosts(requests)[0].signal.aborted).toBe(true);
@@ -449,6 +521,7 @@ describe('知识库独立引用问答页', () => {
     expectUnconfirmed();
     expect(sourceReads(requests)).toHaveLength(0);
     expect(answerPosts(requests)).toHaveLength(1);
+    expect((await answerPosts(requests)[0].clone().json()).strategy).toBe('hybrid');
   });
 
   it('返回文档后可切换知识库，旧问答迟到成功不能污染新范围', async () => {
@@ -458,6 +531,7 @@ describe('知识库独立引用问答页', () => {
     });
     render(<App />);
     await openAnswers();
+    await chooseStrategy('hybrid');
     await submitQuestion();
     await click(screen.getByRole('button', { name: '返回文档列表' }));
     expect(answerPosts(requests)[0].signal.aborted).toBe(true);
@@ -467,6 +541,7 @@ describe('知识库独立引用问答页', () => {
     await click(screen.getByRole('button', { name: '查看乙知识库的文档' }));
     await click(screen.getByRole('button', { name: '引用问答' }));
     expect(questionInput().value).toBe('');
+    expect(strategyInput().value).toBe('vector');
     await act(async () => { pending.resolve(json(answerResult())); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByRole('heading', { level: 1, name: '引用问答' })).toBeTruthy();
     expect(document.body.textContent).toContain('乙知识库');
@@ -524,7 +599,7 @@ describe('知识库独立引用问答页', () => {
     expectNoPrivateOutput();
   });
 
-  it('问答不会续期，固定到期清空问题并隔离迟到错误', async () => {
+  it('混合问答不续期，到期清问题和方式并隔离迟到错误，重进默认向量', async () => {
     const pending = deferred<Response>();
     const requests = installApi(request => {
       if (pathOf(request) === RESTORE) return sessionResponse(Date.now() / 1000 + 60);
@@ -533,12 +608,14 @@ describe('知识库独立引用问答页', () => {
     render(<App />);
     await openAnswers();
     await advance(30_000);
+    await chooseStrategy('hybrid');
     await submitQuestion();
     await advance(30_000);
     expect(answerPosts(requests)[0].signal.aborted).toBe(true);
     expect(screen.getByRole('heading', { name: '登录工作空间' })).toBeTruthy();
     expect(screen.getByRole('alert').textContent).toBe('登录已到期，请重新登录。');
     expect(screen.queryByLabelText('问答问题')).toBeNull();
+    expect(screen.queryByLabelText('问答检索方式')).toBeNull();
     expect(document.body.textContent).not.toContain(QUESTION);
     await act(async () => { pending.resolve(json({ detail: PRIVATE }, 404)); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByRole('alert').textContent).toBe('登录已到期，请重新登录。');
@@ -546,12 +623,18 @@ describe('知识库独立引用问答页', () => {
     expectNoAnswerContent();
     expect(requests.filter(request => pathOf(request) === RESTORE)).toHaveLength(1);
     expectNoPrivateOutput();
+    await signIn();
+    await openAnswers();
+    expect(strategyInput().value).toBe('vector');
+    expect(questionInput().value).toBe('');
+    expect(answerPosts(requests)).toHaveLength(1);
   });
 
-  it('重新挂载只恢复会话，所选知识库、问题与答案均不持久化或自动重发', async () => {
+  it('重新挂载只恢复会话，混合方式、所选知识库、问题与答案均不持久化或自动重发', async () => {
     const requests = installApi();
     const first = render(<App />);
     await openAnswers();
+    await chooseStrategy('hybrid');
     await submitQuestion();
     expect(screen.getByRole('region', { name: '本次问答结果' })).toBeTruthy();
     first.unmount();
@@ -565,6 +648,7 @@ describe('知识库独立引用问答页', () => {
     await click(screen.getByRole('button', { name: '查看甲知识库的文档' }));
     await click(screen.getByRole('button', { name: '引用问答' }));
     expect(questionInput().value).toBe('');
+    expect(strategyInput().value).toBe('vector');
     expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
     expect(answerPosts(requests)).toHaveLength(1);
     expectNoPrivateOutput();

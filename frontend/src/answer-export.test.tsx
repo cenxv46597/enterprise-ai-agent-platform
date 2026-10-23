@@ -47,8 +47,8 @@ function answerResult(abstained = false) {
     citations: abstained ? [] : [{ document_id: DOCUMENT, document_name: FILENAME, chunk_id: CHUNK,
       chunk_index: 1, quote: QUOTE, start_char: characters(PREFIX), end_char: characters(PREFIX + QUOTE) }] };
 }
-function expectedInput(question = QUESTION, abstained = false) {
-  return { workspaceName: '甲空间', knowledgeBaseName: '甲知识库', question,
+function expectedInput(question = QUESTION, abstained = false, submittedStrategy: 'vector' | 'hybrid' = 'vector') {
+  return { workspaceName: '甲空间', knowledgeBaseName: '甲知识库', question, submittedStrategy,
     result: { answer: abstained ? ABSTENTION : ANSWER, abstained,
       citations: abstained ? [] : [{ documentId: DOCUMENT, documentName: FILENAME, chunkId: CHUNK,
         chunkIndex: 1, quote: QUOTE, startChar: characters(PREFIX), endChar: characters(PREFIX + QUOTE) }] } };
@@ -90,6 +90,10 @@ async function click(element: HTMLElement) {
 async function fillQuestion(question: string) {
   await act(async () => { fireEvent.change(screen.getByLabelText('问答问题'), { target: { value: question } }); });
 }
+function strategyInput() { return screen.getByLabelText<HTMLSelectElement>('问答检索方式'); }
+async function chooseStrategy(strategy: 'vector' | 'hybrid') {
+  await act(async () => { fireEvent.change(strategyInput(), { target: { value: strategy } }); });
+}
 async function submit(question = QUESTION) {
   await fillQuestion(question); await click(screen.getByRole('button', { name: '生成回答' }));
 }
@@ -101,7 +105,11 @@ async function openAnswers() {
   await click(screen.getByRole('button', { name: '查看甲知识库的文档' }));
   await click(screen.getByRole('button', { name: '引用问答' }));
 }
-async function prepare() { await openAnswers(); await submit(); }
+async function prepare(strategy: 'vector' | 'hybrid' = 'vector') {
+  await openAnswers();
+  if (strategy === 'hybrid') await chooseStrategy(strategy);
+  await submit();
+}
 function exportButton() { return screen.getByRole('button', { name: EXPORT }) as HTMLButtonElement; }
 function sourceButton() { return screen.getByRole('button', { name: '查看引用 1 的完整来源段落' }); }
 function resultRegion() { return screen.getByRole('region', { name: '本次问答结果' }); }
@@ -125,24 +133,32 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('已确认引用问答的显式本地文本导出', () => {
-  it('只有点击才导出，编辑输入不改变提交快照，导出不增加请求或重跑问答', async () => {
-    const requests = installApi(); await prepare();
+  it('只有点击才导出，编辑问题和向量草稿不改变混合提交快照或增加请求', async () => {
+    const requests = installApi(); await prepare('hybrid');
     expectOriginalAnswer(); expect(exportModule.downloadAnswerText).not.toHaveBeenCalled();
     await fillQuestion(NEXT_QUESTION);
+    await chooseStrategy('vector');
+    expect(resultRegion().textContent).toContain('本次提交的检索方式：混合检索（向量＋词项）');
     const before = requests.length; await click(exportButton());
-    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput());
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, false, 'hybrid'));
+    const input = vi.mocked(exportModule.downloadAnswerText).mock.calls[0][0];
+    expect(exportModule.buildAnswerText(input)).toContain('混合检索（向量＋词项）');
+    expect(exportModule.buildAnswerText(input)).not.toContain(NEXT_QUESTION);
     expect(screen.getByText(REQUESTED)).toBeTruthy(); expectOriginalAnswer();
     await advance(30_000); expect(requests).toHaveLength(before);
     expect(requests.filter(request => request.method === 'POST' && pathOf(request) === ANSWERS)).toHaveLength(1);
+    expect(await requests.find(request => pathOf(request) === ANSWERS)!.clone().json())
+      .toEqual({ question: QUESTION, top_k: 3, strategy: 'hybrid', rerank: false });
     expect(JSON.stringify(vi.mocked(exportModule.downloadAnswerText).mock.calls[0])).not.toContain('demo_export_user');
     expect(JSON.stringify(vi.mocked(exportModule.downloadAnswerText).mock.calls[0])).not.toContain(PRIVATE);
   });
 
-  it('正常弃答也可导出当前提交问题和零条引用，不新增来源读取', async () => {
+  it('混合问答正常弃答也可导出提交问题、策略和零条引用，不新增来源读取', async () => {
     const requests = installApi(request => pathOf(request) === ANSWERS ? json(answerResult(true)) : undefined);
-    await prepare(); expect(screen.getByRole('heading', { name: '证据不足，本次弃答' })).toBeTruthy();
+    await prepare('hybrid'); expect(screen.getByRole('heading', { name: '证据不足，本次弃答' })).toBeTruthy();
     const before = requests.length; await click(exportButton());
-    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, true));
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, true, 'hybrid'));
+    expect(resultRegion().textContent).toContain('本次提交的检索方式：混合检索（向量＋词项）');
     expect(screen.getByText(REQUESTED)).toBeTruthy(); expect(requests).toHaveLength(before);
     expect(requests.filter(request => [DETAIL, CHUNK_PATH].includes(pathOf(request)))).toHaveLength(0);
   });
@@ -162,28 +178,37 @@ describe('已确认引用问答的显式本地文本导出', () => {
     expect(document.body.textContent).not.toContain(PRIVATE);
   });
 
-  it('来源等待时禁止导出；来源GET失败后仍能导出原答案而不附带预览、错误或编号', async () => {
+  it('来源等待禁导出和方式选择；GET失败后仍导出原混合快照，不附预览、错误或编号', async () => {
     const pending = deferred();
     const requests = installApi(request => pathOf(request) === CHUNK_PATH ? pending.promise : undefined);
-    await prepare(); await click(sourceButton());
+    await prepare('hybrid'); await fillQuestion(NEXT_QUESTION); await chooseStrategy('vector'); await click(sourceButton());
+    expect(strategyInput().disabled).toBe(true);
     expect(exportButton().disabled).toBe(true); await click(exportButton());
     expect(exportModule.downloadAnswerText).not.toHaveBeenCalled();
     await resolve(pending, json({ detail: PRIVATE }, 503, TRACE));
     expectOriginalAnswer(); expect(screen.getByText(TRACE)).toBeTruthy(); expect(exportButton().disabled).toBe(false);
+    expect(strategyInput().disabled).toBe(false); expect(strategyInput().value).toBe('vector');
+    expect(resultRegion().textContent).toContain('本次提交的检索方式：混合检索（向量＋词项）');
     const before = requests.length; await click(exportButton());
-    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput());
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, false, 'hybrid'));
     expect(requests).toHaveLength(before); expectOriginalAnswer();
     const input = JSON.stringify(vi.mocked(exportModule.downloadAnswerText).mock.calls[0]);
     for (const value of [PREFIX, SUFFIX, TRACE, PRIVATE, 'source', 'traceId']) expect(input).not.toContain(value);
   });
 
-  it('已展开的完整块不混入导出，来源关闭不清除已请求下载的提示', async () => {
-    const requests = installApi(); await prepare(); await click(sourceButton());
+  it('来源GET成功与关闭不改变混合提交策略，完整块不混入导出或触发新POST', async () => {
+    const requests = installApi(); await prepare('hybrid');
+    await fillQuestion(NEXT_QUESTION); await chooseStrategy('vector'); await click(sourceButton());
     expect(screen.getByLabelText('完整来源正文').textContent).toContain(CONTENT);
     const before = requests.length; await click(exportButton());
-    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput());
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, false, 'hybrid'));
     await click(screen.getByRole('button', { name: '关闭来源段落' }));
     expect(screen.getByText(REQUESTED)).toBeTruthy(); expect(requests).toHaveLength(before);
+    expect(resultRegion().textContent).toContain('本次提交的检索方式：混合检索（向量＋词项）');
+    await click(exportButton());
+    expect(exportModule.downloadAnswerText).toHaveBeenNthCalledWith(2, expectedInput(QUESTION, false, 'hybrid'));
+    expect(requests).toHaveLength(before);
+    expect(requests.filter(request => request.method === 'POST' && pathOf(request) === ANSWERS)).toHaveLength(1);
     expectOriginalAnswer();
   });
 
@@ -214,11 +239,34 @@ describe('已确认引用问答的显式本地文本导出', () => {
     expect(exportModule.downloadAnswerText).toHaveBeenCalledTimes(1);
   });
 
+  it('第二次向量提交清旧导出，确认后导出新问题与方式，不能沿用原混合快照', async () => {
+    const next = deferred(); let answers = 0;
+    const requests = installApi(request => pathOf(request) === ANSWERS && ++answers === 2 ? next.promise : undefined);
+    await prepare('hybrid'); await click(exportButton());
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, false, 'hybrid'));
+    await chooseStrategy('vector'); await submit(NEXT_QUESTION);
+    expect(screen.queryByRole('button', { name: EXPORT })).toBeNull(); expectNoExportStatus();
+    await resolve(next, json(answerResult(true)));
+    expect(resultRegion().textContent).toContain('本次提交的检索方式：向量检索');
+    expect(resultRegion().textContent).not.toContain(QUESTION);
+    const before = requests.length; await click(exportButton());
+    expect(exportModule.downloadAnswerText).toHaveBeenNthCalledWith(2, expectedInput(NEXT_QUESTION, true, 'vector'));
+    const input = vi.mocked(exportModule.downloadAnswerText).mock.calls[1][0];
+    expect(exportModule.buildAnswerText(input)).toContain(NEXT_QUESTION);
+    expect(exportModule.buildAnswerText(input)).not.toContain('混合检索（向量＋词项）');
+    const posts = requests.filter(request => request.method === 'POST' && pathOf(request) === ANSWERS);
+    expect(posts).toHaveLength(2);
+    expect(await posts[0].clone().json()).toEqual({ question: QUESTION, top_k: 3, strategy: 'hybrid', rerank: false });
+    expect(await posts[1].clone().json()).toEqual({ question: NEXT_QUESTION, top_k: 3, strategy: 'vector', rerank: false });
+    expect(requests).toHaveLength(before);
+  });
+
   it('返回文档再进入问答不保留旧结果、下载提示或导出入口', async () => {
-    installApi(); await prepare(); await click(exportButton());
+    installApi(); await prepare('hybrid'); await click(exportButton());
     await click(screen.getByRole('button', { name: '返回文档列表' }));
     expect(screen.queryByRole('button', { name: EXPORT })).toBeNull(); expectNoExportStatus();
     await click(screen.getByRole('button', { name: '引用问答' }));
+    expect(strategyInput().value).toBe('vector');
     expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
     expect(screen.queryByRole('button', { name: EXPORT })).toBeNull(); expectNoExportStatus();
     expect(exportModule.downloadAnswerText).toHaveBeenCalledTimes(1);

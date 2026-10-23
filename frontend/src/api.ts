@@ -805,9 +805,11 @@ export async function answerKnowledgeBase(
   knowledgeBaseId: string,
   question: string,
   signal: AbortSignal,
+  strategy: SearchStrategy = "vector",
 ): Promise<KnowledgeAnswerResult> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
   const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  if (!isSearchStrategy(strategy)) throw new ApiError("检索方式无效，请选择向量检索或混合检索。");
   const normalizedQuestion = question.trim();
   let questionLength = 0;
   for (const _character of normalizedQuestion) {
@@ -827,7 +829,7 @@ export async function answerKnowledgeBase(
       webRequestOptions({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: normalizedQuestion, top_k: 3, strategy: "vector", rerank: false }),
+        body: JSON.stringify({ question: normalizedQuestion, top_k: 3, strategy, rerank: false }),
       }, controller.signal),
     );
     if (controller.signal.aborted) throw new AnswerUnconfirmedError();
@@ -836,7 +838,9 @@ export async function answerKnowledgeBase(
       403: "问答请求被拒绝，请检查登录与浏览器来源。",
       404: "该知识库不存在或你已无权访问，请返回知识库列表。",
       409: "当前知识库向量模型配置不一致，无法完成本次问答；本响应不能确认是否已产生费用。",
-      422: "请核对问答问题、请求参数与上下文预算；本响应不能确认是否已产生费用。",
+      422: strategy === "hybrid"
+        ? "问答问题、请求参数、上下文预算或混合检索处理量可能不符合要求（混合检索上限为 2000 个可检索文本块、100 万正文字符）；本响应不能确认是否已产生费用。"
+        : "请核对问答问题、请求参数与上下文预算；本响应不能确认是否已产生费用。",
     };
     if (Object.hasOwn(rejectionMessages, response.status)) {
       throw new ApiError(rejectionMessages[response.status], response.status, responseTraceId(response));

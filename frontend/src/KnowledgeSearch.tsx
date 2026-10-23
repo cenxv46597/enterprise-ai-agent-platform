@@ -78,7 +78,7 @@ export default function KnowledgeSearch({ workspaceName, knowledgeBaseName, acti
           </select>
           <p className="session-note" id="search-strategy-help">向量检索侧重语义接近；混合检索结合向量与词项匹配的名次，
             可用于错误码、版本号等文字线索。选择方式不会发送请求，点击“检索”后才生效。
-            该选择只影响本页，引用问答仍使用向量检索。</p>
+            本页选择不影响引用问答，请在问答页单独选择。</p>
           {strategy === 'hybrid' && <p className="session-note">当前混合检索支持最多 2000 个可检索文本块、100 万正文字符。
             超限时拒绝，不截取部分知识库，也不自动换方式重试。</p>}
           <p className="session-note" id="search-help">填写问题后，点击“检索”才会提交。

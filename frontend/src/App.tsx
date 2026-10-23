@@ -471,8 +471,9 @@ export default function App() {
     openAnswer();
   }
 
-  async function answer(question: string) {
-    if (!answerOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+  async function answer(question: string, strategy: SearchStrategy = 'vector') {
+    if (!answerOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null
+      || !isSearchStrategy(strategy)) return;
     const workspaceId = selectedWorkspace.id;
     const knowledgeBaseId = selectedKnowledgeBase.id;
     const submittedQuestion = question.trim();
@@ -481,8 +482,9 @@ export default function App() {
     setError('');
     setAnswerOutcome(null);
     try {
-      const result = await answerKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuestion, controller.signal);
-      if (isCurrent(id, controller)) setAnswerOutcome({ kind: 'confirmed', question: submittedQuestion, result });
+      const result = await answerKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuestion, controller.signal, strategy);
+      if (isCurrent(id, controller)) setAnswerOutcome({ kind: 'confirmed', question: submittedQuestion,
+        submittedStrategy: strategy, result });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
@@ -515,7 +517,7 @@ export default function App() {
     const confirmed = answerOutcome;
     try {
       downloadAnswerText({ workspaceName: selectedWorkspace.name, knowledgeBaseName: selectedKnowledgeBase.name,
-        question: confirmed.question, result: confirmed.result });
+        question: confirmed.question, submittedStrategy: confirmed.submittedStrategy, result: confirmed.result });
       setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'requested' } : outcome);
     } catch {
       setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'failed' } : outcome);
@@ -1315,7 +1317,7 @@ export default function App() {
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'answer' ? 'answering' : busy === 'answer-source' ? 'reading-source'
             : busy === 'logout' ? 'logout' : 'idle'}
-          outcome={answerOutcome} error={error} onAnswer={question => void answer(question)}
+          outcome={answerOutcome} error={error} onAnswer={(question, strategy) => void answer(question, strategy)}
           onCancel={stopWaitingForAnswer} onBack={backToDocuments}
           onReadSource={index => void readAnswerSource(index)} onCancelSource={stopWaitingForAnswerSource}
           onCloseSource={closeAnswerSource} onExport={exportAnswer}

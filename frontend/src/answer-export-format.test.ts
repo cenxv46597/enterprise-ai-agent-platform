@@ -1,7 +1,7 @@
 import { Blob as NodeBlob } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ANSWER_EXPORT_FILENAME, buildAnswerText, downloadAnswerText } from './answer-export';
+import { ANSWER_EXPORT_FILENAME, ANSWER_EXPORT_STRATEGY_ERROR, buildAnswerText, downloadAnswerText } from './answer-export';
 import type { AnswerTextExportInput } from './answer-export';
 
 const DOCUMENT = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -19,9 +19,10 @@ const createObjectURL = vi.fn<(blob: Blob) => string>();
 const revokeObjectURL = vi.fn<(url: string) => void>();
 const NativeURL = URL;
 
-function input(): AnswerTextExportInput {
+function input(submittedStrategy: AnswerTextExportInput['submittedStrategy'] = 'vector'): AnswerTextExportInput {
   return {
     workspaceName: '企业空间😀', knowledgeBaseName: '操作手册库', question: '原先提交的问题😀？\n请保留完整条件。',
+    submittedStrategy,
     result: { answer: ANSWER, abstained: false, citations: [
       { documentId: DOCUMENT, documentName: '规程😀.md', chunkId: CHUNK, chunkIndex: 7,
         quote: QUOTE, startChar: 200, endChar: 200 + Array.from(QUOTE).length },
@@ -53,8 +54,10 @@ afterEach(() => {
 });
 
 describe('引用问答纯文本白名单格式', () => {
-  it('保留完整Unicode答案、问题、长引文与每条来源身份和范围，build本身不带BOM', () => {
-    const record = input(), text = buildAnswerText(record);
+  it.each([
+    ['vector', '向量检索'], ['hybrid', '混合检索（向量＋词项）'],
+  ] as const)('保留完整Unicode答案、问题、长引文与每条来源身份和范围，以及本次%s提交参数，build本身不带BOM', (strategy, label) => {
+    const record = input(strategy), text = buildAnswerText(record);
     expect(text.startsWith('\uFEFF')).toBe(false);
     for (const field of ['企业知识库问答记录', '工作空间', record.workspaceName, '知识库', record.knowledgeBaseName,
       '本次提交的问题', record.question, '回答', ANSWER, '结果', '文档', '块序号', '引用来源']) {
@@ -70,21 +73,49 @@ describe('引用问答纯文本白名单格式', () => {
       expect(text).toMatch(new RegExp(`块序号\\s*[:：]\\s*${citation.chunkIndex}`));
     }
     expect(text).toMatch(/文档\s*ID/); expect(text).toMatch(/块\s*ID/);
+    expect(text).toContain(`本次提交的检索方式：${label}`);
+    expect(text).toContain('此检索方式仅记录本次提交参数，不等于服务端实际执行证明。');
     expect(Array.from(ANSWER).length).toBeGreaterThan(1000);
     expect(Array.from(QUOTE).length).toBeGreaterThan(300);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(createObjectURL).not.toHaveBeenCalled();
   });
 
-  it('已确认弃答明确保留弃答结果与0引用，不制造来源或正常回答结论', () => {
-    const record = input();
+  it.each([
+    ['vector', '向量检索'], ['hybrid', '混合检索（向量＋词项）'],
+  ] as const)('已确认%s弃答保留提交方式、弃答结果与0引用，不制造来源或正常回答结论', (strategy, label) => {
+    const record = input(strategy);
     record.result = { answer: '目前检索到的资料不足以确认答案。', abstained: true, citations: [] };
     const text = buildAnswerText(record);
     expect(text).toContain('证据不足，本次弃答');
     expect(text).toContain(record.result.answer);
+    expect(text).toContain(`本次提交的检索方式：${label}`);
+    expect(text).toContain('不等于服务端实际执行证明');
     expect(text).toMatch(/引用来源\s*[:：]\s*0/);
     expect(text).not.toContain(DOCUMENT); expect(text).not.toContain(CHUNK);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: '缺失', value: undefined }, { label: '空值', value: null },
+    { label: '空字符串', value: '' }, { label: '大写', value: 'VECTOR' },
+    { label: '前空白', value: ' vector' }, { label: '后空白', value: 'hybrid ' },
+    { label: '未知文字', value: PRIVATE_TRACE }, { label: '数字', value: 1 },
+    { label: '布尔值', value: true }, { label: '数组', value: [] }, { label: '对象', value: {} },
+  ])('拒绝$label检索方式并抛固定安全错误，不默认向量、不请求或创建下载资源', ({ value }) => {
+    const record: Partial<AnswerTextExportInput> = input();
+    if (value === undefined) delete record.submittedStrategy;
+    else Object.assign(record, { submittedStrategy: value });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    const unsafeInput = record as AnswerTextExportInput;
+    expect(() => buildAnswerText(unsafeInput)).toThrowError(new Error(ANSWER_EXPORT_STRATEGY_ERROR));
+    expect(() => downloadAnswerText(unsafeInput)).toThrowError(new Error(ANSWER_EXPORT_STRATEGY_ERROR));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+    expect(click).not.toHaveBeenCalled();
+    expect(document.querySelector('a[download]')).toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('只输出公开字段，不序列化来源预览、编号、账号及未提交输入，也不解析HTML', () => {

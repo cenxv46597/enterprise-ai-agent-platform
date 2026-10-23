@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { DocumentChunk, KnowledgeAnswerResult } from './api';
+import { isSearchStrategy, type DocumentChunk, type KnowledgeAnswerResult, type SearchStrategy } from './api';
 
 export type AnswerSourceView = {
   index: number;
@@ -8,7 +8,7 @@ export type AnswerSourceView = {
 };
 
 export type AnswerOutcome =
-  | { kind: 'confirmed'; question: string; result: KnowledgeAnswerResult; source?: AnswerSourceView;
+  | { kind: 'confirmed'; question: string; submittedStrategy: SearchStrategy; result: KnowledgeAnswerResult; source?: AnswerSourceView;
       exportStatus?: 'requested' | 'failed' }
   | { kind: 'unconfirmed' | 'rejected'; message: string; traceId?: string | null };
 
@@ -18,7 +18,7 @@ type Props = {
   activity: 'idle' | 'answering' | 'reading-source' | 'logout';
   outcome: AnswerOutcome | null;
   error: string;
-  onAnswer: (question: string) => void;
+  onAnswer: (question: string, strategy: SearchStrategy) => void;
   onCancel: () => void;
   onBack: () => void;
   onReadSource?: (index: number) => void;
@@ -30,6 +30,7 @@ type Props = {
 export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, activity,
   outcome, error, onAnswer, onCancel, onBack, onReadSource, onCancelSource, onCloseSource, onExport }: Props) {
   const [question, setQuestion] = useState('');
+  const [strategy, setStrategy] = useState<SearchStrategy>('vector');
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
 
@@ -47,7 +48,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
       return;
     }
     setValidationError('');
-    onAnswer(normalized);
+    onAnswer(normalized, strategy);
   }
 
   return <section className="knowledge-answer" aria-labelledby="answer-title">
@@ -61,12 +62,25 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
     {error && <p className="message error" role="alert">{error}</p>}
     {activity === 'logout' ? <p className="message" role="status">正在确认退出…</p> : <>
       <div className="search-form-panel">
-        <p id="answer-scope">问答范围为当前知识库中的全部可检索文档，不限于文档列表第一页。</p>
+        <p id="answer-scope">问答范围为当前知识库中的全部可检索文档，不限于文档列表页或文件名、状态筛选结果。</p>
         <form noValidate onSubmit={submit} aria-busy={busy}>
           <label htmlFor="answer-question">问答问题</label>
           <textarea id="answer-question" rows={3} value={question} disabled={busy}
             aria-describedby="answer-scope answer-help" aria-invalid={validationError ? true : undefined}
             onChange={event => { setQuestion(event.currentTarget.value); setValidationError(''); }} />
+          <label htmlFor="answer-strategy">问答检索方式</label>
+          <select id="answer-strategy" value={strategy} disabled={busy} aria-describedby="answer-strategy-help"
+            onChange={event => {
+              if (!busy && isSearchStrategy(event.currentTarget.value)) setStrategy(event.currentTarget.value);
+            }}>
+            <option value="vector">向量检索</option>
+            <option value="hybrid">混合检索（向量＋词项）</option>
+          </select>
+          <p className="session-note" id="answer-strategy-help">向量检索侧重语义接近；混合检索同时参考词项匹配的名次。
+            问答页与检索页分别选择方式；切换方式不发送请求，点击“生成回答”才按所选方式检索并生成。
+            混合方式不保证回答更准确。</p>
+          {strategy === 'hybrid' && <p className="session-note">当前混合检索支持最多 2000 个可检索文本块、100 万正文字符。
+            超限时拒绝，不截取部分知识库，也不自动换方式重试。</p>}
           <p className="session-note" id="answer-help">填写问题后，点击“生成回答”才会提交。
             本次操作可能调用问题向量服务和回答模型；不自动重试。</p>
           {validationError && <p className="message error" role="alert">{validationError}</p>}
@@ -86,10 +100,12 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
         <h2 id="answer-result-title">本次问答结果</h2>
         {outcome.kind === 'confirmed' ? <>
           <p className="submitted-query">本次提交的问题：<strong>{outcome.question}</strong></p>
+          <p className="submitted-query">本次提交的检索方式：<strong>{outcome.submittedStrategy === 'hybrid'
+            ? '混合检索（向量＋词项）' : '向量检索'}</strong> · 未请求重排。</p>
           <div className="answer-export">
             <button className="button secondary" type="button" disabled={busy || !!error || !onExport}
               onClick={onExport}>导出回答与引文</button>
-            <p className="session-note">下载文本文件，包含本次提交的问题、回答和完整引文；不会重新生成回答。</p>
+            <p className="session-note">下载文本文件，包含本次提交的问题、检索方式、回答和完整引文；不会重新生成回答。</p>
             {outcome.exportStatus === 'requested' && <p className="message" role="status">
               已请求浏览器下载，请在下载列表中确认文件。</p>}
             {outcome.exportStatus === 'failed' && <p className="message error" role="alert">
