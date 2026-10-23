@@ -3,6 +3,9 @@
 当前先读[项目整体指南](delivery/project-guide.md)、[运行和演示手册](delivery/run-and-demo.md)、
 [交付记录](delivery/release-2026-10-23.md)。它们描述完成线和当前边界；每日记录用于追溯。
 
+面试学习单独开对话时，使用[可复制提示词](handoff/interview-learning-prompt-2026-10-23.md)与
+[面试专用交接](handoff/interview-learning-handoff-2026-10-23.md)，先建立整体感，再逐题讨论。
+
 ## 核心设计
 
 - [架构和API数据设计](architecture/data-api-design-proposal.md)
