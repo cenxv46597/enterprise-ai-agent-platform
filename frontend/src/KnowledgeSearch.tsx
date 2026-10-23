@@ -108,6 +108,7 @@ export default function KnowledgeSearch({ workspaceName, knowledgeBaseName, acti
           {outcome.result.hits.length === 0 ? <div className="empty-state">
             <h3>本次未返回候选段落</h3>
             <p>这不代表知识库没有文档，也不能据此确认本次没有产生费用。</p>
+            <p>可检查相关文档是否已完成处理并可检索，或调整问题后手动再次检索。</p>
           </div> : <>
             <p className="session-note">{outcome.result.strategy === 'hybrid'
               ? '候选按融合得分从高到低排列；融合得分综合两路名次，不是答案正确率。余弦距离仍表示向量接近程度，越小越接近，不决定本次排列。“未入前20”只说明该通道未选中此候选，不代表完全不相关。'

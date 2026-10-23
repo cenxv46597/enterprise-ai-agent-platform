@@ -484,6 +484,7 @@ describe('知识库独立检索页', () => {
     expect(result.textContent).toContain(QUERY);
     expect(result.textContent).toContain(EMPTY);
     expect(result.textContent).toContain('这不代表知识库没有文档');
+    expect(result.textContent).toContain('调整问题后手动再次检索');
     expect(result.textContent).toContain('不能据此确认本次没有产生费用');
     expect(screen.queryByRole('heading', { name: '该知识库暂无文档' })).toBeNull();
     expect(screen.queryByRole('alert')).toBeNull();
