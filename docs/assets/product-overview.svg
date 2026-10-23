@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="390" viewBox="0 0 1200 390" role="img" aria-labelledby="title description">
+  <title id="title">Enterprise Knowledge and Workflow Agent Platform</title>
+  <desc id="description">Capability overview: document ingestion, scoped retrieval, answers with citations, and controlled workflows. This is an architecture illustration, not a product screenshot.</desc>
+  <rect width="1200" height="390" rx="16" fill="#f3f6f5"/>
+  <rect x="0" y="0" width="10" height="390" rx="5" fill="#17635c"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="46" y="50" font-size="13" letter-spacing="3" fill="#17635c">KNOWLEDGE / EVIDENCE / CONTROL</text>
+    <text x="46" y="109" font-size="39" font-weight="650" fill="#183735">Enterprise Knowledge &amp; Workflow</text>
+    <text x="46" y="151" font-size="20" fill="#536b68">From documents to traceable answers and controlled actions.</text>
+    <g transform="translate(46 196)">
+      <rect width="255" height="130" rx="10" fill="#ffffff" stroke="#d4dfdc"/>
+      <text x="20" y="30" font-size="13" fill="#17635c">01 / INGEST</text>
+      <text x="20" y="65" font-size="23" font-weight="600" fill="#183735">Organize documents</text>
+      <text x="20" y="96" font-size="15" fill="#536b68">Parse · Chunk · Embed</text>
+    </g>
+    <g transform="translate(329 196)">
+      <rect width="255" height="130" rx="10" fill="#ffffff" stroke="#d4dfdc"/>
+      <text x="20" y="30" font-size="13" fill="#17635c">02 / RETRIEVE</text>
+      <text x="20" y="65" font-size="23" font-weight="600" fill="#183735">Find the evidence</text>
+      <text x="20" y="96" font-size="15" fill="#536b68">Vector + lexical retrieval</text>
+    </g>
+    <g transform="translate(612 196)">
+      <rect width="255" height="130" rx="10" fill="#ffffff" stroke="#d4dfdc"/>
+      <text x="20" y="30" font-size="13" fill="#17635c">03 / ANSWER</text>
+      <text x="20" y="65" font-size="23" font-weight="600" fill="#183735">Keep sources visible</text>
+      <text x="20" y="96" font-size="15" fill="#536b68">Citations · Source inspection</text>
+    </g>
+    <g transform="translate(895 196)">
+      <rect width="255" height="130" rx="10" fill="#183735"/>
+      <text x="20" y="30" font-size="13" fill="#a7d9cb">04 / EXECUTE</text>
+      <text x="20" y="65" font-size="23" font-weight="600" fill="#ffffff">Bound the workflow</text>
+      <text x="20" y="96" font-size="15" fill="#c0d5d0">Tools · Checkpoints · Receipts</text>
+    </g>
+    <text x="46" y="365" font-size="13" fill="#536b68">React / TypeScript / FastAPI / PostgreSQL / pgvector</text>
+  </g>
+</svg>

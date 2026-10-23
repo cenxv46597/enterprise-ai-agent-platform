@@ -1,0 +1,17 @@
+name: 功能建议
+description: 以具体业务场景提出改进
+title: "[Feature] "
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 用户场景与当前障碍
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议行为与完成条件
+      description: 说明预期价值、范围和可以验证的结果。
+    validations:
+      required: true

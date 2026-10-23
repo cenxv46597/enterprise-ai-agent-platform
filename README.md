@@ -1,56 +1,118 @@
+<div align="center">
+
 # 企业知识与工作流智能体平台
 
-面向求职演示的企业知识应用：资料入库、范围内检索、基于原文回答，以及受控多步任务。
-技术栈为 React / TypeScript / Vite、FastAPI / Python、PostgreSQL / pgvector。
+**让企业资料可检索，让回答有出处，让任务按规则执行。**
 
-**当前完成线：核心演示版开发已收拢，进入整体理解、演示与待授权的真实验收。**
-不再把长期企业化愿景拆成无穷小功能。当前版本是本地演示原型，不宣称生产交付或普遍回答正确。
+Enterprise Knowledge & Workflow Agent Platform
 
-## 从这里开始
+[![Frontend CI](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/frontend-ci.yml)
+[![Backend contracts](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/backend-contract-ci.yml/badge.svg)](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/backend-contract-ci.yml)
+[![PostgreSQL CI](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/backend-postgres-ci.yml/badge.svg)](https://github.com/cenxv46597/enterprise-ai-agent-platform/actions/workflows/backend-postgres-ci.yml)
 
-- [项目整体指南：业务、架构和面试介绍](docs/delivery/project-guide.md)
-- [运行、隔离验证与演示顺序（CMD）](docs/delivery/run-and-demo.md)
-- [本次交付范围、验证和限制](docs/delivery/release-2026-10-23.md)
-- [文档导航](docs/README.md)
+[快速开始](docs/product/getting-started.md) · [产品演示](docs/product/showcase.md) · [架构设计](docs/product/architecture.md) · [测试验证](docs/product/verification.md)
 
-## 一条完整主线
+</div>
 
-登录 → 创建或选择工作空间/知识库 → 上传解析 → 切块 → 显式预算向量化 →
-整库检索或引用问答 → 查看完整来源与高亮 → TXT导出。
+![平台能力概览，非产品页面截图](docs/assets/product-overview.svg)
 
-工作空间、知识库、文档均支持手动翻页；文档可按文件名和处理状态查找。
-检索支持向量/混合方式；问答可选择最多3或5段候选。候选上限、模型上下文和引用数量分别有自己的含义。
-模型输出需经过引用归属、连续原文与位置检查；证据不足正常弃答，技术失败单独报错。
-即时问答仍仅保留在当前页面，TXT不是服务器历史。
+面向企业制度、操作手册和业务资料的全栈应用原型。把分散文档转成可检索证据，提供带原文引用的回答，
+并通过受控Agent与固定工作流处理需要工具或多步执行的任务。
 
-已有受控Agent、持久会话/条件补充、标准估算、只读MCP和固定检查点工作流。
-网页接入其中的会话与固定工作流能力，不等于所有后端能力均已网页化。
-身份使用登录与工作空间成员边界；当前不是细粒度RBAC或每用户私有会话。
+Built with **React · TypeScript · FastAPI · PostgreSQL · pgvector**.
 
-## 不调用模型的验证
+## 核心能力
+
+- **资料管理**：创建工作空间和知识库，上传TXT、Markdown和文字层PDF；手动切块、按预算向量化，支持文件名/状态查找与分页。
+- **证据检索与问答**：向量/词项混合检索、证据预算、逐字引用核验与证据不足弃答。可查看完整来源块及高亮，并导出当前问答TXT。
+- **受控任务执行**：有界工具调用、结构化条件补充、来源绑定计算和标准规则估算；后端提供白名单本地MCP接入。
+- **固定工作流**：显式创建与执行、持久检查点、版本校验、有限恢复、保存答案和只读历史。
+- **范围与可靠性**：工作空间成员边界、父子资源校验、迟到响应隔离、未知结果不自动重试，以及安全的HTTP排错编号。
+
+网页已接入主要知识库流程和明确范围的会话/工作流能力；后端可选重排、MCP等能力以各自接口说明为准。
+
+## 一次完整使用
+
+```mermaid
+flowchart LR
+  A[创建知识库] --> B[上传与解析]
+  B --> C[切块与向量化]
+  C --> D[检索或引用问答]
+  D --> E[核对来源与导出]
+```
+
+例如，员工查询住宿报销标准时，不只看到一个金额，还能沿引文检查发票要求、审批条件和例外。
+如果本次证据不足，系统明确弃答；它不会把“没有找到足够证据”写成“公司没有相关规定”。
+
+<details>
+<summary>查看文档管理实际界面（受控演示数据）</summary>
+
+![文档查找与翻页](docs/screenshots/document-filename-2026-10-23/query-tail.jpg)
+
+截图来自2026-10-23独立测试库浏览器验收，使用临时账号和合成文档，无模型调用。
+该截图展示文件名查找与分页，不代表当前全部功能或真实问答验收；[版本与场景说明](docs/product/showcase.md)。
+
+</details>
+
+## 技术架构
+
+React负责交互与请求状态，FastAPI执行权限和业务规则，PostgreSQL/pgvector保存资源、文本块、向量和执行状态。
+外部模型通过适配器调用；模型等待位于数据库事务外。整体采用模块化单体，保持业务链路可追踪和测试可替换。
+
+```text
+frontend/             React + TypeScript 页面与模拟测试
+backend/app/          API、知识服务、Agent、会话、工作流与模型适配器
+backend/alembic/      数据库迁移
+backend/tests/        业务、契约与数据库测试
+examples/             公开虚构资料与固定评测输入
+docs/product/         使用、架构、演示与验证说明
+docs/adr/             架构决策
+```
+
+[后端代码导航](backend/README.md) · [前端开发说明](frontend/README.md) · [架构决策索引](docs/adr/README.md)
+
+## 快速开始
+
+需要Python 3.13、项目允许版本的Node.js，以及PostgreSQL/pgvector环境。当前提供本地部署，没有托管在线体验地址。
 
 ```cmd
-cd /d D:\workproject\enterprise_AI_agent_platform\frontend
+git clone https://github.com/cenxv46597/enterprise-ai-agent-platform.git
+cd enterprise-ai-agent-platform
+```
+
+按[本地快速开始](docs/product/getting-started.md)安装依赖、准备私有配置、初始化全新数据库并启动前后端。
+模板不含可登录的默认密码。已有环境可复用账号和数据，不重复初始化；模型服务在需要真实调用时配置。
+
+## 测试与验证
+
+前端隔离入口：
+
+```cmd
+cd frontend
 ..\.venv\Scripts\python.exe -I scripts\check.py all
 ```
 
+后端固定契约入口（仓库根目录）：
+
 ```cmd
-cd /d D:\workproject\enterprise_AI_agent_platform
 .venv\Scripts\python.exe -I backend\scripts\run_contract_tests.py
 ```
 
-当前本地全前端38文件1386项及类型/生产构建通过；固定后端契约274项通过。
-前端使用模拟HTTP，契约入口阻断网络/数据库；这些数字不是后端全量、真实模型质量或当前网页端到端验收。
-真实SQL有独立安全入口和独立eaap_test库，本次未重跑；具体历史证据在交付记录和原报告中。
-CI配置已接仓库内隔离启动器，本次未推送、未取得新的云端结果。
+最近已记录基线为前端**38文件1386项**及类型/生产构建、后端**274项固定契约**通过。
+前端使用模拟HTTP，后端契约与PostgreSQL CI各有固定范围；它们不等于全后端回归或答案正确率。
+历史六题真实RAG和29块检索评测、对应版本CI及复现边界见[验证说明](docs/product/verification.md)。
 
-## 仍待确认的边界
+## 当前范围
 
-当前网页真实RAG/来源全链、下载实际落盘和策略效果/费用比较仍需专项验收。
-真实模型调用、实际Cookie到期等待与新push继续按会话授权执行，不由“继续开发”自动开启。
-OCR、文档版本、即时问答服务器历史、全量网页管理和公网生产部署属于明确列出的后续扩展。
+这是可本地运行的产品原型。PDF支持文字层，尚无扫描件OCR；权限为基础空间成员边界；
+固定工作流不等于通用可视编排。即时问答保存在当前页面，TXT不是服务器历史。
 
-主体实现与验证多由导师完成，学习者参与程度按实际实践和回答记录，不以仓库代码量夸大个人独立经历。
-每日历史记录仍保留，但不再作为产品首页。原首页和原导航分别归档为
-[历史首页原文](docs/history/README-before-consolidation-2026-10-23.txt)与
-[历史导航原文](docs/history/docs-navigation-before-consolidation-2026-10-23.txt)，其中相对路径保留原文语境，勿按旧命令启动测试。
+引文存在不能自动证明答案每项结论正确。当前网页真实问答/来源全链、TXT实际落盘、质量与费用比较仍需专项验收；
+公网生产部署和大规模性能不在当前验收范围内。
+
+## 文档与参与
+
+- [产品文档导航](docs/README.md)：从使用到技术设计的统一入口。
+- [示例与演示资料](examples/README.md)：公开虚构语料和固定评测输入。
+- [参与开发](CONTRIBUTING.md)：复现问题、验证和PR说明。
+- [开发方式与历史档案](docs/development/README.md)：AI辅助开发、实际参与程度及历史沿革。

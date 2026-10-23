@@ -1,0 +1,31 @@
+name: 问题反馈
+description: 报告可以复现的程序问题
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "请勿上传 .env、账号密码、Token、密钥或真实企业资料。模型质量问题请区分候选、上下文和生成结果。"
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题与预期行为
+      description: 描述发生了什么，以及你期望的结果。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 最小复现步骤
+      description: 使用公开或虚构数据，说明页面/API操作顺序。
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: 提交版本与运行环境
+      placeholder: commit SHA、操作系统、Python/Node版本
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 脱敏证据
+      description: 必要排错编号、固定错误提示或脱敏截图；不要粘贴私有配置和完整服务商响应。

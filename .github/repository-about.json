@@ -1,0 +1,5 @@
+{
+  "description": "企业知识检索与工作流智能体平台：文档入库、混合检索、带原文引用的问答与受控任务执行。Built with React, FastAPI & PostgreSQL/pgvector.",
+  "homepage": "https://github.com/cenxv46597/enterprise-ai-agent-platform#readme",
+  "topics": ["rag", "knowledge-base", "ai-agent", "workflow", "fastapi", "react", "typescript", "python", "postgresql", "pgvector", "llm"]
+}
