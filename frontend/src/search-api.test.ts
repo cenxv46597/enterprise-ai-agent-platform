@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  ApiError, SEARCH_UNCONFIRMED_MESSAGE, SearchUnconfirmedError, searchKnowledgeBase,
+  ApiError, SEARCH_UNCONFIRMED_MESSAGE, SearchUnconfirmedError, isSearchStrategy, searchKnowledgeBase,
+  type SearchStrategy,
 } from './api';
 
 const PRIVATE = 'PRIVATE-SEARCH-RESPONSE-DETAIL';
@@ -21,6 +22,10 @@ const RESULT = {
   metric: 'cosine_distance', strategy: 'vector', reranking: null,
   model: 'embedding-model', dimensions: 1024, results: [HIT],
 };
+const HYBRID_HIT = { ...HIT, fusion_score: 2 / 61, vector_rank: 1, lexical_rank: 1 };
+const HYBRID_RESULT = {
+  ...RESULT, metric: 'reciprocal_rank_fusion', strategy: 'hybrid', results: [HYBRID_HIT],
+};
 const DOCUMENT = {
   id: DOCUMENT_ID, knowledge_base_id: KNOWLEDGE_BASE_ID, original_filename: 'demo.md', status: 'ready',
 };
@@ -37,8 +42,17 @@ async function rejection(action: Promise<unknown>): Promise<ApiError> {
   return error as ApiError;
 }
 
-const search = (query = '问题', signal = new AbortController().signal) =>
-  searchKnowledgeBase(WORKSPACE_ID, KNOWLEDGE_BASE_ID, query, signal);
+const search = (query = '问题', signal = new AbortController().signal, strategy: SearchStrategy = 'vector') =>
+  searchKnowledgeBase(WORKSPACE_ID, KNOWLEDGE_BASE_ID, query, signal, strategy);
+
+function modeResult(strategy: SearchStrategy, results = [HIT]) {
+  return strategy === 'vector' ? { ...RESULT, results } : {
+    ...HYBRID_RESULT,
+    results: results.map((hit, index) => ({
+      ...hit, fusion_score: 1 / (61 + index), vector_rank: index + 1, lexical_rank: null,
+    })),
+  };
+}
 
 beforeEach(() => {
   fetchMock.mockReset();
@@ -59,10 +73,12 @@ describe('scoped knowledge-base candidate search API', () => {
     expect(await searchKnowledgeBase(
       WORKSPACE_ID.toUpperCase(), KNOWLEDGE_BASE_ID.toUpperCase(), '  问题😀\n', new AbortController().signal,
     )).toEqual({
+      strategy: 'vector', metric: 'cosine_distance',
       model: RESULT.model, dimensions: 1024,
       hits: [{
         chunkId: CHUNK_ID, documentId: DOCUMENT_ID, documentName: 'demo.md', chunkIndex: 2,
         content: '原文😀', startChar: 10, endChar: 13, distance: 0.25,
+        fusionScore: null, vectorRank: null, lexicalRank: null,
       }],
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -98,6 +114,160 @@ describe('scoped knowledge-base candidate search API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('accepts only exact strategy names and rejects invalid runtime choices before any request', async () => {
+    expect(isSearchStrategy('vector')).toBe(true);
+    expect(isSearchStrategy('hybrid')).toBe(true);
+    for (const strategy of ['', 'VECTOR', 'Hybrid', ' vector', 'hybrid ', PRIVATE, null, false, 1, [], {}]) {
+      expect(isSearchStrategy(strategy)).toBe(false);
+      const failure = await rejection(search('问题', new AbortController().signal, strategy as SearchStrategy));
+      expect(failure).not.toBeInstanceOf(SearchUnconfirmedError);
+      expect(failure.message).toBe('检索方式无效，请选择向量检索或混合检索。');
+    }
+    expect(isSearchStrategy(undefined)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps fused order when hybrid distances run backwards and projects absent channels as null', async () => {
+    const sharedScore = Number((1 / 62 + 1 / 61).toFixed(12));
+    const rows = [
+      { ...HIT, distance: 0.9, fusion_score: sharedScore, vector_rank: 2, lexical_rank: 1, lexical_score: 3, raw: PRIVATE },
+      { ...HIT, chunk_id: OTHER_CHUNK_ID, chunk_index: 3, distance: 0.1,
+        fusion_score: 1 / 61, vector_rank: 1, lexical_rank: null, lexical_score: null },
+      { ...HIT, chunk_id: THIRD_CHUNK_ID, document_id: OTHER_DOCUMENT_ID, document_name: 'other.md',
+        distance: 0.7, fusion_score: 1 / 63, vector_rank: null, lexical_rank: 3, lexical_score: 2 },
+    ];
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...HYBRID_RESULT, results: rows }))
+      .mockResolvedValueOnce(jsonResponse(DOCUMENT))
+      .mockResolvedValueOnce(jsonResponse({ ...DOCUMENT, id: OTHER_DOCUMENT_ID, original_filename: 'other.md' }));
+    const result = await search('  TOKEN_EXPIRED  ', new AbortController().signal, 'hybrid');
+    expect(result).toEqual({
+      strategy: 'hybrid', metric: 'reciprocal_rank_fusion', model: RESULT.model, dimensions: 1024,
+      hits: rows.map(row => ({
+        chunkId: row.chunk_id, documentId: row.document_id, documentName: row.document_name,
+        chunkIndex: row.chunk_index, content: row.content, startChar: row.start_char, endChar: row.end_char,
+        distance: row.distance, fusionScore: row.fusion_score, vectorRank: row.vector_rank, lexicalRank: row.lexical_rank,
+      })),
+    });
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toEqual({
+      query: 'TOKEN_EXPIRED', top_k: 3, strategy: 'hybrid', rerank: false,
+    });
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      `${BASE_PATH}/search`, `${BASE_PATH}/documents/${DOCUMENT_ID}`, `${BASE_PATH}/documents/${OTHER_DOCUMENT_ID}`,
+    ]);
+    expect(JSON.stringify(result)).not.toContain(PRIVATE);
+    expect(result.hits.every(hit => !Object.hasOwn(hit, 'lexicalScore'))).toBe(true);
+  });
+
+  it('keeps server order for tied fusion scores without sorting by distance or UUID in the client', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ ...HYBRID_RESULT, results: [
+      { ...HYBRID_HIT, chunk_id: OTHER_CHUNK_ID, distance: 0.8, fusion_score: 1 / 61, vector_rank: 1, lexical_rank: null },
+      { ...HYBRID_HIT, chunk_id: CHUNK_ID, distance: 0.1, fusion_score: 1 / 61, vector_rank: null, lexical_rank: 1 },
+    ] })).mockResolvedValueOnce(jsonResponse(DOCUMENT));
+    const result = await search('问题', new AbortController().signal, 'hybrid');
+    expect(result.hits.map(hit => hit.chunkId)).toEqual([OTHER_CHUNK_ID, CHUNK_ID]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([{ model: null, dimensions: null }, { model: RESULT.model, dimensions: 1024 }])(
+    'accepts empty hybrid candidates with the matching mode and profile %j without source reads', async profile => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ ...HYBRID_RESULT, ...profile, results: [] }));
+      expect(await search('问题', new AbortController().signal, 'hybrid')).toEqual({
+        strategy: 'hybrid', metric: 'reciprocal_rank_fusion', ...profile, hits: [],
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each<[SearchStrategy, unknown]>([
+    ['vector', HYBRID_RESULT], ['hybrid', RESULT],
+    ['vector', { ...RESULT, metric: 'reciprocal_rank_fusion' }],
+    ['hybrid', { ...HYBRID_RESULT, metric: 'cosine_distance' }],
+  ])('rejects a mismatched response for requested %s before reading sources', async (strategy, payload) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(payload));
+    expect(await rejection(search('问题', new AbortController().signal, strategy))).toBeInstanceOf(SearchUnconfirmedError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['fusion_score', 'vector_rank', 'lexical_rank'] as const)(
+    'rejects missing or invalid hybrid %s values before reading any source', async field => {
+      const invalid = field === 'fusion_score'
+        ? [undefined, null, true, '0.02', 0, -1, NaN, Infinity, -Infinity]
+        : [undefined, true, '1', 0, -1, 21, 1.5, NaN, Infinity, -Infinity];
+      for (const value of invalid) {
+        const response = jsonResponse(HYBRID_RESULT);
+        vi.spyOn(response, 'json').mockResolvedValueOnce({ ...HYBRID_RESULT, results: [{ ...HYBRID_HIT, [field]: value }] });
+        fetchMock.mockResolvedValueOnce(response);
+        expect(await rejection(search('问题', new AbortController().signal, 'hybrid'))).toBeInstanceOf(SearchUnconfirmedError);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(invalid.length);
+    },
+  );
+
+  it('rejects no-channel hits, inconsistent RRF scores and ascending fusion order without repairing the response', async () => {
+    const invalid = [
+      [{ ...HYBRID_HIT, vector_rank: null, lexical_rank: null }],
+      [{ ...HYBRID_HIT, fusion_score: 1 / 61 }],
+      [{ ...HYBRID_HIT, fusion_score: HYBRID_HIT.fusion_score + 1e-8 }],
+      [{ ...HYBRID_HIT, fusion_score: 1 / 80, vector_rank: 20, lexical_rank: null },
+        { ...HYBRID_HIT, chunk_id: OTHER_CHUNK_ID, fusion_score: 1 / 61, vector_rank: 1, lexical_rank: null }],
+    ];
+    for (const results of invalid) {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ ...HYBRID_RESULT, results }));
+      expect(await rejection(search('问题', new AbortController().signal, 'hybrid'))).toBeInstanceOf(SearchUnconfirmedError);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(invalid.length);
+  });
+
+  it('preserves common hybrid response bounds and the no-reranking contract before source reads', async () => {
+    for (const payload of [
+      { ...HYBRID_RESULT, reranking: {} }, { ...HYBRID_RESULT, results: [HYBRID_HIT, HYBRID_HIT, HYBRID_HIT, HYBRID_HIT] },
+      { ...HYBRID_RESULT, model: null, dimensions: null }, { ...HYBRID_RESULT, dimensions: 768 },
+      { ...HYBRID_RESULT, results: [{ ...HYBRID_HIT, end_char: HIT.end_char + 1 }] },
+      { ...HYBRID_RESULT, results: [HYBRID_HIT, HYBRID_HIT] },
+    ]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(payload));
+      expect(await rejection(search('问题', new AbortController().signal, 'hybrid'))).toBeInstanceOf(SearchUnconfirmedError);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it.each([
+    ['vector', 'retrieval_rank'], ['vector', 'rerank_rank'],
+    ['hybrid', 'retrieval_rank'], ['hybrid', 'rerank_rank'],
+  ] as const)('rejects the unrequested %s hit marker %s before source GETs', async (strategy, field) => {
+    const payload = modeResult(strategy);
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...payload, results: payload.results.map(hit => ({ ...hit, [field]: 1 })),
+    }));
+    expect(await rejection(search('问题', new AbortController().signal, strategy))).toBeInstanceOf(SearchUnconfirmedError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['vector', 'hybrid'] as const)('accepts explicit null reranking markers for a valid %s response', async strategy => {
+    const payload = modeResult(strategy);
+    fetchMock.mockResolvedValueOnce(jsonResponse({
+      ...payload, results: payload.results.map(hit => ({ ...hit, retrieval_rank: null, rerank_rank: null })),
+    })).mockResolvedValueOnce(jsonResponse(DOCUMENT));
+    expect((await search('问题', new AbortController().signal, strategy)).hits).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports hybrid 422 as a possible input or capacity problem without inspecting details or retrying vector', async () => {
+    const response = jsonResponse({ detail: PRIVATE }, 422);
+    const read = vi.spyOn(response, 'json');
+    fetchMock.mockResolvedValueOnce(response);
+    const error = await rejection(search('问题', new AbortController().signal, 'hybrid'));
+    expect(error).not.toBeInstanceOf(SearchUnconfirmedError);
+    expect(error.status).toBe(422);
+    expect(error.message).toContain('检索问题、请求参数或混合检索处理量可能不符合要求');
+    expect(error.message).toContain('2000 个可检索文本块');
+    expect(error.message).toContain('100 万正文字符');
+    expect(error.message).toContain('不能确认是否已产生费用');
+    expect(read).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string).strategy).toBe('hybrid');
+  });
+
   it('counts query Unicode code points and accepts exactly 2000', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ ...RESULT, results: [], model: null, dimensions: null }));
     expect((await search(`  ${'😀'.repeat(2000)}  `)).hits).toEqual([]);
@@ -108,20 +278,20 @@ describe('scoped knowledge-base candidate search API', () => {
   it('accepts empty candidates with a null pair or valid profile without inventing source reads', async () => {
     for (const profile of [{ model: null, dimensions: null }, { model: RESULT.model, dimensions: 1024 }]) {
       fetchMock.mockResolvedValueOnce(jsonResponse({ ...RESULT, ...profile, results: [], reranking: undefined }));
-      expect(await search()).toEqual({ ...profile, hits: [] });
+      expect(await search()).toEqual({ strategy: 'vector', metric: 'cosine_distance', ...profile, hits: [] });
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('verifies each distinct document once and never resolves until every source is confirmed', async () => {
+  it.each(['vector', 'hybrid'] as const)('verifies every distinct %s source once and waits for all documents', async strategy => {
     let resolveSecond!: (response: Response) => void;
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ...RESULT, results: [
+    fetchMock.mockResolvedValueOnce(jsonResponse(modeResult(strategy, [
       HIT, { ...HIT, chunk_id: OTHER_CHUNK_ID, chunk_index: 3, distance: 0.25 },
       { ...HIT, chunk_id: THIRD_CHUNK_ID, document_id: OTHER_DOCUMENT_ID, distance: 2 },
-    ] })).mockResolvedValueOnce(jsonResponse(DOCUMENT))
+    ]))).mockResolvedValueOnce(jsonResponse(DOCUMENT))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
     let finished = false;
-    const action = search().then((value) => { finished = true; return value; });
+    const action = search('问题', new AbortController().signal, strategy).then((value) => { finished = true; return value; });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
     expect(finished).toBe(false);
     expect(fetchMock.mock.calls[1][0]).toBe(`${BASE_PATH}/documents/${DOCUMENT_ID}`);
@@ -221,21 +391,23 @@ describe('scoped knowledge-base candidate search API', () => {
     expect(fetchMock).toHaveBeenCalledTimes(10);
   });
 
-  it('rejects mismatched document identity, parent, filename or readiness and returns no partial result', async () => {
+  it.each(['vector', 'hybrid'] as const)('rejects mismatched %s source identity, parent, filename or readiness as a whole', async strategy => {
     for (const document of [
       { ...DOCUMENT, id: OTHER_DOCUMENT_ID }, { ...DOCUMENT, knowledge_base_id: OTHER_DOCUMENT_ID },
       { ...DOCUMENT, original_filename: 'other.md' }, { ...DOCUMENT, status: 'parsed' },
       { ...DOCUMENT, status: 'failed' },
     ]) {
-      fetchMock.mockResolvedValueOnce(jsonResponse(RESULT)).mockResolvedValueOnce(jsonResponse(document));
-      expect(await rejection(search())).toBeInstanceOf(SearchUnconfirmedError);
+      fetchMock.mockResolvedValueOnce(jsonResponse(modeResult(strategy))).mockResolvedValueOnce(jsonResponse(document));
+      expect(await rejection(search('问题', new AbortController().signal, strategy))).toBeInstanceOf(SearchUnconfirmedError);
     }
     expect(fetchMock).toHaveBeenCalledTimes(10);
   });
 
-  it.each([401, 403, 404, 500])('retains source GET HTTP %s, only preserves 401 as a session rejection and never repeats search', async (status) => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(RESULT)).mockResolvedValueOnce(jsonResponse({ detail: PRIVATE }, status));
-    const error = await rejection(search());
+  it.each([
+    ['vector', 401], ['vector', 403], ['vector', 404], ['vector', 500], ['hybrid', 401], ['hybrid', 404],
+  ] as const)('retains %s source GET HTTP %s without repeating search, and preserves only 401 as a session rejection', async (strategy, status) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(modeResult(strategy))).mockResolvedValueOnce(jsonResponse({ detail: PRIVATE }, status));
+    const error = await rejection(search('问题', new AbortController().signal, strategy));
     expect(error.status).toBe(status);
     if (status === 401) {
       expect(error).not.toBeInstanceOf(SearchUnconfirmedError);
@@ -254,12 +426,15 @@ describe('scoped knowledge-base candidate search API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it.each(['parent cancellation', '330-second timeout'] as const)('does not accept late POST success or start source reads after %s', async (interruption) => {
+  it.each([
+    ['vector', 'parent cancellation'], ['vector', '330-second timeout'],
+    ['hybrid', 'parent cancellation'], ['hybrid', '330-second timeout'],
+  ] as const)('does not accept late %s POST success or start source reads after %s', async (strategy, interruption) => {
     vi.useFakeTimers();
     const parent = new AbortController();
     let resolvePost!: (response: Response) => void;
     fetchMock.mockImplementationOnce(() => new Promise((resolve) => { resolvePost = resolve; }));
-    const action = rejection(search('问题', parent.signal));
+    const action = rejection(search('问题', parent.signal, strategy));
     await vi.advanceTimersByTimeAsync(10_000);
     expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(false);
     if (interruption === 'parent cancellation') parent.abort();
@@ -269,7 +444,7 @@ describe('scoped knowledge-base candidate search API', () => {
       await vi.advanceTimersByTimeAsync(1);
     }
     expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
-    resolvePost(jsonResponse(RESULT));
+    resolvePost(jsonResponse(modeResult(strategy)));
     expect(await action).toBeInstanceOf(SearchUnconfirmedError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
@@ -289,13 +464,13 @@ describe('scoped knowledge-base candidate search API', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects a late source response after cancellation and never reads the next document', async () => {
+  it.each(['vector', 'hybrid'] as const)('rejects a late %s source response after cancellation and never reads another document', async strategy => {
     let resolveSource!: (response: Response) => void;
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ...RESULT, results: [
+    fetchMock.mockResolvedValueOnce(jsonResponse(modeResult(strategy, [
       HIT, { ...HIT, chunk_id: OTHER_CHUNK_ID, document_id: OTHER_DOCUMENT_ID },
-    ] })).mockImplementationOnce(() => new Promise((resolve) => { resolveSource = resolve; }));
+    ]))).mockImplementationOnce(() => new Promise((resolve) => { resolveSource = resolve; }));
     const parent = new AbortController();
-    const action = rejection(search('问题', parent.signal));
+    const action = rejection(search('问题', parent.signal, strategy));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     parent.abort();
     resolveSource(jsonResponse(DOCUMENT));

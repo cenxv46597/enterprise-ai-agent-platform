@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listDocuments, isDocumentOffset, isDocumentStatusFilter, normalizeDocumentFilenameQuery,
+import { ApiError, listDocuments, isDocumentOffset, isDocumentStatusFilter, isSearchStrategy, normalizeDocumentFilenameQuery,
   listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
   createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
   searchKnowledgeBase, SearchUnconfirmedError, SEARCH_UNCONFIRMED_MESSAGE,
   answerKnowledgeBase, AnswerUnconfirmedError, ANSWER_UNCONFIRMED_MESSAGE,
-  type DocumentChunk, type DocumentStatusFilter, type KnowledgeBase, type KnowledgeDocument, type Session, type Workspace } from './api';
+  type DocumentChunk, type DocumentStatusFilter, type KnowledgeBase, type KnowledgeDocument, type SearchStrategy, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
@@ -410,8 +410,9 @@ export default function App() {
     setError('');
   }
 
-  async function search(query: string) {
-    if (!searchOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null) return;
+  async function search(query: string, strategy: SearchStrategy = 'vector') {
+    if (!searchOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null
+      || !isSearchStrategy(strategy)) return;
     const workspaceId = selectedWorkspace.id;
     const knowledgeBaseId = selectedKnowledgeBase.id;
     const submittedQuery = query.trim();
@@ -420,7 +421,7 @@ export default function App() {
     setError('');
     setSearchOutcome(null);
     try {
-      const result = await searchKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuery, controller.signal);
+      const result = await searchKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuery, controller.signal, strategy);
       if (isCurrent(id, controller)) setSearchOutcome({ kind: 'confirmed', query: submittedQuery, result });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
@@ -1322,7 +1323,7 @@ export default function App() {
           key={`${selectedWorkspace.id}/${selectedKnowledgeBase.id}`}
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'search' ? 'searching' : busy === 'logout' ? 'logout' : 'idle'}
-          outcome={searchOutcome} error={error} onSearch={query => void search(query)}
+          outcome={searchOutcome} error={error} onSearch={(query, strategy) => void search(query, strategy)}
           onCancel={stopWaitingForSearch} onBack={backToDocuments}
         /> : selectedWorkspace && selectedKnowledgeBase && selectedDocument ? <DocumentProcessing
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}

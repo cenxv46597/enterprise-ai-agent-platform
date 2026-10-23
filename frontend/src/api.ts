@@ -29,6 +29,7 @@ export type DocumentEmbedding = {
   chunkCount: number;
   reused: boolean;
 };
+export type SearchStrategy = "vector" | "hybrid";
 export type SearchHit = {
   chunkId: string;
   documentId: string;
@@ -38,8 +39,13 @@ export type SearchHit = {
   startChar: number;
   endChar: number;
   distance: number;
+  fusionScore: number | null;
+  vectorRank: number | null;
+  lexicalRank: number | null;
 };
 export type KnowledgeSearchResult = {
+  strategy: SearchStrategy;
+  metric: "cosine_distance" | "reciprocal_rank_fusion";
   model: string | null;
   dimensions: 1024 | null;
   hits: SearchHit[];
@@ -160,6 +166,10 @@ function isDocumentStatus(value: unknown): value is DocumentStatus {
 
 export function isDocumentStatusFilter(value: unknown): value is DocumentStatusFilter {
   return value === "all" || isDocumentStatus(value);
+}
+
+export function isSearchStrategy(value: unknown): value is SearchStrategy {
+  return value === "vector" || value === "hybrid";
 }
 
 export function webRequestOptions(options: RequestInit, signal: AbortSignal): RequestInit {
@@ -571,8 +581,13 @@ export async function createDocumentEmbeddings(
   }
 }
 
-function parseKnowledgeSearch(payload: unknown): KnowledgeSearchResult {
-  if (!isObject(payload) || payload.metric !== "cosine_distance" || payload.strategy !== "vector"
+function isSearchChannelRank(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 20);
+}
+
+function parseKnowledgeSearch(payload: unknown, expectedStrategy: SearchStrategy): KnowledgeSearchResult {
+  const metric = expectedStrategy === "vector" ? "cosine_distance" : "reciprocal_rank_fusion";
+  if (!isObject(payload) || payload.metric !== metric || payload.strategy !== expectedStrategy
       || (payload.reranking !== undefined && payload.reranking !== null)
       || !Array.isArray(payload.results) || payload.results.length > 3) {
     throw new SearchUnconfirmedError();
@@ -586,6 +601,7 @@ function parseKnowledgeSearch(payload: unknown): KnowledgeSearchResult {
   const documents = new Map<string, string>();
   let totalCharacters = 0;
   let previousDistance = -1;
+  let previousFusionScore = Infinity;
   const hits = payload.results.map((item: unknown): SearchHit => {
     if (!isObject(item) || typeof item.document_name !== "string"
         || Array.from(item.document_name).length < 1 || Array.from(item.document_name).length > 255
@@ -593,8 +609,33 @@ function parseKnowledgeSearch(payload: unknown): KnowledgeSearchResult {
         || typeof item.content !== "string" || item.content.length === 0
         || !Number.isSafeInteger(item.start_char) || !Number.isSafeInteger(item.end_char)
         || typeof item.distance !== "number" || !Number.isFinite(item.distance)
-        || item.distance < 0 || item.distance > 2 || item.distance < previousDistance) {
+        || item.distance < 0 || item.distance > 2
+        || (item.retrieval_rank !== undefined && item.retrieval_rank !== null)
+        || (item.rerank_rank !== undefined && item.rerank_rank !== null)
+        || (expectedStrategy === "vector" && item.distance < previousDistance)) {
       throw new SearchUnconfirmedError();
+    }
+    let fusionScore: number | null = null;
+    let vectorRank: number | null = null;
+    let lexicalRank: number | null = null;
+    if (expectedStrategy === "hybrid") {
+      const vectorRankValue = item.vector_rank;
+      const lexicalRankValue = item.lexical_rank;
+      if (typeof item.fusion_score !== "number" || !Number.isFinite(item.fusion_score) || item.fusion_score <= 0
+          || item.fusion_score > previousFusionScore
+          || !isSearchChannelRank(vectorRankValue) || !isSearchChannelRank(lexicalRankValue)
+          || (vectorRankValue === null && lexicalRankValue === null)) {
+        throw new SearchUnconfirmedError();
+      }
+      // ADR 0014 fixes the current RRF contribution at 1/(60 + channel rank).
+      // Check this response's score; keep the server's order rather than sorting locally.
+      const expectedScore = (vectorRankValue === null ? 0 : 1 / (60 + vectorRankValue))
+        + (lexicalRankValue === null ? 0 : 1 / (60 + lexicalRankValue));
+      if (Math.abs(item.fusion_score - expectedScore) > 1e-12) throw new SearchUnconfirmedError();
+      fusionScore = item.fusion_score;
+      vectorRank = vectorRankValue;
+      lexicalRank = lexicalRankValue;
+      previousFusionScore = fusionScore;
     }
     const startChar = item.start_char as number;
     const endChar = item.end_char as number;
@@ -616,10 +657,11 @@ function parseKnowledgeSearch(payload: unknown): KnowledgeSearchResult {
     previousDistance = item.distance;
     return {
       chunkId, documentId, documentName: item.document_name, chunkIndex: item.chunk_index as number,
-      content: item.content, startChar, endChar, distance: item.distance,
+      content: item.content, startChar, endChar, distance: item.distance, fusionScore, vectorRank, lexicalRank,
     };
   });
   return {
+    strategy: expectedStrategy, metric,
     model: emptyProfile ? null : payload.model as string,
     dimensions: emptyProfile ? null : 1024,
     hits,
@@ -631,9 +673,11 @@ export async function searchKnowledgeBase(
   knowledgeBaseId: string,
   query: string,
   signal: AbortSignal,
+  strategy: SearchStrategy = "vector",
 ): Promise<KnowledgeSearchResult> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
   const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
+  if (!isSearchStrategy(strategy)) throw new ApiError("检索方式无效，请选择向量检索或混合检索。");
   const normalizedQuery = query.trim();
   let queryLength = 0;
   for (const _character of normalizedQuery) {
@@ -653,7 +697,7 @@ export async function searchKnowledgeBase(
       webRequestOptions({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: normalizedQuery, top_k: 3, strategy: "vector", rerank: false }),
+        body: JSON.stringify({ query: normalizedQuery, top_k: 3, strategy, rerank: false }),
       }, controller.signal),
     );
     if (controller.signal.aborted) throw new SearchUnconfirmedError();
@@ -662,7 +706,9 @@ export async function searchKnowledgeBase(
       403: "检索请求被拒绝，请检查登录与浏览器来源。",
       404: "该知识库不存在或你已无权访问，请返回知识库列表。",
       409: "当前知识库向量模型配置不一致，无法完成本次检索；本响应不能确认是否已产生费用。",
-      422: "请核对检索问题与请求参数；本响应不能确认是否已产生费用。",
+      422: strategy === "hybrid"
+        ? "检索问题、请求参数或混合检索处理量可能不符合要求（上限为 2000 个可检索文本块、100 万正文字符）；本响应不能确认是否已产生费用。"
+        : "请核对检索问题与请求参数；本响应不能确认是否已产生费用。",
     };
     if (Object.hasOwn(rejectionMessages, response.status)) {
       throw new ApiError(rejectionMessages[response.status], response.status);
@@ -671,7 +717,7 @@ export async function searchKnowledgeBase(
     const payload: unknown = await response.json();
     if (controller.signal.aborted) throw new SearchUnconfirmedError();
     try {
-      result = parseKnowledgeSearch(payload);
+      result = parseKnowledgeSearch(payload, strategy);
     } catch {
       throw new SearchUnconfirmedError();
     }
