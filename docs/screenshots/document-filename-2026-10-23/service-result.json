@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-23",
+  "scope": "isolated eaap_test, synthetic document metadata and one synthetic chunk",
+  "safety_entry": {
+    "fixed_files": 2,
+    "collected": 387,
+    "passed": 387,
+    "skipped": 0,
+    "xfail": 0,
+    "violations": 0,
+    "final_exit": 0
+  },
+  "browser_service": {
+    "requests": 33,
+    "rejected_requests": 1,
+    "injected_failures": 1,
+    "provider_violations": 0,
+    "violations": 0,
+    "timed_out": 0,
+    "unchanged": true,
+    "coverage_ok": true,
+    "cleanup_ok": true,
+    "final_exit": 0
+  },
+  "required_response_tags": 19,
+  "synthetic_documents": 69,
+  "synthetic_chunks": 1,
+  "coverage_is_not_a_dom_assertion": true,
+  "dom_observations": "browser-observations.json",
+  "real_model_or_answer_quality_validation": false
+}
