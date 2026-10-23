@@ -2,6 +2,7 @@ export type User = { id: string; username: string };
 export type Workspace = { id: string; name: string };
 export type KnowledgeBase = { id: string; workspaceId: string; name: string };
 export type DocumentStatus = "uploaded" | "processing" | "parsed" | "ready" | "failed";
+export type DocumentStatusFilter = "all" | DocumentStatus;
 export type KnowledgeDocument = {
   id: string;
   knowledgeBaseId: string;
@@ -155,6 +156,10 @@ export function strictUuid(value: unknown): string {
 function isDocumentStatus(value: unknown): value is DocumentStatus {
   return value === "uploaded" || value === "processing" || value === "parsed"
     || value === "ready" || value === "failed";
+}
+
+export function isDocumentStatusFilter(value: unknown): value is DocumentStatusFilter {
+  return value === "all" || isDocumentStatus(value);
 }
 
 export function webRequestOptions(options: RequestInit, signal: AbortSignal): RequestInit {
@@ -328,13 +333,16 @@ export async function listDocuments(
   signal: AbortSignal,
   offset = 0,
   filenameQuery = "",
+  statusFilter: DocumentStatusFilter = "all",
 ): Promise<KnowledgeDocument[]> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
   const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
   if (!isDocumentOffset(offset)) throw new ApiError("文档列表页码无效，请返回首页后重试。");
   const normalizedFilenameQuery = normalizeDocumentFilenameQuery(filenameQuery);
+  if (!isDocumentStatusFilter(statusFilter)) throw new ApiError("文档状态条件无效，请重新选择。");
   const query = new URLSearchParams({ limit: String(DOCUMENT_PAGE_SIZE), offset: String(offset) });
   if (normalizedFilenameQuery) query.set("filename_query", normalizedFilenameQuery);
+  if (statusFilter !== "all") query.set("status", statusFilter);
   const payload = await request(
     `/api/v1/workspaces/${normalizedWorkspaceId}/knowledge-bases/${normalizedKnowledgeBaseId}/documents?${query}`,
     { method: "GET" }, signal,
@@ -344,7 +352,7 @@ export async function listDocuments(
   return payload.map((item: unknown) => {
     if (!isObject(item) || typeof item.original_filename !== "string"
         || Array.from(item.original_filename).length < 1 || Array.from(item.original_filename).length > 255
-        || !isDocumentStatus(item.status)) {
+        || !isDocumentStatus(item.status) || (statusFilter !== "all" && item.status !== statusFilter)) {
       throw new ApiError(INVALID_RESPONSE);
     }
     const id = strictUuid(item.id);

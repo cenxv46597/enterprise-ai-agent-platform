@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, DOCUMENT_FILENAME_QUERY_ERROR, DOCUMENT_PAGE_SIZE, MAX_DOCUMENT_OFFSET,
-  isDocumentOffset, listDocuments, normalizeDocumentFilenameQuery, type DocumentStatus } from './api';
+  isDocumentOffset, isDocumentStatusFilter, listDocuments, normalizeDocumentFilenameQuery,
+  type DocumentStatus, type DocumentStatusFilter } from './api';
 
 const PRIVATE = 'PRIVATE-DOCUMENT-RESPONSE-DETAIL';
 const WORKSPACE_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -121,6 +122,63 @@ describe('document list API boundary', () => {
     expect(isDocumentOffset(MAX_DOCUMENT_OFFSET)).toBe(true);
     expect(isDocumentOffset(MAX_DOCUMENT_OFFSET + DOCUMENT_PAGE_SIZE)).toBe(false);
   });
+
+  it.each<DocumentStatus>(['uploaded', 'processing', 'parsed', 'ready', 'failed'])(
+    'requests the %s state together with the literal filename and requested page', async status => {
+      fetchMock.mockResolvedValueOnce(jsonResponse([{ ...DOCUMENT, status, error_code: PRIVATE }]));
+      expect(await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal,
+        20, '  报销%_/  ', status)).toEqual([{
+        id: DOCUMENT_ID, knowledgeBaseId: KNOWLEDGE_BASE_ID, originalFilename: DOCUMENT.original_filename, status,
+      }]);
+      const [path, options] = fetchMock.mock.calls[0];
+      expect([...new URL(String(path), 'http://localhost').searchParams.entries()]).toEqual([
+        ['limit', '20'], ['offset', '20'], ['filename_query', '报销%_/'], ['status', status],
+      ]);
+      expect(options?.method).toBe('GET');
+      expect(options?.body).toBeUndefined();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(isDocumentStatusFilter(status)).toBe(true);
+    },
+  );
+
+  it('omits all-state and blank filename conditions while supporting a status-only request', async () => {
+    const mixedPage = [DOCUMENT, { ...DOCUMENT, id: OTHER_ID, status: 'failed' }];
+    fetchMock.mockResolvedValueOnce(jsonResponse(mixedPage));
+    const all = await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, 0, '', 'all');
+    expect(all.map(row => row.status)).toEqual(['uploaded', 'failed']);
+    expect(fetchMock.mock.calls[0][0]).toBe(DOCUMENTS);
+    expect(isDocumentStatusFilter('all')).toBe(true);
+    fetchMock.mockResolvedValueOnce(jsonResponse([]));
+    await listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal, 0, ' \t ', 'failed');
+    expect([...new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost').searchParams.entries()]).toEqual([
+      ['limit', '20'], ['offset', '0'], ['status', 'failed'],
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects invalid state conditions before making any request without exposing the supplied value', async () => {
+    for (const status of ['ALL', 'READY', ' ready', 'failed ', '', 'unknown', PRIVATE, '__proto__',
+      null, true, 1, [], {}]) {
+      expect(isDocumentStatusFilter(status)).toBe(false);
+      await expectSafeFailure(listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal,
+        0, '', status as DocumentStatusFilter),
+      '文档状态条件无效，请重新选择。', null);
+    }
+    expect(isDocumentStatusFilter(undefined)).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each<DocumentStatus>(['uploaded', 'processing', 'parsed', 'ready', 'failed'])(
+    'rejects an entire %s page when one returned row has another state', async status => {
+      fetchMock.mockResolvedValueOnce(jsonResponse([
+        { ...DOCUMENT, status },
+        { ...DOCUMENT, id: OTHER_ID, status: status === 'ready' ? 'parsed' : 'ready', error_code: PRIVATE },
+      ]));
+      await expectSafeFailure(listDocuments(WORKSPACE_ID, KNOWLEDGE_BASE_ID, new AbortController().signal,
+        20, '报销', status), INVALID_RESPONSE, null);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it('rejects invalid page offsets before making any request', async () => {
     for (const offset of [-20, -1, 1, 19, 21, 20.5, NaN, Infinity, Number.MAX_SAFE_INTEGER,

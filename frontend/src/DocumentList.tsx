@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { DOCUMENT_FILENAME_QUERY_ERROR, DOCUMENT_PAGE_SIZE, isDocumentOffset,
-  normalizeDocumentFilenameQuery, type DocumentStatus, type KnowledgeDocument } from './api';
+import { DOCUMENT_FILENAME_QUERY_ERROR, DOCUMENT_PAGE_SIZE, isDocumentOffset, isDocumentStatusFilter,
+  normalizeDocumentFilenameQuery, type DocumentStatus, type DocumentStatusFilter, type KnowledgeDocument } from './api';
 
 const STATUS_TEXT: Record<DocumentStatus, { label: string; description: string }> = {
   uploaded: { label: '已上传', description: '原件已保存，尚未开始解析。' },
@@ -26,8 +26,11 @@ type Props = {
   onOpenDocument: (document: KnowledgeDocument) => void;
   filenameDraft?: string;
   filenameQuery?: string;
+  statusDraft?: DocumentStatusFilter;
+  statusFilter?: DocumentStatusFilter;
   offset?: number;
   onFilenameDraftChange?: (value: string) => void;
+  onStatusDraftChange?: (value: DocumentStatusFilter) => void;
   onFind?: () => void;
   onClearFilename?: () => void;
   onPage?: (offset: number) => void;
@@ -36,7 +39,8 @@ type Props = {
 
 export default function DocumentList({ workspaceName, knowledgeBaseName, documents,
   activity, error, onBack, onRefresh, onSearch, onAnswer, onConversation, onWorkflow, onWorkflowHistory, onOpenDocument,
-  filenameDraft = '', filenameQuery = '', offset = 0, onFilenameDraftChange, onFind, onClearFilename,
+  filenameDraft = '', filenameQuery = '', statusDraft = 'all', statusFilter = 'all', offset = 0,
+  onFilenameDraftChange, onStatusDraftChange, onFind, onClearFilename,
   onPage, children }: Props) {
   const busy = activity !== 'idle';
   const readyCount = documents.filter(document => document.status === 'ready').length;
@@ -72,8 +76,9 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
     {activity !== 'logout' && onFind && <section className="search-form-panel document-find-panel"
       aria-labelledby="document-find-title">
       <h2 id="document-find-title">查找知识库文档</h2>
-      <p id="document-find-note">按文件名包含的文字查找当前知识库中的文档，包含全部处理状态。
-        输入后点击查找；这里查找文件名，不检索正文，也不调用模型。</p>
+      <p id="document-find-note">按文件名包含的文字和文档状态查找当前知识库中的文档，两项条件同时生效。
+        输入或选择后点击查找；这里查找文件名，不检索正文，也不调用模型。
+        查找条件只影响文档列表，引用问答仍面向当前整个知识库。</p>
       <form onSubmit={event => {
         event.preventDefault();
         if (!busy && !filenameError) onFind();
@@ -85,16 +90,26 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
           placeholder="例如：报销"
           onChange={event => { if (!busy) onFilenameDraftChange?.(event.target.value); }} />
         {filenameError && <p id="document-filename-error" className="message error" role="alert">{filenameError}</p>}
+        <label htmlFor="document-status-filter">文档状态</label>
+        <select id="document-status-filter" value={statusDraft} disabled={busy}
+          aria-describedby="document-find-note" onChange={event => {
+            if (!busy && isDocumentStatusFilter(event.target.value)) onStatusDraftChange?.(event.target.value);
+          }}>
+          <option value="all">全部状态</option>
+          {(Object.keys(STATUS_TEXT) as DocumentStatus[]).map(status =>
+            <option key={status} value={status}>{STATUS_TEXT[status].label}</option>)}
+        </select>
         <div className="processing-actions">
           <button className="button primary" type="submit" disabled={busy || !!filenameError}>查找</button>
           {onClearFilename && <button className="button secondary" type="button"
-            disabled={busy || (!filenameDraft && !filenameQuery)}
+            disabled={busy || (!filenameDraft && !filenameQuery && statusDraft === 'all' && statusFilter === 'all')}
             onClick={() => { if (!busy) onClearFilename(); }}>清除查找</button>}
         </div>
       </form>
       <p className="page-caption submitted-query">{filenameQuery
-        ? <>已应用的文件名条件：<strong>{filenameQuery}</strong></> : '已应用的文件名条件：不限文件名'}。
-        刷新列表保留该条件和当前页；查找或清除后从首页读取。</p>
+        ? <>已应用的文件名条件：<strong>{filenameQuery}</strong></> : '已应用的文件名条件：不限文件名'}；
+        已应用的文档状态：<strong>{statusFilter === 'all' ? '全部状态' : STATUS_TEXT[statusFilter].label}</strong>。
+        刷新列表保留已应用的条件和当前页；查找或清除后从首页读取。</p>
     </section>}
     {activity !== 'logout' && onPage && <>
       <nav className="processing-actions" aria-label="文档列表翻页">
@@ -114,11 +129,14 @@ export default function DocumentList({ workspaceName, knowledgeBaseName, documen
     {activity === 'loading' ? <p className="message" role="status">正在读取文档…</p>
       : activity === 'logout' ? <p className="message" role="status">正在确认退出…</p>
       : error ? null : documents.length === 0 ? <div className="empty-state">
-        <h2>{offset > 0 ? '当前页没有文档' : filenameQuery ? '未找到文件名匹配的文档' : '该知识库暂无文档'}</h2>
+        <h2>{offset > 0 ? '当前页没有文档' : statusFilter !== 'all' ? '未找到符合查找条件的文档'
+          : filenameQuery ? '未找到文件名匹配的文档' : '该知识库暂无文档'}</h2>
         <p>{offset > 0 ? '本次读取的这一页没有文档，可返回上一页或回到首页。'
-          : filenameQuery ? '请调整文件名线索，或清除查找后查看该知识库的文档。'
+          : statusFilter !== 'all' ? '请调整文件名或文档状态，或清除查找后查看该知识库的文档。'
+            : filenameQuery ? '请调整文件名线索，或清除查找后查看该知识库的文档。'
             : '这里会展示该知识库中已有的文档。'}</p></div>
-      : <><p className="page-caption">当前页 · {documents.length} 份文档 · {readyCount} 份可检索 · 全部处理状态</p>
+      : <><p className="page-caption">当前页 · {documents.length} 份文档 · {readyCount} 份可检索 · {statusFilter === 'all'
+        ? '全部处理状态' : STATUS_TEXT[statusFilter].label}</p>
         <ul className="workspace-list">{documents.map(document => {
           const status = STATUS_TEXT[document.status];
           return <li className="workspace-card" key={document.id}>

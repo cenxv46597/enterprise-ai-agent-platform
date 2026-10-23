@@ -103,8 +103,9 @@ textarea:disabled { background: #f4f6f7; }
 .document-find-panel h2 { font-size: 18px; margin-bottom: 12px; }
 .document-find-panel .processing-actions { margin: 0; }
 .document-find-panel .page-caption { margin: 16px 0 0; }
-.workflow-history select { display: block; max-width: 100%; min-height: 44px; margin-top: 8px; padding: 9px 12px; border: 1px solid #bccad2; border-radius: 6px; background: #fff; color: #172b3d; }
-.workflow-history select:disabled { background: #f4f6f7; }
+.workflow-history select, .document-find-panel select { display: block; max-width: 100%; min-height: 44px; margin-top: 8px; padding: 9px 12px; border: 1px solid #bccad2; border-radius: 6px; background: #fff; color: #172b3d; }
+.workflow-history select:disabled, .document-find-panel select:disabled { background: #f4f6f7; }
+.document-find-panel select { margin-bottom: 20px; }
 .search-results { margin-top: 28px; }
 .search-results h2 { font-size: 20px; }
 .submitted-query { overflow-wrap: anywhere; }

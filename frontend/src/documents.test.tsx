@@ -139,8 +139,13 @@ async function filenameDraft(value: string) {
   await act(async () => { fireEvent.change(screen.getByLabelText('按文件名查找'), { target: { value } }); });
 }
 
-async function findFilename(value: string) {
+async function statusDraft(value: DocumentStatus | 'all') {
+  await act(async () => { fireEvent.change(screen.getByLabelText('文档状态'), { target: { value } }); });
+}
+
+async function findFilename(value: string, status?: DocumentStatus | 'all') {
   await filenameDraft(value);
+  if (status !== undefined) await statusDraft(status);
   await click(screen.getByRole('button', { name: '查找' }));
 }
 
@@ -218,7 +223,7 @@ describe('知识库内的文档列表', () => {
       expect(within(item!).getByText(label)).toBeTruthy();
     }
     expect(screen.queryByRole('status')).toBeNull();
-    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: '文档状态' }).value).toBe('all');
     expect(documentRequests(requests)).toHaveLength(1);
     expect(screen.getByText('当前页 · 5 份文档 · 1 份可检索 · 全部处理状态')).toBeTruthy();
     for (const id of [USER_ID, SPACE_A, SPACE_B, KB_A, ...rows.map(row => row.id)]) {
@@ -510,8 +515,8 @@ describe('知识库内的文档列表', () => {
   });
 });
 
-describe('按文件名查找与文档翻页的业务闭环', () => {
-  it('输入不发请求，显式提交编码后的字面条件，刷新沿用已提交条件而非草稿', async () => {
+describe('按文件名和状态查找与文档翻页的业务闭环', () => {
+  it('输入和状态选择不发请求，显式提交两条件，刷新保留已提交条件和两份草稿', async () => {
     const requests = installApi(request => {
       if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('filename_query')) {
         return json([documentRow(DOCUMENT_A2, '报销%_/旧资料.txt')]);
@@ -520,21 +525,28 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     render(<App />);
     await openDocuments();
     await filenameDraft('  报销%_/  ');
+    await statusDraft('ready');
     expect(documentRequests(requests)).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
     await click(screen.getByRole('button', { name: '查找' }));
     const query = new URL(documentRequests(requests)[1].url).searchParams;
-    expect([...query]).toEqual([['limit', '20'], ['offset', '0'], ['filename_query', '报销%_/']]);
+    expect([...query]).toEqual([['limit', '20'], ['offset', '0'], ['filename_query', '报销%_/'], ['status', 'ready']]);
     expect(screen.queryByRole('heading', { name: '初始文档.txt' })).toBeNull();
     expect(screen.getByRole('heading', { name: '报销%_/旧资料.txt' })).toBeTruthy();
     expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('报销%_/');
-    await filenameDraft('未提交草稿');
+    await filenameDraft('采购');
+    await statusDraft('failed');
+    expect(documentRequests(requests)).toHaveLength(2);
     await click(screen.getByRole('button', { name: '刷新列表' }));
-    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.get('filename_query')).toBe('报销%_/');
-    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('未提交草稿');
+    expect([...new URL(documentRequests(requests).at(-1)!.url).searchParams])
+      .toEqual([['limit', '20'], ['offset', '0'], ['filename_query', '报销%_/'], ['status', 'ready']]);
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('采购');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('failed');
+    expect(screen.getByText(/已应用的文件名条件/).textContent).toContain('已应用的文档状态：可检索');
     expect(requests.every(request => request.method === 'GET')).toBe(true);
   });
 
-  it('匹配结果按20/20/5手动翻页，上一页与首页保留文件名条件', async () => {
+  it('报销与ready交集按20/20/5手动翻页，上一页与首页保留两条件', async () => {
     const requests = installApi(request => {
       if (pathOf(request) === DOCUMENTS_A) {
         const parameters = new URL(request.url).searchParams;
@@ -546,20 +558,29 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     });
     render(<App />);
     await openDocuments();
-    await findFilename('报销');
+    await findFilename('报销', 'ready');
     expect(screen.getByRole('heading', { name: '报销资料1.txt' })).toBeTruthy();
     await click(screen.getByRole('button', { name: '下一页' }));
     expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: '报销资料1.txt' })).toBeNull();
+    await filenameDraft('采购');
+    await statusDraft('failed');
+    expect(documentRequests(requests)).toHaveLength(3);
+    await click(screen.getByRole('button', { name: '刷新列表' }));
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString())
+      .toBe('limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80&status=ready');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('采购');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('failed');
     await click(screen.getByRole('button', { name: '下一页' }));
     expect(screen.getByRole('heading', { name: '报销资料45.txt' })).toBeTruthy();
-    expect(screen.getByText('当前页 · 5 份文档 · 5 份可检索 · 全部处理状态')).toBeTruthy();
+    expect(screen.getByText('当前页 · 5 份文档 · 5 份可检索 · 可检索')).toBeTruthy();
     expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
     await click(screen.getByRole('button', { name: '上一页' }));
     await click(screen.getByRole('button', { name: '回到首页' }));
     expect(documentRequests(requests).slice(1).map(request => new URL(request.url).searchParams.get('offset')))
-      .toEqual(['0', '20', '40', '20', '0']);
+      .toEqual(['0', '20', '20', '40', '20', '0']);
     expect(documentRequests(requests).slice(1).every(request => new URL(request.url).searchParams.get('filename_query') === '报销')).toBe(true);
+    expect(documentRequests(requests).slice(1).every(request => new URL(request.url).searchParams.get('status') === 'ready')).toBe(true);
   });
 
   it('普通列表也能翻页，整40条后的空尾页仍可回退且不冒充空库', async () => {
@@ -581,7 +602,7 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     expect(documentRequests(requests).every(request => !new URL(request.url).searchParams.has('filename_query'))).toBe(true);
   });
 
-  it('分页失败清旧行并保留目标页和条件，手动重试只重读该页', async () => {
+  it('分页失败清旧行并保留目标页和两条件，修改两草稿后重试仍只重读原条件该页', async () => {
     let pageTwoReads = 0;
     const waiting = deferred<Response>();
     const requests = installApi(request => {
@@ -594,22 +615,28 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     });
     render(<App />);
     await openDocuments();
-    await findFilename('报销');
+    await findFilename('报销', 'ready');
     await click(screen.getByRole('button', { name: '下一页' }));
     expect(screen.queryByRole('heading', { name: '报销资料1.txt' })).toBeNull();
     expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').disabled).toBe(true);
     await act(async () => { waiting.resolve(json({ detail: PRIVATE_RESPONSE }, 503)); await vi.advanceTimersByTimeAsync(0); });
     expect(screen.getByRole('alert')).toBeTruthy();
     expect(screen.getByText(/当前页：第 2 页/)).toBeTruthy();
     expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(true);
+    await filenameDraft('采购');
+    await statusDraft('failed');
     await click(screen.getByRole('button', { name: '重试加载' }));
     expect(screen.getByRole('heading', { name: '报销资料21.txt' })).toBeTruthy();
     expect(documentRequests(requests).slice(-2).map(request => new URL(request.url).searchParams.toString()))
-      .toEqual(['limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80', 'limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80']);
+      .toEqual(['limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80&status=ready',
+        'limit=20&offset=20&filename_query=%E6%8A%A5%E9%94%80&status=ready']);
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('采购');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('failed');
     expectNoPrivateOutput();
   });
 
-  it('新查询回首页，无匹配与空库区分，清除后省略参数并回首页', async () => {
+  it('新查询同时应用两条件回首页，无匹配不冒充空库，清除两条件后省略参数并回首页', async () => {
     const requests = installApi(request => {
       if (pathOf(request) === DOCUMENTS_A) {
         return json(new URL(request.url).searchParams.has('filename_query') ? [] : filenamePage(0));
@@ -618,17 +645,98 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     render(<App />);
     await openDocuments();
     await click(screen.getByRole('button', { name: '下一页' }));
-    await findFilename('不存在');
+    await findFilename('不存在', 'ready');
     expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.get('offset')).toBe('0');
-    expect(screen.getByRole('heading', { name: '未找到文件名匹配的文档' })).toBeTruthy();
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.get('status')).toBe('ready');
+    expect(screen.getByRole('heading', { name: '未找到符合查找条件的文档' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: EMPTY })).toBeNull();
     await click(screen.getByRole('button', { name: '清除查找' }));
     expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
     expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('all');
     expect(screen.getByRole('heading', { name: '报销资料1.txt' })).toBeTruthy();
   });
 
-  it('从查找结果进入处理页后返回，保留查询、页码和未提交草稿', async () => {
+  it.each([
+    ['uploaded', '已上传'], ['processing', '解析中'], ['parsed', '已解析'],
+    ['ready', '可检索'], ['failed', '解析失败'],
+  ] as const)('单独选择%s不请求，点击查找才应用该状态并保留对应结果', async (status, label) => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.has('status')) {
+        return json([documentRow(DOCUMENT_A2, '状态筛选结果.txt', status)]);
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await statusDraft(status);
+    expect(documentRequests(requests)).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
+    expect(screen.getByText(/已应用的文件名条件/).textContent).toContain('已应用的文档状态：全部状态');
+    await click(screen.getByRole('button', { name: '查找' }));
+    expect([...new URL(documentRequests(requests).at(-1)!.url).searchParams])
+      .toEqual([['limit', '20'], ['offset', '0'], ['status', status]]);
+    expect(documentRequests(requests)).toHaveLength(2);
+    expect(screen.getByRole('heading', { name: '状态筛选结果.txt' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '初始文档.txt' })).toBeNull();
+    expect(screen.getByText(/已应用的文件名条件/).textContent).toContain(`已应用的文档状态：${label}`);
+    expect(screen.getByText(`当前页 · 1 份文档 · ${status === 'ready' ? 1 : 0} 份可检索 · ${label}`)).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('单独状态无匹配不冒充空库，清除后仍可用省略状态的旧文件名查找', async () => {
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A) {
+        const query = new URL(request.url).searchParams;
+        if (query.has('status') || query.has('filename_query')) return json([]);
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await statusDraft('failed');
+    await click(screen.getByRole('button', { name: '查找' }));
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0&status=failed');
+    expect(screen.getByRole('heading', { name: '未找到符合查找条件的文档' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: EMPTY })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '未找到文件名匹配的文档' })).toBeNull();
+    await click(screen.getByRole('button', { name: '清除查找' }));
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('all');
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
+    expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
+    await findFilename('不存在');
+    expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString())
+      .toBe('limit=20&offset=0&filename_query=%E4%B8%8D%E5%AD%98%E5%9C%A8');
+    expect(screen.getByRole('heading', { name: '未找到文件名匹配的文档' })).toBeTruthy();
+  });
+
+  it('ready筛选响应混入其他状态时整页拒绝，保留条件供手动重试而不展示部分结果', async () => {
+    let reads = 0;
+    const requests = installApi(request => {
+      if (pathOf(request) === DOCUMENTS_A && new URL(request.url).searchParams.get('status') === 'ready') {
+        if (++reads === 1) return json([
+          documentRow(DOCUMENT_A, '同状态也不局部展示.txt'),
+          documentRow(DOCUMENT_A2, PRIVATE_RESPONSE, 'failed'),
+        ]);
+        return json([documentRow(DOCUMENT_A2, '重试后的可检索资料.txt')]);
+      }
+    });
+    render(<App />);
+    await openDocuments();
+    await statusDraft('ready');
+    await click(screen.getByRole('button', { name: '查找' }));
+    expect(screen.getByRole('alert')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: '同状态也不局部展示.txt' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '初始文档.txt' })).toBeNull();
+    expect(screen.queryByRole('heading', { name: '未找到符合查找条件的文档' })).toBeNull();
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('ready');
+    expectNoPrivateOutput();
+    await click(screen.getByRole('button', { name: '重试加载' }));
+    expect(screen.getByRole('heading', { name: '重试后的可检索资料.txt' })).toBeTruthy();
+    expect(documentRequests(requests).slice(-2).map(request => new URL(request.url).searchParams.toString()))
+      .toEqual(['limit=20&offset=0&status=ready', 'limit=20&offset=0&status=ready']);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('从查找结果进入处理页后返回，保留两项已提交条件、页码和两项未提交草稿', async () => {
     const target = documentRow(DOCUMENT_A2, '报销旧资料.txt');
     const requests = installApi(request => {
       if (pathOf(request) === `${DOCUMENTS_A}/${DOCUMENT_A2}`) return json(target);
@@ -639,15 +747,19 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     });
     render(<App />);
     await openDocuments();
-    await findFilename('报销');
+    await findFilename('报销', 'ready');
     await click(screen.getByRole('button', { name: '下一页' }));
-    await filenameDraft('尚未提交');
+    await filenameDraft('采购');
+    await statusDraft('failed');
     await click(screen.getByRole('button', { name: '查看报销旧资料.txt的处理详情' }));
     await click(screen.getByRole('button', { name: '返回文档列表' }));
     const query = new URL(documentRequests(requests).at(-1)!.url).searchParams;
     expect(query.get('filename_query')).toBe('报销');
+    expect(query.get('status')).toBe('ready');
     expect(query.get('offset')).toBe('20');
-    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('尚未提交');
+    expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('采购');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('failed');
+    expect(screen.getByText(/已应用的文件名条件/).textContent).toContain('已应用的文档状态：可检索');
     expect(screen.getByRole('heading', { name: '报销旧资料.txt' })).toBeTruthy();
   });
 
@@ -675,7 +787,7 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     });
     render(<App />);
     await openDocuments();
-    await findFilename('报销');
+    await findFilename('报销', 'ready');
     const old = documentRequests(requests).at(-1)!;
     await click(screen.getByRole('button', { name: '返回知识库' }));
     expect(old.signal.aborted).toBe(true);
@@ -687,6 +799,7 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     expect(screen.getByRole('heading', { name: '初始文档.txt' })).toBeTruthy();
     expect(screen.queryByRole('heading', { name: '迟到报销资料.txt' })).toBeNull();
     expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('all');
     expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
   });
 
@@ -698,7 +811,7 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
     });
     render(<App />);
     await openDocuments();
-    await findFilename('报销');
+    await findFilename('报销', 'ready');
     const old = documentRequests(requests).at(-1)!;
     if (reason === 'expiry') await advance(2000);
     else if (reason === 'logout') await click(screen.getByRole('button', { name: '退出登录' }));
@@ -709,12 +822,14 @@ describe('按文件名查找与文档翻页的业务闭环', () => {
       await act(async () => { waiting.resolve(json([documentRow(DOCUMENT_A2, '已退出的报销资料.txt')])); await vi.advanceTimersByTimeAsync(0); });
     }
     expect(screen.queryByLabelText('按文件名查找')).toBeNull();
+    expect(screen.queryByLabelText('文档状态')).toBeNull();
     expect(screen.queryByText('已退出的报销资料.txt')).toBeNull();
     await signIn();
     expect(screen.getByRole('heading', { name: '你的工作空间' })).toBeTruthy();
     await click(screen.getByRole('button', { name: '进入甲空间' }));
     await click(screen.getByRole('button', { name: '查看甲空间知识库的文档' }));
     expect((screen.getByLabelText('按文件名查找') as HTMLInputElement).value).toBe('');
+    expect(screen.getByLabelText<HTMLSelectElement>('文档状态').value).toBe('all');
     expect(new URL(documentRequests(requests).at(-1)!.url).searchParams.toString()).toBe('limit=20&offset=0');
   });
 });
