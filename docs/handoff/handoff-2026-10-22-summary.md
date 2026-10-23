@@ -1,5 +1,10 @@
 # 开发与学习交接：2026-10-22 收尾
 
+2026-10-23最新继续：[引用问答候选上限3/5](../frontend/frontend-answer-candidate-limit.md)已完成前端接通；
+默认3、显式5，提交快照同步页面/TXT，缺失/非法导出拒绝。专项186、完整前端1356及类型/构建通过，
+均为隔离模拟；无新真实模型、浏览器、数据库或push。前一零候选提示实践未答，本模块教学待进行。
+实际Git和[10-23进度](../progress/progress-2026-10-23.md)优先；下文`top_k3`为历史阶段。
+
 2026-10-23最新继续：[引用问答检索方式与TXT提交快照](../frontend/frontend-hybrid-answer.md)已完成并验证。
 起点`66b2a90`、main领先缓存origin/main十条；未刷新远端，未来push另授权。
 独立问答页显式vector/hybrid，默认vector、top_k3、rerankfalse；一次answers，无先search，独立于检索页选择。

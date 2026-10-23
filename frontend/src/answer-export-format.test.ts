@@ -1,7 +1,8 @@
 import { Blob as NodeBlob } from 'node:buffer';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ANSWER_EXPORT_FILENAME, ANSWER_EXPORT_STRATEGY_ERROR, buildAnswerText, downloadAnswerText } from './answer-export';
+import { ANSWER_EXPORT_FILENAME, ANSWER_EXPORT_STRATEGY_ERROR, ANSWER_EXPORT_TOP_K_ERROR,
+  buildAnswerText, downloadAnswerText } from './answer-export';
 import type { AnswerTextExportInput } from './answer-export';
 
 const DOCUMENT = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
@@ -22,7 +23,7 @@ const NativeURL = URL;
 function input(submittedStrategy: AnswerTextExportInput['submittedStrategy'] = 'vector'): AnswerTextExportInput {
   return {
     workspaceName: '企业空间😀', knowledgeBaseName: '操作手册库', question: '原先提交的问题😀？\n请保留完整条件。',
-    submittedStrategy,
+    submittedStrategy, submittedTopK: 3,
     result: { answer: ANSWER, abstained: false, citations: [
       { documentId: DOCUMENT, documentName: '规程😀.md', chunkId: CHUNK, chunkIndex: 7,
         quote: QUOTE, startChar: 200, endChar: 200 + Array.from(QUOTE).length },
@@ -74,11 +75,25 @@ describe('引用问答纯文本白名单格式', () => {
     }
     expect(text).toMatch(/文档\s*ID/); expect(text).toMatch(/块\s*ID/);
     expect(text).toContain(`本次提交的检索方式：${label}`);
+    expect(text).toContain('本次提交的候选上限：最多 3 段');
     expect(text).toContain('此检索方式仅记录本次提交参数，不等于服务端实际执行证明。');
     expect(Array.from(ANSWER).length).toBeGreaterThan(1000);
     expect(Array.from(QUOTE).length).toBeGreaterThan(300);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('五个候选上限被原样记录，缺失或非法上限不创建下载资源', () => {
+    const record = input();
+    record.submittedTopK = 5;
+    expect(buildAnswerText(record)).toContain('本次提交的候选上限：最多 5 段');
+    for (const value of [undefined, null, 0, 4, 6, '5', true]) {
+      const unsafe = { ...record, submittedTopK: value } as AnswerTextExportInput;
+      expect(() => buildAnswerText(unsafe)).toThrowError(new Error(ANSWER_EXPORT_TOP_K_ERROR));
+      expect(() => downloadAnswerText(unsafe)).toThrowError(new Error(ANSWER_EXPORT_TOP_K_ERROR));
+    }
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

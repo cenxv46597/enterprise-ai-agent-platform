@@ -123,9 +123,13 @@ async function click(element: HTMLElement) {
 
 function questionInput() { return screen.getByLabelText('问答问题') as HTMLTextAreaElement; }
 function strategyInput() { return screen.getByLabelText<HTMLSelectElement>('问答检索方式'); }
+function topKInput() { return screen.getByLabelText<HTMLSelectElement>('候选段落上限'); }
 
 async function chooseStrategy(strategy: 'vector' | 'hybrid') {
   await act(async () => { fireEvent.change(strategyInput(), { target: { value: strategy } }); });
+}
+async function chooseTopK(value: '3' | '5') {
+  await act(async () => { fireEvent.change(topKInput(), { target: { value } }); });
 }
 
 async function fillQuestion(value: string) {
@@ -190,6 +194,35 @@ afterEach(() => {
 });
 
 describe('知识库独立引用问答页', () => {
+  it('显式选五个候选只在提交时请求，结果保留旧上限且不把引用条数当候选数', async () => {
+    const requests = installApi();
+    render(<App />);
+    await openAnswers();
+    expect(topKInput().value).toBe('3');
+    expect(screen.getByText(/上下文预算可能跳过候选/)).toBeTruthy();
+    const before = requests.length;
+    await chooseTopK('5');
+    expect(requests).toHaveLength(before);
+    await submitQuestion();
+    expect(answerPosts(requests)).toHaveLength(1);
+    expect(await answerPosts(requests)[0].clone().json()).toEqual({
+      question: QUESTION, top_k: 5, strategy: 'vector', rerank: false,
+    });
+    const result = screen.getByRole('region', { name: '本次问答结果' });
+    expect(result.textContent).toContain('本次提交的候选上限：最多 5 段');
+    expect(result.textContent).toContain('引用来源 · 3 条');
+    await chooseTopK('3');
+    expect(result.textContent).toContain('本次提交的候选上限：最多 5 段');
+    expect(answerPosts(requests)).toHaveLength(1);
+    await submitQuestion('另一个问题');
+    expect(answerPosts(requests)).toHaveLength(2);
+    expect(await answerPosts(requests)[1].clone().json()).toEqual({
+      question: '另一个问题', top_k: 3, strategy: 'vector', rerank: false,
+    });
+    expect(screen.getByRole('region', { name: '本次问答结果' }).textContent)
+      .toContain('本次提交的候选上限：最多 3 段');
+  });
+
   it('第一页零份可检索仍可进入，进入与编辑不发送请求，空白或超长问题本地拒绝', async () => {
     const requests = installApi();
     render(<App />);
@@ -636,6 +669,7 @@ describe('知识库独立引用问答页', () => {
     const first = render(<App />);
     await openAnswers();
     await chooseStrategy('hybrid');
+    await chooseTopK('5');
     await submitQuestion();
     expect(screen.getByRole('region', { name: '本次问答结果' })).toBeTruthy();
     first.unmount();
@@ -650,6 +684,7 @@ describe('知识库独立引用问答页', () => {
     await click(screen.getByRole('button', { name: '引用问答' }));
     expect(questionInput().value).toBe('');
     expect(strategyInput().value).toBe('vector');
+    expect(topKInput().value).toBe('3');
     expect(screen.queryByRole('region', { name: '本次问答结果' })).toBeNull();
     expect(answerPosts(requests)).toHaveLength(1);
     expectNoPrivateOutput();

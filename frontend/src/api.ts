@@ -30,6 +30,8 @@ export type DocumentEmbedding = {
   reused: boolean;
 };
 export type SearchStrategy = "vector" | "hybrid";
+export type AnswerTopK = 3 | 5;
+export function isAnswerTopK(value: unknown): value is AnswerTopK { return value === 3 || value === 5; }
 export type SearchHit = {
   chunkId: string;
   documentId: string;
@@ -806,10 +808,12 @@ export async function answerKnowledgeBase(
   question: string,
   signal: AbortSignal,
   strategy: SearchStrategy = "vector",
+  topK: AnswerTopK = 3,
 ): Promise<KnowledgeAnswerResult> {
   const normalizedWorkspaceId = strictUuid(workspaceId);
   const normalizedKnowledgeBaseId = strictUuid(knowledgeBaseId);
   if (!isSearchStrategy(strategy)) throw new ApiError("检索方式无效，请选择向量检索或混合检索。");
+  if (!isAnswerTopK(topK)) throw new ApiError("问答候选数量无效，请选择 3 或 5 段。");
   const normalizedQuestion = question.trim();
   let questionLength = 0;
   for (const _character of normalizedQuestion) {
@@ -829,7 +833,7 @@ export async function answerKnowledgeBase(
       webRequestOptions({
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: normalizedQuestion, top_k: 3, strategy, rerank: false }),
+        body: JSON.stringify({ question: normalizedQuestion, top_k: topK, strategy, rerank: false }),
       }, controller.signal),
     );
     if (controller.signal.aborted) throw new AnswerUnconfirmedError();

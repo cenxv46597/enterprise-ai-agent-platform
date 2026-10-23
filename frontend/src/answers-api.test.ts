@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ANSWER_UNCONFIRMED_MESSAGE, AnswerUnconfirmedError, ApiError, answerKnowledgeBase,
-  type SearchStrategy,
+  type AnswerTopK, type SearchStrategy,
 } from './api';
 
 const PRIVATE = 'PRIVATE-ANSWER-RESPONSE-DETAIL';
@@ -105,6 +105,21 @@ describe('scoped knowledge-base cited answer API', () => {
       expect(failure.traceId).toBeNull();
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('sends a chosen five-candidate answer request and rejects unsupported counts before sending', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ answer: '证据不足。', abstained: true, citations: [] }));
+    await answerKnowledgeBase(WORKSPACE_ID, KNOWLEDGE_BASE_ID, '问题', new AbortController().signal, 'hybrid', 5);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toEqual({
+      question: '问题', top_k: 5, strategy: 'hybrid', rerank: false,
+    });
+    for (const count of [0, 1, 4, 6, '5', null, true, 3.5]) {
+      const failure = await rejection(answerKnowledgeBase(
+        WORKSPACE_ID, KNOWLEDGE_BASE_ID, '问题', new AbortController().signal, 'vector', count as AnswerTopK));
+      expect(failure.message).toBe('问答候选数量无效，请选择 3 或 5 段。');
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('counts questions by Unicode code points and accepts exactly 2000 with a normal abstention', async () => {

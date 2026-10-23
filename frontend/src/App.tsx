@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ApiError, listDocuments, isDocumentOffset, isDocumentStatusFilter, isSearchStrategy, normalizeDocumentFilenameQuery,
+import { ApiError, listDocuments, isAnswerTopK, isDocumentOffset, isDocumentStatusFilter, isSearchStrategy, normalizeDocumentFilenameQuery,
   listKnowledgeBases, listWorkspaces, login, logout, restoreSession,
   uploadDocument, UploadUnconfirmedError, UPLOAD_UNCONFIRMED_MESSAGE,
   getDocument, listDocumentChunks, createDocumentChunks, ChunkUnconfirmedError, CHUNK_UNCONFIRMED_MESSAGE,
   createDocumentEmbeddings, EmbeddingUnconfirmedError, EMBEDDING_UNCONFIRMED_MESSAGE,
   searchKnowledgeBase, SearchUnconfirmedError, SEARCH_UNCONFIRMED_MESSAGE,
   answerKnowledgeBase, AnswerUnconfirmedError, ANSWER_UNCONFIRMED_MESSAGE,
-  type DocumentChunk, type DocumentStatusFilter, type KnowledgeBase, type KnowledgeDocument, type SearchStrategy, type Session, type Workspace } from './api';
+  type AnswerTopK, type DocumentChunk, type DocumentStatusFilter, type KnowledgeBase, type KnowledgeDocument, type SearchStrategy, type Session, type Workspace } from './api';
 import DocumentList from './DocumentList';
 import DocumentUpload, { type UploadOutcome } from './DocumentUpload';
 import DocumentProcessing, { type ChunkOutcome } from './DocumentProcessing';
@@ -471,9 +471,9 @@ export default function App() {
     openAnswer();
   }
 
-  async function answer(question: string, strategy: SearchStrategy = 'vector') {
+  async function answer(question: string, strategy: SearchStrategy = 'vector', topK: AnswerTopK = 3) {
     if (!answerOpen || !selectedWorkspace || !selectedKnowledgeBase || pending.current || busy !== null
-      || !isSearchStrategy(strategy)) return;
+      || !isSearchStrategy(strategy) || !isAnswerTopK(topK)) return;
     const workspaceId = selectedWorkspace.id;
     const knowledgeBaseId = selectedKnowledgeBase.id;
     const submittedQuestion = question.trim();
@@ -482,9 +482,9 @@ export default function App() {
     setError('');
     setAnswerOutcome(null);
     try {
-      const result = await answerKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuestion, controller.signal, strategy);
+      const result = await answerKnowledgeBase(workspaceId, knowledgeBaseId, submittedQuestion, controller.signal, strategy, topK);
       if (isCurrent(id, controller)) setAnswerOutcome({ kind: 'confirmed', question: submittedQuestion,
-        submittedStrategy: strategy, result });
+        submittedStrategy: strategy, submittedTopK: topK, result });
     } catch (failure) {
       if (!isCurrent(id, controller)) return;
       if (failure instanceof ApiError && failure.status === 401) reset(failure.message);
@@ -517,7 +517,8 @@ export default function App() {
     const confirmed = answerOutcome;
     try {
       downloadAnswerText({ workspaceName: selectedWorkspace.name, knowledgeBaseName: selectedKnowledgeBase.name,
-        question: confirmed.question, submittedStrategy: confirmed.submittedStrategy, result: confirmed.result });
+        question: confirmed.question, submittedStrategy: confirmed.submittedStrategy,
+        submittedTopK: confirmed.submittedTopK, result: confirmed.result });
       setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'requested' } : outcome);
     } catch {
       setAnswerOutcome(outcome => outcome === confirmed ? { ...outcome, exportStatus: 'failed' } : outcome);
@@ -1317,7 +1318,7 @@ export default function App() {
           workspaceName={selectedWorkspace.name} knowledgeBaseName={selectedKnowledgeBase.name}
           activity={busy === 'answer' ? 'answering' : busy === 'answer-source' ? 'reading-source'
             : busy === 'logout' ? 'logout' : 'idle'}
-          outcome={answerOutcome} error={error} onAnswer={(question, strategy) => void answer(question, strategy)}
+          outcome={answerOutcome} error={error} onAnswer={(question, strategy, topK) => void answer(question, strategy, topK)}
           onCancel={stopWaitingForAnswer} onBack={backToDocuments}
           onReadSource={index => void readAnswerSource(index)} onCancelSource={stopWaitingForAnswerSource}
           onCloseSource={closeAnswerSource} onExport={exportAnswer}

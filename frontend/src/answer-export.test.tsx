@@ -47,8 +47,9 @@ function answerResult(abstained = false) {
     citations: abstained ? [] : [{ document_id: DOCUMENT, document_name: FILENAME, chunk_id: CHUNK,
       chunk_index: 1, quote: QUOTE, start_char: characters(PREFIX), end_char: characters(PREFIX + QUOTE) }] };
 }
-function expectedInput(question = QUESTION, abstained = false, submittedStrategy: 'vector' | 'hybrid' = 'vector') {
-  return { workspaceName: '甲空间', knowledgeBaseName: '甲知识库', question, submittedStrategy,
+function expectedInput(question = QUESTION, abstained = false, submittedStrategy: 'vector' | 'hybrid' = 'vector',
+  submittedTopK: 3 | 5 = 3) {
+  return { workspaceName: '甲空间', knowledgeBaseName: '甲知识库', question, submittedStrategy, submittedTopK,
     result: { answer: abstained ? ABSTENTION : ANSWER, abstained,
       citations: abstained ? [] : [{ documentId: DOCUMENT, documentName: FILENAME, chunkId: CHUNK,
         chunkIndex: 1, quote: QUOTE, startChar: characters(PREFIX), endChar: characters(PREFIX + QUOTE) }] } };
@@ -91,8 +92,12 @@ async function fillQuestion(question: string) {
   await act(async () => { fireEvent.change(screen.getByLabelText('问答问题'), { target: { value: question } }); });
 }
 function strategyInput() { return screen.getByLabelText<HTMLSelectElement>('问答检索方式'); }
+function topKInput() { return screen.getByLabelText<HTMLSelectElement>('候选段落上限'); }
 async function chooseStrategy(strategy: 'vector' | 'hybrid') {
   await act(async () => { fireEvent.change(strategyInput(), { target: { value: strategy } }); });
+}
+async function chooseTopK(value: '3' | '5') {
+  await act(async () => { fireEvent.change(topKInput(), { target: { value } }); });
 }
 async function submit(question = QUESTION) {
   await fillQuestion(question); await click(screen.getByRole('button', { name: '生成回答' }));
@@ -133,6 +138,24 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe('已确认引用问答的显式本地文本导出', () => {
+  it('五段候选上限随原提交导出，事后改回三段草稿不改写记录', async () => {
+    const requests = installApi();
+    await openAnswers();
+    await chooseTopK('5');
+    await chooseStrategy('hybrid');
+    await submit();
+    expect(await requests.find(request => pathOf(request) === ANSWERS)!.clone().json())
+      .toEqual({ question: QUESTION, top_k: 5, strategy: 'hybrid', rerank: false });
+    await chooseTopK('3');
+    expect(resultRegion().textContent).toContain('本次提交的候选上限：最多 5 段');
+    const before = requests.length;
+    await click(exportButton());
+    expect(exportModule.downloadAnswerText).toHaveBeenCalledExactlyOnceWith(expectedInput(QUESTION, false, 'hybrid', 5));
+    expect(exportModule.buildAnswerText(vi.mocked(exportModule.downloadAnswerText).mock.calls[0][0]))
+      .toContain('本次提交的候选上限：最多 5 段');
+    expect(requests).toHaveLength(before);
+  });
+
   it('只有点击才导出，编辑问题和向量草稿不改变混合提交快照或增加请求', async () => {
     const requests = installApi(); await prepare('hybrid');
     expectOriginalAnswer(); expect(exportModule.downloadAnswerText).not.toHaveBeenCalled();

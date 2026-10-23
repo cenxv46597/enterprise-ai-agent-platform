@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { isSearchStrategy, type DocumentChunk, type KnowledgeAnswerResult, type SearchStrategy } from './api';
+import { isAnswerTopK, isSearchStrategy, type AnswerTopK, type DocumentChunk, type KnowledgeAnswerResult, type SearchStrategy } from './api';
 
 export type AnswerSourceView = {
   index: number;
@@ -8,7 +8,8 @@ export type AnswerSourceView = {
 };
 
 export type AnswerOutcome =
-  | { kind: 'confirmed'; question: string; submittedStrategy: SearchStrategy; result: KnowledgeAnswerResult; source?: AnswerSourceView;
+  | { kind: 'confirmed'; question: string; submittedStrategy: SearchStrategy; submittedTopK: AnswerTopK;
+      result: KnowledgeAnswerResult; source?: AnswerSourceView;
       exportStatus?: 'requested' | 'failed' }
   | { kind: 'unconfirmed' | 'rejected'; message: string; traceId?: string | null };
 
@@ -18,7 +19,7 @@ type Props = {
   activity: 'idle' | 'answering' | 'reading-source' | 'logout';
   outcome: AnswerOutcome | null;
   error: string;
-  onAnswer: (question: string, strategy: SearchStrategy) => void;
+  onAnswer: (question: string, strategy: SearchStrategy, topK: AnswerTopK) => void;
   onCancel: () => void;
   onBack: () => void;
   onReadSource?: (index: number) => void;
@@ -31,6 +32,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
   outcome, error, onAnswer, onCancel, onBack, onReadSource, onCancelSource, onCloseSource, onExport }: Props) {
   const [question, setQuestion] = useState('');
   const [strategy, setStrategy] = useState<SearchStrategy>('vector');
+  const [topK, setTopK] = useState<AnswerTopK>(3);
   const [validationError, setValidationError] = useState('');
   const busy = activity !== 'idle';
 
@@ -48,7 +50,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
       return;
     }
     setValidationError('');
-    onAnswer(normalized, strategy);
+    onAnswer(normalized, strategy, topK);
   }
 
   return <section className="knowledge-answer" aria-labelledby="answer-title">
@@ -79,6 +81,17 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
           <p className="session-note" id="answer-strategy-help">向量检索侧重语义接近；混合检索同时参考词项匹配的名次。
             问答页与检索页分别选择方式；切换方式不发送请求，点击“生成回答”才按所选方式检索并生成。
             混合方式不保证回答更准确。</p>
+          <label htmlFor="answer-top-k">候选段落上限</label>
+          <select id="answer-top-k" value={topK} disabled={busy} aria-describedby="answer-top-k-help"
+            onChange={event => {
+              const selected = Number(event.currentTarget.value);
+              if (!busy && isAnswerTopK(selected)) setTopK(selected);
+            }}>
+            <option value={3}>最多 3 段（默认）</option>
+            <option value={5}>最多 5 段</option>
+          </select>
+          <p className="session-note" id="answer-top-k-help">这是本次检索的候选上限；上下文预算可能跳过候选，
+            回答也不一定引用每段。选 5 可能增加处理时间和费用，不保证证据充分；修改选择本身不发送请求。</p>
           {strategy === 'hybrid' && <p className="session-note">当前混合检索支持最多 2000 个可检索文本块、100 万正文字符。
             超限时拒绝，不截取部分知识库，也不自动换方式重试。</p>}
           <p className="session-note" id="answer-help">填写问题后，点击“生成回答”才会提交。
@@ -102,6 +115,7 @@ export default function KnowledgeAnswer({ workspaceName, knowledgeBaseName, acti
           <p className="submitted-query">本次提交的问题：<strong>{outcome.question}</strong></p>
           <p className="submitted-query">本次提交的检索方式：<strong>{outcome.submittedStrategy === 'hybrid'
             ? '混合检索（向量＋词项）' : '向量检索'}</strong> · 未请求重排。</p>
+          <p className="submitted-query">本次提交的候选上限：最多 {outcome.submittedTopK} 段。</p>
           <div className="answer-export">
             <button className="button secondary" type="button" disabled={busy || !!error || !onExport}
               onClick={onExport}>导出回答与引文</button>

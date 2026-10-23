@@ -1,18 +1,21 @@
-import { isSearchStrategy, type KnowledgeAnswerResult, type SearchStrategy } from './api';
+import { isAnswerTopK, isSearchStrategy, type AnswerTopK, type KnowledgeAnswerResult, type SearchStrategy } from './api';
 
 export type AnswerTextExportInput = {
   workspaceName: string;
   knowledgeBaseName: string;
   question: string;
   submittedStrategy: SearchStrategy;
+  submittedTopK: AnswerTopK;
   result: KnowledgeAnswerResult;
 };
 
 export const ANSWER_EXPORT_FILENAME = 'knowledge-answer.txt';
 export const ANSWER_EXPORT_STRATEGY_ERROR = '无法确认本次提交的检索方式，不能导出问答记录。';
+export const ANSWER_EXPORT_TOP_K_ERROR = '无法确认本次提交的候选上限，不能导出问答记录。';
 
-export function buildAnswerText({ workspaceName, knowledgeBaseName, question, submittedStrategy, result }: AnswerTextExportInput): string {
+export function buildAnswerText({ workspaceName, knowledgeBaseName, question, submittedStrategy, submittedTopK, result }: AnswerTextExportInput): string {
   if (!isSearchStrategy(submittedStrategy)) throw new Error(ANSWER_EXPORT_STRATEGY_ERROR);
+  if (!isAnswerTopK(submittedTopK)) throw new Error(ANSWER_EXPORT_TOP_K_ERROR);
   const lines = [
     '企业知识库问答记录',
     '',
@@ -23,6 +26,7 @@ export function buildAnswerText({ workspaceName, knowledgeBaseName, question, su
     question,
     '',
     `本次提交的检索方式：${submittedStrategy === 'hybrid' ? '混合检索（向量＋词项）' : '向量检索'}`,
+    `本次提交的候选上限：最多 ${submittedTopK} 段`,
     '',
     `结果：${result.abstained ? '证据不足，本次弃答' : '已生成回答'}`,
     '回答：',
